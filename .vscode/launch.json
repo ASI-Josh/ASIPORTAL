@@ -1,0 +1,20 @@
+﻿{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Attach to Next.js (Node)",
+      "type": "node",
+      "request": "attach",
+      "port": 9229,
+      "restart": true,
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "name": "Launch Chrome against localhost",
+      "type": "chrome",
+      "request": "launch",
+      "url": "http://localhost:9002",
+      "webRoot": "${workspaceFolder}"
+    }
+  ]
+}
