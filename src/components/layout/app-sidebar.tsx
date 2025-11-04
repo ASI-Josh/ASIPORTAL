@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard,
   KanbanSquare,
@@ -13,7 +13,7 @@ import {
   LogOut,
   User as UserIcon,
 } from "lucide-react";
-import { mockUser } from "@/lib/data";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   Sidebar,
   SidebarContent,
@@ -47,12 +47,19 @@ const menuItems = [
 
 export function AppSidebar() {
   const pathname = usePathname();
+  const router = useRouter();
+  const { user, signOut } = useAuth();
 
   const isActive = (href: string) => {
     if (href === "/dashboard") {
       return pathname === href;
     }
     return pathname.startsWith(href);
+  };
+
+  const handleSignOut = async () => {
+    await signOut();
+    router.push("/login");
   };
 
   return (
@@ -95,17 +102,17 @@ export function AppSidebar() {
                     "group-data-[collapsible=icon]:size-10 group-data-[collapsible=icon]:p-2 group-data-[collapsible=icon]:justify-center"
                 )}>
                     <Avatar className="h-8 w-8">
-                        <AvatarImage src={mockUser.avatarUrl} alt={mockUser.name} />
-                        <AvatarFallback>{mockUser.name.charAt(0)}</AvatarFallback>
+                        <AvatarImage src={user?.avatarUrl} alt={user?.name} />
+                        <AvatarFallback>{user?.name?.charAt(0) || 'U'}</AvatarFallback>
                     </Avatar>
                     <div className="flex flex-col truncate group-data-[collapsible=icon]:hidden">
-                        <span className="font-semibold">{mockUser.name}</span>
-                        <span className="text-xs text-sidebar-foreground/70">{mockUser.email}</span>
+                        <span className="font-semibold">{user?.name}</span>
+                        <span className="text-xs text-sidebar-foreground/70">{user?.email}</span>
                     </div>
                 </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent side="right" align="start" className="w-56">
-                <DropdownMenuLabel>{mockUser.name}</DropdownMenuLabel>
+                <DropdownMenuLabel>{user?.name}</DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem>
                     <UserIcon className="mr-2 h-4 w-4" />
@@ -118,11 +125,9 @@ export function AppSidebar() {
                     </Link>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem asChild>
-                    <Link href="/">
-                        <LogOut className="mr-2 h-4 w-4" />
-                        <span>Log out</span>
-                    </Link>
+                <DropdownMenuItem onClick={handleSignOut}>
+                    <LogOut className="mr-2 h-4 w-4" />
+                    <span>Log out</span>
                 </DropdownMenuItem>
             </DropdownMenuContent>
         </DropdownMenu>

@@ -30,7 +30,6 @@ export function LeadCard({ lead }: LeadCardProps) {
                 <span>{lead.contactPerson}</span>
             </div>
             <Avatar className="h-8 w-8">
-                <AvatarImage src={lead.avatarUrl} alt={lead.contactPerson} data-ai-hint="person portrait" />
                 <AvatarFallback>{lead.contactPerson.charAt(0)}</AvatarFallback>
             </Avatar>
         </div>

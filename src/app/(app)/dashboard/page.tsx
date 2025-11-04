@@ -1,14 +1,18 @@
+"use client";
+
 import { OverviewCards } from "@/components/dashboard/overview-cards";
 import { RecentJobs } from "@/components/dashboard/recent-jobs";
 import { RevenueChart } from "@/components/dashboard/revenue-chart";
-import { mockUser } from "@/lib/data";
+import { useAuth } from "@/contexts/AuthContext";
 
 export default function DashboardPage() {
+  const { user } = useAuth();
+
   return (
     <div className="space-y-8">
       <div>
         <h2 className="text-3xl font-headline font-bold tracking-tight">
-          Welcome back, {mockUser.name}!
+          Welcome back, {user?.name || 'User'}!
         </h2>
         <p className="text-muted-foreground">
           Here&apos;s a summary of your business activities.

@@ -1,12 +1,7 @@
-import type { User, Lead, PipelineStage, Job } from './types';
-import { PlaceHolderImages } from './placeholder-images';
+import type { Lead, PipelineStage } from './types';
+import { Timestamp } from 'firebase/firestore';
 
-export const mockUser: User = {
-  name: 'Joshua',
-  email: 'joshua@asi-australia.com.au',
-  avatarUrl: PlaceHolderImages.find(p => p.id === 'avatar1')?.imageUrl || '',
-  role: 'Admin',
-};
+// Mock user is now handled by AuthContext
 
 export const PIPELINE_STAGES: { id: PipelineStage; title: string }[] = [
   { id: 'leads', title: 'New Leads' },
@@ -28,7 +23,8 @@ export const mockLeads: Lead[] = [
     probability: 0.8,
     serviceType: 'Film Installation',
     assignedTo: 'Joshua',
-    avatarUrl: PlaceHolderImages.find(p => p.id === 'avatar2')?.imageUrl || '',
+    createdAt: Timestamp.now(),
+    updatedAt: Timestamp.now(),
   },
   {
     id: 'lead-2',
@@ -40,7 +36,8 @@ export const mockLeads: Lead[] = [
     probability: 0.2,
     serviceType: 'Repair',
     assignedTo: 'Jaydan',
-    avatarUrl: PlaceHolderImages.find(p => p.id === 'avatar3')?.imageUrl || '',
+    createdAt: Timestamp.now(),
+    updatedAt: Timestamp.now(),
   },
   {
     id: 'lead-3',
@@ -52,7 +49,8 @@ export const mockLeads: Lead[] = [
     probability: 0.6,
     serviceType: 'Inspection',
     assignedTo: 'Bobby',
-    avatarUrl: PlaceHolderImages.find(p => p.id === 'avatar4')?.imageUrl || '',
+    createdAt: Timestamp.now(),
+    updatedAt: Timestamp.now(),
   },
   {
     id: 'lead-4',
@@ -64,7 +62,8 @@ export const mockLeads: Lead[] = [
     probability: 0.75,
     serviceType: 'Film Installation',
     assignedTo: 'Joshua',
-    avatarUrl: PlaceHolderImages.find(p => p.id === 'avatar5')?.imageUrl || '',
+    createdAt: Timestamp.now(),
+    updatedAt: Timestamp.now(),
   },
    {
     id: 'lead-5',
@@ -76,7 +75,8 @@ export const mockLeads: Lead[] = [
     probability: 0.1,
     serviceType: 'PDI Service',
     assignedTo: 'Jaydan',
-    avatarUrl: PlaceHolderImages.find(p => p.id === 'avatar1')?.imageUrl || '',
+    createdAt: Timestamp.now(),
+    updatedAt: Timestamp.now(),
   },
   {
     id: 'lead-6',
@@ -88,17 +88,19 @@ export const mockLeads: Lead[] = [
     probability: 1.0,
     serviceType: 'Full Fleet Service',
     assignedTo: 'Bobby',
-    avatarUrl: PlaceHolderImages.find(p => p.id === 'avatar2')?.imageUrl || '',
+    createdAt: Timestamp.now(),
+    updatedAt: Timestamp.now(),
   }
 ];
 
 
-export const mockJobs: Job[] = [
-    { id: 'JOB-001', title: 'Windshield Repair', client: 'John Doe', status: 'Completed', assigned: 'Tech 1' },
-    { id: 'JOB-002', title: 'Film Installation', client: 'Jane Smith', status: 'In Progress', assigned: 'Tech 2' },
-    { id: 'JOB-003', title: 'Damage Inspection', client: 'Peter Jones', status: 'Pending', assigned: 'Tech 1' },
-    { id: 'JOB-004', title: 'PDI Service', client: 'Mary Johnson', status: 'Completed', assigned: 'Tech 3' },
-    { id: 'JOB-005', title: 'Scratch Removal', client: 'David Williams', status: 'In Progress', assigned: 'Tech 2' },
+// Mock jobs structure (for display only - will be replaced with real data)
+export const mockJobsDisplay = [
+    { id: 'JOB-001', title: 'Windshield Repair', client: 'John Doe', status: 'completed' as const, assigned: 'Tech 1' },
+    { id: 'JOB-002', title: 'Film Installation', client: 'Jane Smith', status: 'in_progress' as const, assigned: 'Tech 2' },
+    { id: 'JOB-003', title: 'Damage Inspection', client: 'Peter Jones', status: 'pending' as const, assigned: 'Tech 1' },
+    { id: 'JOB-004', title: 'PDI Service', client: 'Mary Johnson', status: 'completed' as const, assigned: 'Tech 3' },
+    { id: 'JOB-005', title: 'Scratch Removal', client: 'David Williams', status: 'in_progress' as const, assigned: 'Tech 2' },
 ]
 
 export const revenueData = [

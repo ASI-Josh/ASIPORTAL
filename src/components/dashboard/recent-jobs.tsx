@@ -1,14 +1,19 @@
-import { mockJobs } from "@/lib/data";
+import { mockJobsDisplay } from "@/lib/data";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
 const statusColors: { [key: string]: string } = {
-    'Completed': 'bg-green-500/20 text-green-400 border-green-500/30',
-    'In Progress': 'bg-blue-500/20 text-blue-400 border-blue-500/30',
-    'Pending': 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
+    'completed': 'bg-green-500/20 text-green-400 border-green-500/30',
+    'in_progress': 'bg-blue-500/20 text-blue-400 border-blue-500/30',
+    'pending': 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
 };
 
+const statusLabels: { [key: string]: string } = {
+    'completed': 'Completed',
+    'in_progress': 'In Progress',
+    'pending': 'Pending',
+};
 
 export function RecentJobs() {
     return (
@@ -19,7 +24,7 @@ export function RecentJobs() {
             </CardHeader>
             <CardContent>
                 <div className="space-y-4">
-                    {mockJobs.map(job => (
+                    {mockJobsDisplay.map(job => (
                         <div key={job.id} className="flex items-center space-x-4">
                             <div className="flex-1">
                                 <p className="text-sm font-medium leading-none">{job.title}</p>
@@ -27,7 +32,7 @@ export function RecentJobs() {
                             </div>
                             <div className="text-sm text-muted-foreground">{job.assigned}</div>
                             <Badge variant="outline" className={cn("text-xs", statusColors[job.status])}>
-                                {job.status}
+                                {statusLabels[job.status]}
                             </Badge>
                         </div>
                     ))}
