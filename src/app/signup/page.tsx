@@ -6,10 +6,9 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { AppLogo } from "@/components/app-logo";
 import Link from "next/link";
+import Image from "next/image";
 
 export default function SignupPage() {
   const [name, setName] = useState("");
@@ -52,9 +51,20 @@ export default function SignupPage() {
       });
       router.push("/dashboard");
     } catch (error: any) {
+      console.error("Signup error:", error);
+      let message = "Could not create account";
+      if (error.code === "auth/email-already-in-use") {
+        message = "This email is already registered";
+      } else if (error.code === "auth/invalid-email") {
+        message = "Invalid email address";
+      } else if (error.code === "auth/weak-password") {
+        message = "Password is too weak";
+      } else if (error.message) {
+        message = error.message;
+      }
       toast({
         title: "Signup failed",
-        description: error.message || "Could not create account",
+        description: message,
         variant: "destructive",
       });
     } finally {
@@ -63,21 +73,54 @@ export default function SignupPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-600 via-purple-600 to-pink-600 p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="space-y-4">
-          <div className="flex justify-center">
-            <AppLogo />
+    <main className="flex min-h-screen flex-col items-center justify-center p-4 md:p-8 bg-background relative overflow-hidden">
+      {/* Animated background elements */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute top-1/4 -left-32 w-96 h-96 bg-primary/20 rounded-full blur-3xl animate-pulse" />
+        <div className="absolute bottom-1/4 -right-32 w-96 h-96 bg-accent/20 rounded-full blur-3xl animate-pulse delay-1000" />
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-gradient-to-br from-primary/10 to-accent/10 rounded-full blur-3xl" />
+        
+        {/* Grid overlay for futuristic feel */}
+        <div 
+          className="absolute inset-0 opacity-5"
+          style={{
+            backgroundImage: `linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px),
+                             linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px)`,
+            backgroundSize: '50px 50px'
+          }}
+        />
+      </div>
+
+      <div className="z-10 flex flex-col items-center w-full max-w-md space-y-8">
+        {/* Logo */}
+        <div className="flex flex-col items-center space-y-4">
+          <Image
+            src="/logos/ASI BRANDING - OFFICIAL MAIN.png"
+            alt="ASI Logo"
+            width={4000}
+            height={1600}
+            className="h-[400px] w-auto"
+            priority
+          />
+          <p className="text-muted-foreground text-center text-sm">
+            Glass & Surface Life-Extension Business Management
+          </p>
+        </div>
+
+        {/* Frosted glass signup card */}
+        <div className="w-full backdrop-blur-xl bg-card/30 border border-white/10 rounded-2xl p-8 shadow-2xl shadow-black/20">
+          <div className="text-center mb-6">
+            <h1 className="text-2xl font-bold text-foreground">Create Account</h1>
+            <p className="text-muted-foreground text-sm mt-1">
+              Sign up to get started with ASI Portal
+            </p>
           </div>
-          <div className="text-center">
-            <CardTitle className="text-2xl">Create an account</CardTitle>
-            <CardDescription>Sign up to get started with ASI Portal</CardDescription>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
+
+          <form onSubmit={handleSubmit} className="space-y-5">
             <div className="space-y-2">
-              <Label htmlFor="name">Full Name</Label>
+              <Label htmlFor="name" className="text-foreground/80">
+                Full Name
+              </Label>
               <Input
                 id="name"
                 type="text"
@@ -86,10 +129,14 @@ export default function SignupPage() {
                 onChange={(e) => setName(e.target.value)}
                 required
                 disabled={loading}
+                className="bg-background/50 border-white/10 focus:border-primary/50 transition-colors"
               />
             </div>
+
             <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="email" className="text-foreground/80">
+                Email
+              </Label>
               <Input
                 id="email"
                 type="email"
@@ -98,10 +145,14 @@ export default function SignupPage() {
                 onChange={(e) => setEmail(e.target.value)}
                 required
                 disabled={loading}
+                className="bg-background/50 border-white/10 focus:border-primary/50 transition-colors"
               />
             </div>
+
             <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
+              <Label htmlFor="password" className="text-foreground/80">
+                Password
+              </Label>
               <Input
                 id="password"
                 type="password"
@@ -110,10 +161,14 @@ export default function SignupPage() {
                 required
                 disabled={loading}
                 minLength={6}
+                className="bg-background/50 border-white/10 focus:border-primary/50 transition-colors"
               />
             </div>
+
             <div className="space-y-2">
-              <Label htmlFor="confirmPassword">Confirm Password</Label>
+              <Label htmlFor="confirmPassword" className="text-foreground/80">
+                Confirm Password
+              </Label>
               <Input
                 id="confirmPassword"
                 type="password"
@@ -122,20 +177,44 @@ export default function SignupPage() {
                 required
                 disabled={loading}
                 minLength={6}
+                className="bg-background/50 border-white/10 focus:border-primary/50 transition-colors"
               />
             </div>
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? "Creating account..." : "Sign up"}
+
+            <Button
+              type="submit"
+              className="w-full bg-gradient-to-r from-primary to-accent hover:opacity-90 transition-opacity font-semibold"
+              disabled={loading}
+            >
+              {loading ? (
+                <span className="flex items-center gap-2">
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  Creating account...
+                </span>
+              ) : (
+                "Sign Up"
+              )}
             </Button>
           </form>
-          <div className="mt-4 text-center text-sm">
-            Already have an account?{" "}
-            <Link href="/login" className="text-primary hover:underline">
-              Sign in
-            </Link>
+
+          <div className="mt-6 text-center">
+            <p className="text-sm text-muted-foreground">
+              Already have an account?{" "}
+              <Link
+                href="/"
+                className="text-primary hover:text-primary/80 transition-colors font-medium"
+              >
+                Sign in
+              </Link>
+            </p>
           </div>
-        </CardContent>
-      </Card>
-    </div>
+        </div>
+
+        {/* Footer */}
+        <p className="text-xs text-muted-foreground/60 text-center">
+          © {new Date().getFullYear()} ASI Australia. All rights reserved.
+        </p>
+      </div>
+    </main>
   );
 }

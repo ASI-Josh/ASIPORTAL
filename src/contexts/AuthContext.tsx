@@ -35,12 +35,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
-        const userDoc = await getDoc(doc(db, COLLECTIONS.USERS, firebaseUser.uid));
-        
-        if (userDoc.exists()) {
-          setUser(userDoc.data() as User);
-        } else {
-          setUser(null);
+        try {
+          const userDoc = await getDoc(doc(db, COLLECTIONS.USERS, firebaseUser.uid));
+          
+          if (userDoc.exists()) {
+            setUser(userDoc.data() as User);
+          } else {
+            const basicUser: User = {
+              uid: firebaseUser.uid,
+              email: firebaseUser.email!,
+              name: firebaseUser.displayName || "User",
+              role: "customer" as UserRole,
+              createdAt: Timestamp.now(),
+              updatedAt: Timestamp.now(),
+            };
+            setUser(basicUser);
+          }
+        } catch (error) {
+          console.warn("Failed to fetch user doc, using basic user info:", error);
+          const basicUser: User = {
+            uid: firebaseUser.uid,
+            email: firebaseUser.email!,
+            name: firebaseUser.displayName || "User",
+            role: "customer" as UserRole,
+            createdAt: Timestamp.now(),
+            updatedAt: Timestamp.now(),
+          };
+          setUser(basicUser);
         }
         setFirebaseUser(firebaseUser);
       } else {

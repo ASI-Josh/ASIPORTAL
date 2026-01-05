@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard,
@@ -12,6 +13,8 @@ import {
   Settings,
   LogOut,
   User as UserIcon,
+  PanelLeftClose,
+  PanelLeft,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import {
@@ -22,7 +25,9 @@ import {
   SidebarMenuItem,
   SidebarMenuButton,
   SidebarFooter,
+  useSidebar,
 } from "@/components/ui/sidebar";
+import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -32,7 +37,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { AppLogo } from "@/components/app-logo";
 import { cn } from "@/lib/utils";
 
 const menuItems = [
@@ -41,7 +45,7 @@ const menuItems = [
   { href: "/dashboard/bookings", label: "Bookings", icon: Briefcase },
   { href: "/dashboard/inspections", label: "Inspections", icon: ClipboardCheck },
   { href: "/dashboard/calendar", label: "Calendar", icon: Calendar },
-  { href: "/dashboard/films", label: "Film Mgmt", icon: FileText },
+  { href: "/dashboard/films", label: "Film Management Hub", icon: FileText },
   { href: "/dashboard/reports", label: "Reports", icon: FileText },
 ];
 
@@ -49,6 +53,7 @@ export function AppSidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const { user, signOut } = useAuth();
+  const { state, toggleSidebar, isMobile } = useSidebar();
 
   const isActive = (href: string) => {
     if (href === "/dashboard") {
@@ -59,13 +64,52 @@ export function AppSidebar() {
 
   const handleSignOut = async () => {
     await signOut();
-    router.push("/login");
+    router.push("/");
   };
 
   return (
-    <Sidebar>
-      <SidebarHeader>
-        <AppLogo />
+    <Sidebar collapsible="icon">
+      <SidebarHeader className="p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <Link href="/dashboard" className="flex flex-col items-center gap-2 group-data-[collapsible=icon]:hidden">
+            <Image
+              src="/logos/ASI BRANDING - OFFICIAL MAIN.png"
+              alt="ASI Logo"
+              width={200}
+              height={80}
+              className="h-12 w-auto"
+              priority
+            />
+            <span className="text-lg font-bold bg-gradient-to-r from-accent to-primary bg-clip-text text-transparent">
+              ASI PORTAL
+            </span>
+          </Link>
+          {!isMobile && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={toggleSidebar}
+              className="h-8 w-8 text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent"
+            >
+              {state === "expanded" ? (
+                <PanelLeftClose className="h-4 w-4" />
+              ) : (
+                <PanelLeft className="h-4 w-4" />
+              )}
+            </Button>
+          )}
+        </div>
+        {/* Collapsed state - just show icon */}
+        <Link href="/dashboard" className="hidden group-data-[collapsible=icon]:flex justify-center">
+          <Image
+            src="/logos/ASI BRANDING - OFFICIAL MAIN.png"
+            alt="ASI Logo"
+            width={40}
+            height={40}
+            className="h-8 w-auto"
+            priority
+          />
+        </Link>
       </SidebarHeader>
       <SidebarContent>
         <SidebarMenu>
