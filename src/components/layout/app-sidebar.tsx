@@ -15,6 +15,9 @@ import {
   User as UserIcon,
   PanelLeftClose,
   PanelLeft,
+  Building2,
+  ClipboardList,
+  GitBranch,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import {
@@ -43,9 +46,12 @@ const menuItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/dashboard/crm", label: "CRM", icon: KanbanSquare },
   { href: "/dashboard/bookings", label: "Bookings", icon: Briefcase },
+  { href: "/dashboard/job-lifecycle", label: "Job Lifecycle", icon: GitBranch },
   { href: "/dashboard/inspections", label: "Inspections", icon: ClipboardCheck },
   { href: "/dashboard/calendar", label: "Calendar", icon: Calendar },
-  { href: "/dashboard/films", label: "Film Management Hub", icon: FileText },
+  { href: "/dashboard/contacts", label: "Contacts", icon: Building2 },
+  { href: "/dashboard/films", label: "Film Management", icon: FileText },
+  { href: "/dashboard/works-register", label: "Works Register", icon: ClipboardList },
   { href: "/dashboard/reports", label: "Reports", icon: FileText },
 ];
 

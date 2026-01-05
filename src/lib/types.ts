@@ -24,6 +24,33 @@ export interface User {
 
 export type JobStatus = "pending" | "scheduled" | "in_progress" | "completed" | "cancelled";
 
+export type JobLifecycleStage = "rfq" | "job_scheduled" | "job_live" | "job_completed" | "management_closeoff";
+
+export type BookingType = 
+  | "windscreen_crack_chip_repair"
+  | "scratch_graffiti_removal"
+  | "film_installation"
+  | "trim_restoration_interior"
+  | "trim_restoration_exterior"
+  | "polymer_lens_restoration";
+
+export const BOOKING_TYPE_LABELS: Record<BookingType, string> = {
+  windscreen_crack_chip_repair: "Windscreen Crack/Chip Repair",
+  scratch_graffiti_removal: "Scratch/Graffiti Removal",
+  film_installation: "Film Installation",
+  trim_restoration_interior: "Trim Restoration (Interior)",
+  trim_restoration_exterior: "Trim Restoration (Exterior)",
+  polymer_lens_restoration: "Polymer Lens Restoration",
+};
+
+export const JOB_LIFECYCLE_LABELS: Record<JobLifecycleStage, string> = {
+  rfq: "RFQ",
+  job_scheduled: "Job Scheduled",
+  job_live: "Job Live",
+  job_completed: "Job Completed",
+  management_closeoff: "Management Close Off",
+};
+
 export interface Vehicle {
   registration: string;
   make: string;
@@ -80,6 +107,36 @@ export interface BookingInfo {
   preferredTime?: string;
   urgency?: "low" | "medium" | "high";
   specialInstructions?: string;
+}
+
+export interface Booking {
+  id: string;
+  bookingNumber: string;
+  bookingType: BookingType;
+  organizationId: string;
+  organizationName: string;
+  contactId: string;
+  contactName: string;
+  contactEmail: string;
+  contactPhone?: string;
+  siteLocation: {
+    id?: string;
+    name: string;
+    address: Address;
+  };
+  scheduledDate: Timestamp;
+  scheduledTime: string;
+  allocatedStaff: {
+    id: string;
+    name: string;
+    type: "asi_staff" | "subcontractor";
+  }[];
+  notes?: string;
+  status: "pending" | "confirmed" | "converted_to_job" | "cancelled";
+  convertedJobId?: string;
+  createdAt: Timestamp;
+  createdBy: string;
+  updatedAt: Timestamp;
 }
 
 export interface Job {
@@ -204,6 +261,15 @@ export interface Lead {
 // CONTACT ORGANIZATIONS
 // ============================================
 
+export type ContactCategory = "trade_client" | "retail_client" | "supplier_vendor" | "asi_staff";
+
+export const CONTACT_CATEGORY_LABELS: Record<ContactCategory, string> = {
+  trade_client: "Trade Client",
+  retail_client: "Retail Client",
+  supplier_vendor: "Supplier/Vendor",
+  asi_staff: "ASI Staff",
+};
+
 export type OrganizationType = "customer" | "supplier" | "partner";
 export type OrganizationStatus = "active" | "inactive" | "prospect";
 export type MarketStream = "commercial" | "government" | "retail" | "industrial";
@@ -216,15 +282,27 @@ export interface Address {
   country: string;
 }
 
+export interface SiteLocation {
+  id: string;
+  name: string;
+  address: Address;
+  isDefault: boolean;
+  contactName?: string;
+  contactPhone?: string;
+  notes?: string;
+}
+
 export interface ContactOrganization {
   id: string;
   name: string;
+  category: ContactCategory;
   type: OrganizationType;
   status: OrganizationStatus;
   abn?: string;
   marketStream?: MarketStream;
   industry?: string;
   address?: Address;
+  sites: SiteLocation[];
   phone?: string;
   email?: string;
   website?: string;
@@ -246,6 +324,9 @@ export interface OrganizationContact {
   role: ContactRole;
   jobTitle?: string;
   status: ContactStatus;
+  isPrimary: boolean;
+  hasPortalAccess: boolean;
+  portalUserId?: string;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
