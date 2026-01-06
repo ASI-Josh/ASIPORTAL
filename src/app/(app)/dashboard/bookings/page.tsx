@@ -72,208 +72,24 @@ import {
   Booking,
 } from "@/lib/types";
 
-// Mock Organizations Data
-const mockOrganizations: ContactOrganization[] = [
-  {
-    id: "org-1",
-    name: "Metro Fleet Services",
-    category: "trade_client",
-    type: "customer",
-    status: "active",
-    abn: "12 345 678 901",
-    marketStream: "commercial",
-    phone: "02 9876 5432",
-    email: "bookings@metrofleet.com.au",
-    sites: [
-      {
-        id: "site-1",
-        name: "Head Office",
-        address: { street: "123 Industrial Ave", suburb: "Alexandria", state: "NSW", postcode: "2015", country: "Australia" },
-        isDefault: true,
-        contactName: "John Smith",
-        contactPhone: "0412 345 678",
-      },
-      {
-        id: "site-2",
-        name: "Western Depot",
-        address: { street: "45 Warehouse Rd", suburb: "Wetherill Park", state: "NSW", postcode: "2164", country: "Australia" },
-        isDefault: false,
-      },
-    ],
-    createdAt: Timestamp.now(),
-    updatedAt: Timestamp.now(),
-  },
-  {
-    id: "org-2",
-    name: "Sydney CBD Motors",
-    category: "retail_client",
-    type: "customer",
-    status: "active",
-    abn: "98 765 432 109",
-    marketStream: "retail",
-    phone: "02 8765 4321",
-    email: "service@cbdmotors.com.au",
-    sites: [
-      {
-        id: "site-3",
-        name: "Showroom",
-        address: { street: "500 George St", suburb: "Sydney", state: "NSW", postcode: "2000", country: "Australia" },
-        isDefault: true,
-      },
-    ],
-    createdAt: Timestamp.now(),
-    updatedAt: Timestamp.now(),
-  },
-  {
-    id: "org-3",
-    name: "Government Transport NSW",
-    category: "trade_client",
-    type: "customer",
-    status: "active",
-    abn: "11 222 333 444",
-    marketStream: "government",
-    phone: "02 9000 1234",
-    email: "fleet@transport.nsw.gov.au",
-    sites: [
-      {
-        id: "site-4",
-        name: "Parramatta Depot",
-        address: { street: "100 Smith St", suburb: "Parramatta", state: "NSW", postcode: "2150", country: "Australia" },
-        isDefault: true,
-      },
-    ],
-    createdAt: Timestamp.now(),
-    updatedAt: Timestamp.now(),
-  },
+// Organizations Data - will be populated from Firestore, empty for now (added dynamically)
+const mockOrganizations: ContactOrganization[] = [];
+
+// Contacts Data - will be populated from Firestore, empty for now (added dynamically)
+const mockContacts: OrganizationContact[] = [];
+
+// ASI Staff and Subcontractors for job allocation
+const mockStaff: { id: string; name: string; type: "asi_staff" | "subcontractor" }[] = [
+  { id: "staff-josh", name: "Joshua Hyde", type: "asi_staff" },
+  { id: "staff-jaydan", name: "Jaydan", type: "asi_staff" },
+  { id: "staff-bobby", name: "Bobby", type: "asi_staff" },
+  // Subcontractors can be added here
 ];
 
-const mockContacts: OrganizationContact[] = [
-  {
-    id: "contact-1",
-    organizationId: "org-1",
-    firstName: "John",
-    lastName: "Smith",
-    email: "john.smith@metrofleet.com.au",
-    phone: "02 9876 5432",
-    mobile: "0412 345 678",
-    role: "primary",
-    jobTitle: "Fleet Manager",
-    status: "active",
-    isPrimary: true,
-    hasPortalAccess: true,
-    createdAt: Timestamp.now(),
-    updatedAt: Timestamp.now(),
-  },
-  {
-    id: "contact-2",
-    organizationId: "org-1",
-    firstName: "Sarah",
-    lastName: "Johnson",
-    email: "sarah.j@metrofleet.com.au",
-    phone: "02 9876 5433",
-    role: "billing",
-    jobTitle: "Accounts Manager",
-    status: "active",
-    isPrimary: false,
-    hasPortalAccess: false,
-    createdAt: Timestamp.now(),
-    updatedAt: Timestamp.now(),
-  },
-  {
-    id: "contact-3",
-    organizationId: "org-2",
-    firstName: "Michael",
-    lastName: "Brown",
-    email: "michael@cbdmotors.com.au",
-    phone: "02 8765 4321",
-    mobile: "0423 456 789",
-    role: "primary",
-    jobTitle: "Service Manager",
-    status: "active",
-    isPrimary: true,
-    hasPortalAccess: true,
-    createdAt: Timestamp.now(),
-    updatedAt: Timestamp.now(),
-  },
-  {
-    id: "contact-4",
-    organizationId: "org-3",
-    firstName: "Emily",
-    lastName: "Davis",
-    email: "emily.davis@transport.nsw.gov.au",
-    phone: "02 9000 1234",
-    role: "primary",
-    jobTitle: "Procurement Officer",
-    status: "active",
-    isPrimary: true,
-    hasPortalAccess: true,
-    createdAt: Timestamp.now(),
-    updatedAt: Timestamp.now(),
-  },
-];
+// Bookings Data - will be populated from Firestore, empty for now (added dynamically)
+const mockBookings: Booking[] = [];
 
-const mockStaff = [
-  { id: "staff-1", name: "Joshua Hyde", type: "asi_staff" as const },
-  { id: "staff-2", name: "Jaydan Smith", type: "asi_staff" as const },
-  { id: "staff-3", name: "Bobby Wilson", type: "asi_staff" as const },
-  { id: "staff-4", name: "Mike's Mobile Repairs", type: "subcontractor" as const },
-  { id: "staff-5", name: "Premier Auto Glass", type: "subcontractor" as const },
-];
-
-// Mock existing bookings
-const mockBookings: Booking[] = [
-  {
-    id: "booking-1",
-    bookingNumber: "BK-2025-0001",
-    bookingType: "windscreen_crack_chip_repair",
-    organizationId: "org-1",
-    organizationName: "Metro Fleet Services",
-    contactId: "contact-1",
-    contactName: "John Smith",
-    contactEmail: "john.smith@metrofleet.com.au",
-    contactPhone: "0412 345 678",
-    siteLocation: {
-      id: "site-1",
-      name: "Head Office",
-      address: { street: "123 Industrial Ave", suburb: "Alexandria", state: "NSW", postcode: "2015", country: "Australia" },
-    },
-    scheduledDate: Timestamp.fromDate(new Date(2025, 0, 8)),
-    scheduledTime: "09:00",
-    allocatedStaff: [{ id: "staff-1", name: "Joshua Hyde", type: "asi_staff" }],
-    status: "confirmed",
-    createdAt: Timestamp.now(),
-    createdBy: "admin",
-    updatedAt: Timestamp.now(),
-  },
-  {
-    id: "booking-2",
-    bookingNumber: "BK-2025-0002",
-    bookingType: "film_installation",
-    organizationId: "org-2",
-    organizationName: "Sydney CBD Motors",
-    contactId: "contact-3",
-    contactName: "Michael Brown",
-    contactEmail: "michael@cbdmotors.com.au",
-    contactPhone: "0423 456 789",
-    siteLocation: {
-      id: "site-3",
-      name: "Showroom",
-      address: { street: "500 George St", suburb: "Sydney", state: "NSW", postcode: "2000", country: "Australia" },
-    },
-    scheduledDate: Timestamp.fromDate(new Date(2025, 0, 10)),
-    scheduledTime: "14:00",
-    allocatedStaff: [
-      { id: "staff-2", name: "Jaydan Smith", type: "asi_staff" },
-      { id: "staff-3", name: "Bobby Wilson", type: "asi_staff" },
-    ],
-    status: "pending",
-    createdAt: Timestamp.now(),
-    createdBy: "admin",
-    updatedAt: Timestamp.now(),
-  },
-];
-
-interface NewOrganizationFormData {
+interface NewOrganisationFormData {
   name: string;
   category: ContactCategory;
   abn: string;
@@ -286,6 +102,7 @@ interface NewOrganizationFormData {
 }
 
 interface NewContactFormData {
+  organisationId: string;
   firstName: string;
   lastName: string;
   email: string;
@@ -324,9 +141,10 @@ export default function BookingsPage() {
   const [selectedStaff, setSelectedStaff] = useState<typeof mockStaff>([]);
   const [bookingNotes, setBookingNotes] = useState("");
 
-  // New organization dialog
-  const [showNewOrgDialog, setShowNewOrgDialog] = useState(false);
-  const [newOrgData, setNewOrgData] = useState<NewOrganizationFormData>({
+  // New contact dialog (includes option to add new organisation)
+  const [showNewContactDialog, setShowNewContactDialog] = useState(false);
+  const [isCreatingNewOrg, setIsCreatingNewOrg] = useState(false);
+  const [newOrgData, setNewOrgData] = useState<NewOrganisationFormData>({
     name: "",
     category: "trade_client",
     abn: "",
@@ -337,10 +155,8 @@ export default function BookingsPage() {
     state: "NSW",
     postcode: "",
   });
-
-  // New contact dialog
-  const [showNewContactDialog, setShowNewContactDialog] = useState(false);
   const [newContactData, setNewContactData] = useState<NewContactFormData>({
+    organisationId: "",
     firstName: "",
     lastName: "",
     email: "",
@@ -357,10 +173,15 @@ export default function BookingsPage() {
       org.email?.toLowerCase().includes(orgSearchQuery.toLowerCase())
   );
 
-  // Get contacts for selected organization
-  const organizationContacts = selectedOrganization
+  // Get contacts for selected organisation
+  const organisationContacts = selectedOrganization
     ? mockContacts.filter((c) => c.organizationId === selectedOrganization.id)
     : [];
+
+  // Get contacts for the selected org in new contact dialog
+  const selectedDialogOrg = newContactData.organisationId 
+    ? mockOrganizations.find(o => o.id === newContactData.organisationId)
+    : null;
 
   // Time slots
   const timeSlots = [
@@ -389,64 +210,95 @@ export default function BookingsPage() {
     }
   };
 
-  const handleCreateOrganization = () => {
-    const newOrg: ContactOrganization = {
-      id: `org-${Date.now()}`,
-      name: newOrgData.name,
-      category: newOrgData.category,
-      type: "customer",
-      status: "active",
-      abn: newOrgData.abn,
-      phone: newOrgData.phone,
-      email: newOrgData.email,
-      address: {
-        street: newOrgData.street,
-        suburb: newOrgData.suburb,
-        state: newOrgData.state,
-        postcode: newOrgData.postcode,
-        country: "Australia",
-      },
-      sites: [
-        {
-          id: `site-${Date.now()}`,
-          name: "Main Location",
-          address: {
-            street: newOrgData.street,
-            suburb: newOrgData.suburb,
-            state: newOrgData.state,
-            postcode: newOrgData.postcode,
-            country: "Australia",
-          },
-          isDefault: true,
+  const handleCreateContact = () => {
+    let targetOrgId = newContactData.organisationId;
+    let targetOrg: ContactOrganization | null = null;
+
+    // If creating new organisation, create it first
+    if (isCreatingNewOrg) {
+      const newOrg: ContactOrganization = {
+        id: `org-${Date.now()}`,
+        name: newOrgData.name,
+        category: newOrgData.category,
+        type: "customer",
+        status: "active",
+        abn: newOrgData.abn,
+        phone: newOrgData.phone,
+        email: newOrgData.email,
+        address: {
+          street: newOrgData.street,
+          suburb: newOrgData.suburb,
+          state: newOrgData.state,
+          postcode: newOrgData.postcode,
+          country: "Australia",
         },
-      ],
+        sites: [
+          {
+            id: `site-${Date.now()}`,
+            name: "Main Location",
+            address: {
+              street: newOrgData.street,
+              suburb: newOrgData.suburb,
+              state: newOrgData.state,
+              postcode: newOrgData.postcode,
+              country: "Australia",
+            },
+            isDefault: true,
+          },
+        ],
+        createdAt: Timestamp.now(),
+        updatedAt: Timestamp.now(),
+      };
+
+      mockOrganizations.push(newOrg);
+      targetOrgId = newOrg.id;
+      targetOrg = newOrg;
+    } else {
+      targetOrg = mockOrganizations.find(o => o.id === targetOrgId) || null;
+    }
+
+    if (!targetOrg) return;
+
+    // Get existing contacts for this org to determine if this is primary
+    const existingContacts = mockContacts.filter(c => c.organizationId === targetOrgId);
+
+    const newContact: OrganizationContact = {
+      id: `contact-${Date.now()}`,
+      organizationId: targetOrgId,
+      firstName: newContactData.firstName,
+      lastName: newContactData.lastName,
+      email: newContactData.email,
+      phone: newContactData.phone,
+      mobile: newContactData.mobile,
+      role: "primary",
+      jobTitle: newContactData.jobTitle,
+      status: "active",
+      isPrimary: existingContacts.length === 0,
+      hasPortalAccess: true,
       createdAt: Timestamp.now(),
       updatedAt: Timestamp.now(),
     };
 
-    mockOrganizations.push(newOrg);
-    setSelectedOrganization(newOrg);
-    setSelectedSite(newOrg.sites[0]);
-    setShowNewOrgDialog(false);
-    setNewOrgData({
-      name: "",
-      category: "trade_client",
-      abn: "",
-      phone: "",
-      email: "",
-      street: "",
-      suburb: "",
-      state: "NSW",
-      postcode: "",
-    });
+    mockContacts.push(newContact);
+    
+    // Auto-select the organisation and contact in the booking form
+    setSelectedOrganization(targetOrg);
+    setSelectedContact(newContact);
+    if (targetOrg.sites.length > 0) {
+      setSelectedSite(targetOrg.sites.find(s => s.isDefault) || targetOrg.sites[0]);
+    }
+
+    // Reset and close dialog
+    setShowNewContactDialog(false);
+    resetNewContactForm();
 
     toast({
-      title: "Organization Created",
-      description: `${newOrg.name} has been added to your contacts.`,
+      title: "Contact Created",
+      description: `${newContact.firstName} ${newContact.lastName} has been added to ${targetOrg.name}.`,
     });
   };
 
-  const handleCreateContact = () => {
+  const handleAddContactToExistingOrg = () => {
     if (!selectedOrganization) return;
 
     const newContact: OrganizationContact = {
@@ -460,7 +312,7 @@ export default function BookingsPage() {
       role: "primary",
       jobTitle: newContactData.jobTitle,
       status: "active",
-      isPrimary: organizationContacts.length === 0,
+      isPrimary: organisationContacts.length === 0,
       hasPortalAccess: true,
       createdAt: Timestamp.now(),
       updatedAt: Timestamp.now(),
@@ -468,8 +320,17 @@ export default function BookingsPage() {
 
     mockContacts.push(newContact);
     setSelectedContact(newContact);
-    setShowNewContactDialog(false);
+    resetNewContactForm();
+
+    toast({
+      title: "Contact Created",
+      description: `${newContact.firstName} ${newContact.lastName} has been added as a contact.`,
+    });
+  };
+
+  const resetNewContactForm = () => {
     setNewContactData({
+      organisationId: "",
       firstName: "",
       lastName: "",
       email: "",
@@ -477,11 +338,18 @@ export default function BookingsPage() {
       mobile: "",
       jobTitle: "",
     });
-
-    toast({
-      title: "Contact Created",
-      description: `${newContact.firstName} ${newContact.lastName} has been added as a contact.`,
+    setNewOrgData({
+      name: "",
+      category: "trade_client",
+      abn: "",
+      phone: "",
+      email: "",
+      street: "",
+      suburb: "",
+      state: "NSW",
+      postcode: "",
     });
+    setIsCreatingNewOrg(false);
   };
 
   const handleToggleStaff = (staff: (typeof mockStaff)[0]) => {
@@ -568,6 +436,7 @@ export default function BookingsPage() {
     setSelectedStaff([]);
     setBookingNotes("");
     setOrgSearchQuery("");
+    resetNewContactForm();
   };
 
   const canProceedToStep2 = bookingType !== "";
@@ -697,160 +566,285 @@ export default function BookingsPage() {
                 {/* Step 2: Customer Selection */}
                 {bookingStep === 2 && (
                   <div className="space-y-6">
-                    {/* Organization Selection */}
+                    {/* Organisation Selection */}
                     <div className="space-y-4">
                       <div className="flex items-center justify-between">
                         <div>
-                          <Label className="text-base font-semibold">Customer Organization</Label>
+                          <Label className="text-base font-semibold">Customer Organisation</Label>
                           <p className="text-sm text-muted-foreground">
-                            Select an existing customer or add a new one
+                            Select an existing customer or add a new contact
                           </p>
                         </div>
-                        <Dialog open={showNewOrgDialog} onOpenChange={setShowNewOrgDialog}>
+                        <Dialog open={showNewContactDialog} onOpenChange={(open) => {
+                          setShowNewContactDialog(open);
+                          if (!open) resetNewContactForm();
+                        }}>
                           <DialogTrigger asChild>
                             <Button variant="outline" size="sm" className="gap-2">
                               <Plus className="h-4 w-4" />
-                              New Customer
+                              Add New Contact
                             </Button>
                           </DialogTrigger>
-                          <DialogContent className="max-w-lg">
+                          <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
                             <DialogHeader>
-                              <DialogTitle>Add New Customer</DialogTitle>
+                              <DialogTitle>Add New Contact</DialogTitle>
                               <DialogDescription>
-                                Create a new customer organization
+                                Add a contact to an existing organisation or create a new one
                               </DialogDescription>
                             </DialogHeader>
-                            <div className="space-y-4 py-4">
-                              <div className="grid grid-cols-2 gap-4">
-                                <div className="col-span-2">
-                                  <Label>Organization Name *</Label>
-                                  <Input
-                                    value={newOrgData.name}
-                                    onChange={(e) =>
-                                      setNewOrgData({ ...newOrgData, name: e.target.value })
+                            <div className="space-y-6 py-4">
+                              {/* Organisation Selection */}
+                              <div className="space-y-3">
+                                <Label className="text-sm font-semibold">Organisation</Label>
+                                <Select
+                                  value={isCreatingNewOrg ? "__new__" : newContactData.organisationId}
+                                  onValueChange={(value) => {
+                                    if (value === "__new__") {
+                                      setIsCreatingNewOrg(true);
+                                      setNewContactData({ ...newContactData, organisationId: "" });
+                                    } else {
+                                      setIsCreatingNewOrg(false);
+                                      setNewContactData({ ...newContactData, organisationId: value });
                                     }
-                                    placeholder="Company Pty Ltd"
-                                  />
-                                </div>
-                                <div>
-                                  <Label>Category</Label>
-                                  <Select
-                                    value={newOrgData.category}
-                                    onValueChange={(value: ContactCategory) =>
-                                      setNewOrgData({ ...newOrgData, category: value })
-                                    }
-                                  >
-                                    <SelectTrigger>
-                                      <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      {(Object.entries(CONTACT_CATEGORY_LABELS) as [ContactCategory, string][]).map(
-                                        ([value, label]) => (
-                                          <SelectItem key={value} value={value}>
-                                            {label}
-                                          </SelectItem>
-                                        )
-                                      )}
-                                    </SelectContent>
-                                  </Select>
-                                </div>
-                                <div>
-                                  <Label>ABN</Label>
-                                  <Input
-                                    value={newOrgData.abn}
-                                    onChange={(e) =>
-                                      setNewOrgData({ ...newOrgData, abn: e.target.value })
-                                    }
-                                    placeholder="12 345 678 901"
-                                  />
-                                </div>
-                                <div>
-                                  <Label>Phone</Label>
-                                  <Input
-                                    value={newOrgData.phone}
-                                    onChange={(e) =>
-                                      setNewOrgData({ ...newOrgData, phone: e.target.value })
-                                    }
-                                    placeholder="02 1234 5678"
-                                  />
-                                </div>
-                                <div>
-                                  <Label>Email *</Label>
-                                  <Input
-                                    type="email"
-                                    value={newOrgData.email}
-                                    onChange={(e) =>
-                                      setNewOrgData({ ...newOrgData, email: e.target.value })
-                                    }
-                                    placeholder="info@company.com.au"
-                                  />
-                                </div>
-                                <div className="col-span-2">
-                                  <Label>Street Address</Label>
-                                  <Input
-                                    value={newOrgData.street}
-                                    onChange={(e) =>
-                                      setNewOrgData({ ...newOrgData, street: e.target.value })
-                                    }
-                                    placeholder="123 Main Street"
-                                  />
-                                </div>
-                                <div>
-                                  <Label>Suburb</Label>
-                                  <Input
-                                    value={newOrgData.suburb}
-                                    onChange={(e) =>
-                                      setNewOrgData({ ...newOrgData, suburb: e.target.value })
-                                    }
-                                    placeholder="Sydney"
-                                  />
-                                </div>
-                                <div className="grid grid-cols-2 gap-2">
-                                  <div>
-                                    <Label>State</Label>
-                                    <Select
-                                      value={newOrgData.state}
-                                      onValueChange={(value) =>
-                                        setNewOrgData({ ...newOrgData, state: value })
-                                      }
-                                    >
-                                      <SelectTrigger>
-                                        <SelectValue />
-                                      </SelectTrigger>
-                                      <SelectContent>
-                                        <SelectItem value="NSW">NSW</SelectItem>
-                                        <SelectItem value="VIC">VIC</SelectItem>
-                                        <SelectItem value="QLD">QLD</SelectItem>
-                                        <SelectItem value="WA">WA</SelectItem>
-                                        <SelectItem value="SA">SA</SelectItem>
-                                        <SelectItem value="TAS">TAS</SelectItem>
-                                        <SelectItem value="NT">NT</SelectItem>
-                                        <SelectItem value="ACT">ACT</SelectItem>
-                                      </SelectContent>
-                                    </Select>
-                                  </div>
-                                  <div>
-                                    <Label>Postcode</Label>
-                                    <Input
-                                      value={newOrgData.postcode}
-                                      onChange={(e) =>
-                                        setNewOrgData({ ...newOrgData, postcode: e.target.value })
-                                      }
-                                      placeholder="2000"
-                                    />
-                                  </div>
-                                </div>
+                                  }}
+                                >
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="Select an organisation..." />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {mockOrganizations.map((org) => (
+                                      <SelectItem key={org.id} value={org.id}>
+                                        {org.name}
+                                      </SelectItem>
+                                    ))}
+                                    <SelectItem value="__new__" className="text-primary font-medium">
+                                      + Add New Organisation
+                                    </SelectItem>
+                                  </SelectContent>
+                                </Select>
                               </div>
+
+                              {/* New Organisation Fields */}
+                              {isCreatingNewOrg && (
+                                <Card className="border-dashed">
+                                  <CardHeader className="pb-3">
+                                    <CardTitle className="text-sm">New Organisation Details</CardTitle>
+                                  </CardHeader>
+                                  <CardContent className="space-y-4">
+                                    <div className="grid grid-cols-2 gap-4">
+                                      <div className="col-span-2">
+                                        <Label>Organisation Name *</Label>
+                                        <Input
+                                          value={newOrgData.name}
+                                          onChange={(e) =>
+                                            setNewOrgData({ ...newOrgData, name: e.target.value })
+                                          }
+                                          placeholder="Company Pty Ltd"
+                                        />
+                                      </div>
+                                      <div>
+                                        <Label>Category</Label>
+                                        <Select
+                                          value={newOrgData.category}
+                                          onValueChange={(value: ContactCategory) =>
+                                            setNewOrgData({ ...newOrgData, category: value })
+                                          }
+                                        >
+                                          <SelectTrigger>
+                                            <SelectValue />
+                                          </SelectTrigger>
+                                          <SelectContent>
+                                            {(Object.entries(CONTACT_CATEGORY_LABELS) as [ContactCategory, string][]).map(
+                                              ([value, label]) => (
+                                                <SelectItem key={value} value={value}>
+                                                  {label}
+                                                </SelectItem>
+                                              )
+                                            )}
+                                          </SelectContent>
+                                        </Select>
+                                      </div>
+                                      <div>
+                                        <Label>ABN</Label>
+                                        <Input
+                                          value={newOrgData.abn}
+                                          onChange={(e) =>
+                                            setNewOrgData({ ...newOrgData, abn: e.target.value })
+                                          }
+                                          placeholder="12 345 678 901"
+                                        />
+                                      </div>
+                                      <div>
+                                        <Label>Organisation Phone</Label>
+                                        <Input
+                                          value={newOrgData.phone}
+                                          onChange={(e) =>
+                                            setNewOrgData({ ...newOrgData, phone: e.target.value })
+                                          }
+                                          placeholder="02 1234 5678"
+                                        />
+                                      </div>
+                                      <div>
+                                        <Label>Organisation Email</Label>
+                                        <Input
+                                          type="email"
+                                          value={newOrgData.email}
+                                          onChange={(e) =>
+                                            setNewOrgData({ ...newOrgData, email: e.target.value })
+                                          }
+                                          placeholder="info@company.com.au"
+                                        />
+                                      </div>
+                                      <div className="col-span-2">
+                                        <Label>Street Address</Label>
+                                        <Input
+                                          value={newOrgData.street}
+                                          onChange={(e) =>
+                                            setNewOrgData({ ...newOrgData, street: e.target.value })
+                                          }
+                                          placeholder="123 Main Street"
+                                        />
+                                      </div>
+                                      <div>
+                                        <Label>Suburb</Label>
+                                        <Input
+                                          value={newOrgData.suburb}
+                                          onChange={(e) =>
+                                            setNewOrgData({ ...newOrgData, suburb: e.target.value })
+                                          }
+                                          placeholder="Sydney"
+                                        />
+                                      </div>
+                                      <div className="grid grid-cols-2 gap-2">
+                                        <div>
+                                          <Label>State</Label>
+                                          <Select
+                                            value={newOrgData.state}
+                                            onValueChange={(value) =>
+                                              setNewOrgData({ ...newOrgData, state: value })
+                                            }
+                                          >
+                                            <SelectTrigger>
+                                              <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                              <SelectItem value="NSW">NSW</SelectItem>
+                                              <SelectItem value="VIC">VIC</SelectItem>
+                                              <SelectItem value="QLD">QLD</SelectItem>
+                                              <SelectItem value="WA">WA</SelectItem>
+                                              <SelectItem value="SA">SA</SelectItem>
+                                              <SelectItem value="TAS">TAS</SelectItem>
+                                              <SelectItem value="NT">NT</SelectItem>
+                                              <SelectItem value="ACT">ACT</SelectItem>
+                                            </SelectContent>
+                                          </Select>
+                                        </div>
+                                        <div>
+                                          <Label>Postcode</Label>
+                                          <Input
+                                            value={newOrgData.postcode}
+                                            onChange={(e) =>
+                                              setNewOrgData({ ...newOrgData, postcode: e.target.value })
+                                            }
+                                            placeholder="2000"
+                                          />
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </CardContent>
+                                </Card>
+                              )}
+
+                              {/* Primary Contact Details */}
+                              {(isCreatingNewOrg || newContactData.organisationId) && (
+                                <div className="space-y-4">
+                                  <Label className="text-sm font-semibold">
+                                    {isCreatingNewOrg ? "Primary Contact Details" : "Contact Details"}
+                                  </Label>
+                                  <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                      <Label>First Name *</Label>
+                                      <Input
+                                        value={newContactData.firstName}
+                                        onChange={(e) =>
+                                          setNewContactData({ ...newContactData, firstName: e.target.value })
+                                        }
+                                        placeholder="John"
+                                      />
+                                    </div>
+                                    <div>
+                                      <Label>Last Name *</Label>
+                                      <Input
+                                        value={newContactData.lastName}
+                                        onChange={(e) =>
+                                          setNewContactData({ ...newContactData, lastName: e.target.value })
+                                        }
+                                        placeholder="Smith"
+                                      />
+                                    </div>
+                                    <div className="col-span-2">
+                                      <Label>Email *</Label>
+                                      <Input
+                                        type="email"
+                                        value={newContactData.email}
+                                        onChange={(e) =>
+                                          setNewContactData({ ...newContactData, email: e.target.value })
+                                        }
+                                        placeholder="john@company.com.au"
+                                      />
+                                    </div>
+                                    <div>
+                                      <Label>Phone</Label>
+                                      <Input
+                                        value={newContactData.phone}
+                                        onChange={(e) =>
+                                          setNewContactData({ ...newContactData, phone: e.target.value })
+                                        }
+                                        placeholder="02 1234 5678"
+                                      />
+                                    </div>
+                                    <div>
+                                      <Label>Mobile</Label>
+                                      <Input
+                                        value={newContactData.mobile}
+                                        onChange={(e) =>
+                                          setNewContactData({ ...newContactData, mobile: e.target.value })
+                                        }
+                                        placeholder="0412 345 678"
+                                      />
+                                    </div>
+                                    <div className="col-span-2">
+                                      <Label>Job Title</Label>
+                                      <Input
+                                        value={newContactData.jobTitle}
+                                        onChange={(e) =>
+                                          setNewContactData({ ...newContactData, jobTitle: e.target.value })
+                                        }
+                                        placeholder="Fleet Manager"
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
                             </div>
                             <DialogFooter>
-                              <Button variant="outline" onClick={() => setShowNewOrgDialog(false)}>
+                              <Button variant="outline" onClick={() => {
+                                setShowNewContactDialog(false);
+                                resetNewContactForm();
+                              }}>
                                 Cancel
                               </Button>
                               <Button
-                                onClick={handleCreateOrganization}
-                                disabled={!newOrgData.name || !newOrgData.email}
+                                onClick={handleCreateContact}
+                                disabled={
+                                  (!isCreatingNewOrg && !newContactData.organisationId) ||
+                                  (isCreatingNewOrg && !newOrgData.name) ||
+                                  !newContactData.firstName ||
+                                  !newContactData.lastName ||
+                                  !newContactData.email
+                                }
                               >
-                                Create Customer
+                                {isCreatingNewOrg ? "Create Organisation & Contact" : "Add Contact"}
                               </Button>
                             </DialogFooter>
                           </DialogContent>
@@ -951,7 +945,7 @@ export default function BookingsPage() {
                               Select or add a contact for this booking
                             </p>
                           </div>
-                          <Dialog open={showNewContactDialog} onOpenChange={setShowNewContactDialog}>
+                          <Dialog>
                             <DialogTrigger asChild>
                               <Button variant="outline" size="sm" className="gap-2">
                                 <Plus className="h-4 w-4" />
@@ -995,7 +989,7 @@ export default function BookingsPage() {
                                       onChange={(e) =>
                                         setNewContactData({ ...newContactData, email: e.target.value })
                                       }
-                                      placeholder="john@company.com"
+                                      placeholder="john@company.com.au"
                                     />
                                   </div>
                                   <div>
@@ -1031,18 +1025,15 @@ export default function BookingsPage() {
                                 </div>
                               </div>
                               <DialogFooter>
-                                <Button variant="outline" onClick={() => setShowNewContactDialog(false)}>
-                                  Cancel
-                                </Button>
                                 <Button
-                                  onClick={handleCreateContact}
+                                  onClick={handleAddContactToExistingOrg}
                                   disabled={
                                     !newContactData.firstName ||
                                     !newContactData.lastName ||
                                     !newContactData.email
                                   }
                                 >
-                                  Create Contact
+                                  Add Contact
                                 </Button>
                               </DialogFooter>
                             </DialogContent>
@@ -1050,7 +1041,7 @@ export default function BookingsPage() {
                         </div>
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          {organizationContacts.map((contact) => (
+                          {organisationContacts.map((contact) => (
                             <Card
                               key={contact.id}
                               className={cn(

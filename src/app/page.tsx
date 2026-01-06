@@ -64,14 +64,13 @@ export default function HomePage() {
         title: "Welcome back!",
         description: "You've successfully logged in.",
       });
-      router.push("/dashboard");
+      // Don't manually redirect - the useEffect watching `user` will handle it
     } catch (error: any) {
       toast({
         title: "Login failed",
         description: error.message || "Invalid email or password",
         variant: "destructive",
       });
-    } finally {
       setLoading(false);
     }
   };
