@@ -76,26 +76,16 @@ export function AppSidebar() {
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader className="p-4 space-y-3">
-        <div className="flex items-center justify-between">
-          <Link href="/dashboard" className="flex flex-col items-center gap-2 group-data-[collapsible=icon]:hidden">
-            <Image
-              src="/logos/ASI BRANDING - OFFICIAL MAIN.png"
-              alt="ASI Logo"
-              width={200}
-              height={80}
-              className="h-12 w-auto"
-              priority
-            />
-            <span className="text-lg font-bold bg-gradient-to-r from-accent to-primary bg-clip-text text-transparent">
-              ASI PORTAL
-            </span>
-          </Link>
+        <div className="flex items-center justify-center group-data-[collapsible=icon]:justify-between">
+          <span className="text-xl font-bold bg-gradient-to-r from-accent to-primary bg-clip-text text-transparent group-data-[collapsible=icon]:hidden">
+            ASI PORTAL
+          </span>
           {!isMobile && (
             <Button
               variant="ghost"
               size="icon"
               onClick={toggleSidebar}
-              className="h-8 w-8 text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent"
+              className="h-8 w-8 text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent absolute right-2 top-4"
             >
               {state === "expanded" ? (
                 <PanelLeftClose className="h-4 w-4" />
@@ -105,17 +95,6 @@ export function AppSidebar() {
             </Button>
           )}
         </div>
-        {/* Collapsed state - just show icon */}
-        <Link href="/dashboard" className="hidden group-data-[collapsible=icon]:flex justify-center">
-          <Image
-            src="/logos/ASI BRANDING - OFFICIAL MAIN.png"
-            alt="ASI Logo"
-            width={40}
-            height={40}
-            className="h-8 w-auto"
-            priority
-          />
-        </Link>
       </SidebarHeader>
       <SidebarContent>
         <SidebarMenu>
@@ -135,6 +114,19 @@ export function AppSidebar() {
         </SidebarMenu>
       </SidebarContent>
       <SidebarFooter>
+        {/* ASI Logo - centered above settings */}
+        <div className="flex justify-center py-4 group-data-[collapsible=icon]:py-2">
+          <Link href="/dashboard">
+            <Image
+              src="/logos/ASI BRANDING - OFFICIAL MAIN.png"
+              alt="ASI Logo"
+              width={600}
+              height={240}
+              className="h-36 w-auto group-data-[collapsible=icon]:h-10"
+              priority
+            />
+          </Link>
+        </div>
         <SidebarMenu>
             <SidebarMenuItem>
         <Link href="/dashboard/settings">

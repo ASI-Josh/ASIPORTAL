@@ -71,23 +71,11 @@ import {
   Address,
   Booking,
 } from "@/lib/types";
-
-// Organizations Data - will be populated from Firestore, empty for now (added dynamically)
-const mockOrganizations: ContactOrganization[] = [];
-
-// Contacts Data - will be populated from Firestore, empty for now (added dynamically)
-const mockContacts: OrganizationContact[] = [];
-
-// ASI Staff and Subcontractors for job allocation
-const mockStaff: { id: string; name: string; type: "asi_staff" | "subcontractor" }[] = [
-  { id: "staff-josh", name: "Joshua Hyde", type: "asi_staff" },
-  { id: "staff-jaydan", name: "Jaydan", type: "asi_staff" },
-  { id: "staff-bobby", name: "Bobby", type: "asi_staff" },
-  // Subcontractors can be added here
-];
-
-// Bookings Data - will be populated from Firestore, empty for now (added dynamically)
-const mockBookings: Booking[] = [];
+import {
+  initialOrganizations,
+  initialContacts,
+  asiStaff,
+} from "@/lib/contacts-data";
 
 interface NewOrganisationFormData {
   name: string;
@@ -115,9 +103,14 @@ export default function BookingsPage() {
   const router = useRouter();
   const { toast } = useToast();
 
+  // Shared data state (will be replaced with Firestore later)
+  const [organizations, setOrganizations] = useState<ContactOrganization[]>(initialOrganizations);
+  const [contacts, setContacts] = useState<OrganizationContact[]>(initialContacts);
+  const [staffList] = useState(asiStaff);
+
   // State for booking list view
   const [searchQuery, setSearchQuery] = useState("");
-  const [bookings, setBookings] = useState<Booking[]>(mockBookings);
+  const [bookings, setBookings] = useState<Booking[]>([]);
 
   // State for new booking form
   const [showNewBookingDialog, setShowNewBookingDialog] = useState(false);
@@ -138,7 +131,7 @@ export default function BookingsPage() {
   });
   const [scheduledDate, setScheduledDate] = useState<Date | undefined>();
   const [scheduledTime, setScheduledTime] = useState("");
-  const [selectedStaff, setSelectedStaff] = useState<typeof mockStaff>([]);
+  const [selectedStaff, setSelectedStaff] = useState<typeof asiStaff>([]);
   const [bookingNotes, setBookingNotes] = useState("");
 
   // New contact dialog (includes option to add new organisation)
@@ -167,7 +160,7 @@ export default function BookingsPage() {
 
   // Organization search
   const [orgSearchQuery, setOrgSearchQuery] = useState("");
-  const filteredOrganizations = mockOrganizations.filter(
+  const filteredOrganizations = organizations.filter(
     (org) =>
       org.name.toLowerCase().includes(orgSearchQuery.toLowerCase()) ||
       org.email?.toLowerCase().includes(orgSearchQuery.toLowerCase())
@@ -175,12 +168,12 @@ export default function BookingsPage() {
 
   // Get contacts for selected organisation
   const organisationContacts = selectedOrganization
-    ? mockContacts.filter((c) => c.organizationId === selectedOrganization.id)
+    ? contacts.filter((c) => c.organizationId === selectedOrganization.id)
     : [];
 
   // Get contacts for the selected org in new contact dialog
   const selectedDialogOrg = newContactData.organisationId 
-    ? mockOrganizations.find(o => o.id === newContactData.organisationId)
+    ? organizations.find(o => o.id === newContactData.organisationId)
     : null;
 
   // Time slots
@@ -196,7 +189,7 @@ export default function BookingsPage() {
     setOrgSearchQuery("");
     
     // Auto-select primary contact
-    const primaryContact = mockContacts.find(
+    const primaryContact = contacts.find(
       (c) => c.organizationId === org.id && c.isPrimary
     );
     if (primaryContact) {
@@ -250,17 +243,17 @@ export default function BookingsPage() {
         updatedAt: Timestamp.now(),
       };
 
-      mockOrganizations.push(newOrg);
+      setOrganizations(prev => [...prev, newOrg]);
       targetOrgId = newOrg.id;
       targetOrg = newOrg;
     } else {
-      targetOrg = mockOrganizations.find(o => o.id === targetOrgId) || null;
+      targetOrg = organizations.find(o => o.id === targetOrgId) || null;
     }
 
     if (!targetOrg) return;
 
     // Get existing contacts for this org to determine if this is primary
-    const existingContacts = mockContacts.filter(c => c.organizationId === targetOrgId);
+    const existingContacts = contacts.filter(c => c.organizationId === targetOrgId);
 
     const newContact: OrganizationContact = {
       id: `contact-${Date.now()}`,
@@ -279,7 +272,7 @@ export default function BookingsPage() {
       updatedAt: Timestamp.now(),
     };
 
-    mockContacts.push(newContact);
+    setContacts(prev => [...prev, newContact]);
     
     // Auto-select the organisation and contact in the booking form
     setSelectedOrganization(targetOrg);
@@ -318,7 +311,7 @@ export default function BookingsPage() {
       updatedAt: Timestamp.now(),
     };
 
-    mockContacts.push(newContact);
+    setContacts(prev => [...prev, newContact]);
     setSelectedContact(newContact);
     resetNewContactForm();
 
@@ -352,7 +345,7 @@ export default function BookingsPage() {
     setIsCreatingNewOrg(false);
   };
 
-  const handleToggleStaff = (staff: (typeof mockStaff)[0]) => {
+  const handleToggleStaff = (staff: (typeof asiStaff)[0]) => {
     setSelectedStaff((prev) => {
       const exists = prev.find((s) => s.id === staff.id);
       if (exists) {
@@ -612,7 +605,7 @@ export default function BookingsPage() {
                                     <SelectValue placeholder="Select an organisation..." />
                                   </SelectTrigger>
                                   <SelectContent>
-                                    {mockOrganizations.map((org) => (
+                                    {organizations.map((org) => (
                                       <SelectItem key={org.id} value={org.id}>
                                         {org.name}
                                       </SelectItem>
@@ -1311,7 +1304,7 @@ export default function BookingsPage() {
                           ASI Staff
                         </h4>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          {mockStaff
+                          {staffList
                             .filter((s) => s.type === "asi_staff")
                             .map((staff) => (
                               <Card
@@ -1347,7 +1340,7 @@ export default function BookingsPage() {
                           Subcontractors
                         </h4>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          {mockStaff
+                          {staffList
                             .filter((s) => s.type === "subcontractor")
                             .map((staff) => (
                               <Card
