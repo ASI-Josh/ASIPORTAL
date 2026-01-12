@@ -9,7 +9,16 @@ import {
   signOut as firebaseSignOut,
   updateProfile,
 } from "firebase/auth";
-import { collection, doc, getDoc, query, where, limit, getDocs } from "firebase/firestore";
+import {
+  collection,
+  doc,
+  getDoc,
+  query,
+  where,
+  limit,
+  getDocs,
+  updateDoc,
+} from "firebase/firestore";
 import { auth, db } from "@/lib/firebaseClient";
 import { User, UserRole } from "@/lib/types";
 import { determineUserRole } from "@/lib/auth";
@@ -80,24 +89,117 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const ensureAsiOrganization = async (): Promise<OrgMatch> => {
+    const existingAsi = await getOrganizationByDomain(ASI_DOMAIN);
+    if (existingAsi?.id) {
+      return existingAsi;
+    }
+
+    const createdId = await addDocument(COLLECTIONS.CONTACT_ORGANIZATIONS, {
+      name: "ASI Australia",
+      category: "asi_staff",
+      type: "partner",
+      status: "active",
+      domains: [ASI_DOMAIN],
+      portalRole: "technician",
+      phone: "",
+      email: `admin@${ASI_DOMAIN}`,
+      sites: [],
+    });
+    return { id: createdId, name: "ASI Australia" };
+  };
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
         try {
           const userDoc = await getDoc(doc(db, COLLECTIONS.USERS, firebaseUser.uid));
-          
+          const email = firebaseUser.email || "";
+
           if (userDoc.exists()) {
-            setUser(userDoc.data() as User);
+            const storedUser = userDoc.data() as User;
+            const resolvedRole = determineUserRole(email || storedUser.email, storedUser.role);
+            const updates: Partial<User> = {};
+
+            if (resolvedRole !== storedUser.role) {
+              updates.role = resolvedRole;
+            }
+
+            if (resolvedRole === "admin" || resolvedRole === "technician") {
+              const asiOrg = await ensureAsiOrganization();
+              if (storedUser.organizationId !== asiOrg.id) {
+                updates.organizationId = asiOrg.id;
+              }
+              if (storedUser.organizationName !== asiOrg.name) {
+                updates.organizationName = asiOrg.name;
+              }
+            } else if (!storedUser.organizationId) {
+              const emailDomain = getEmailDomain(email || storedUser.email);
+              const isPublicDomain = PUBLIC_EMAIL_DOMAINS.has(emailDomain);
+              if (emailDomain && !isPublicDomain) {
+                const existingOrg = await getOrganizationByDomain(emailDomain);
+                if (existingOrg) {
+                  updates.organizationId = existingOrg.id;
+                  updates.organizationName = existingOrg.name;
+                  if (existingOrg.portalRole && existingOrg.portalRole !== resolvedRole) {
+                    updates.role = existingOrg.portalRole;
+                  }
+                }
+              }
+            }
+
+            const nextUser = Object.keys(updates).length > 0
+              ? { ...storedUser, ...updates }
+              : storedUser;
+            setUser(nextUser);
+
+            if (Object.keys(updates).length > 0) {
+              try {
+                await updateDoc(doc(db, COLLECTIONS.USERS, firebaseUser.uid), {
+                  ...updates,
+                  updatedAt: Timestamp.now(),
+                });
+              } catch (updateError) {
+                console.warn("Failed to update user role/organisation in Firestore:", updateError);
+              }
+            }
           } else {
+            const resolvedRole = determineUserRole(email, "client");
+            let organizationId: string | undefined;
+            let organizationName: string | undefined;
+
+            if (resolvedRole === "admin" || resolvedRole === "technician") {
+              const asiOrg = await ensureAsiOrganization();
+              organizationId = asiOrg.id;
+              organizationName = asiOrg.name;
+            } else {
+              const emailDomain = getEmailDomain(email);
+              const isPublicDomain = PUBLIC_EMAIL_DOMAINS.has(emailDomain);
+              if (emailDomain && !isPublicDomain) {
+                const existingOrg = await getOrganizationByDomain(emailDomain);
+                if (existingOrg) {
+                  organizationId = existingOrg.id;
+                  organizationName = existingOrg.name;
+                }
+              }
+            }
+
             const basicUser: User = {
               uid: firebaseUser.uid,
               email: firebaseUser.email!,
               name: firebaseUser.displayName || "User",
-              role: "client",
+              role: resolvedRole,
+              organizationId,
+              organizationName,
               createdAt: Timestamp.now(),
               updatedAt: Timestamp.now(),
             };
             setUser(basicUser);
+            try {
+              await createDocument(COLLECTIONS.USERS, firebaseUser.uid, basicUser);
+            } catch (createError) {
+              console.warn("Failed to create user in Firestore:", createError);
+            }
           }
         } catch (error) {
           console.warn("Failed to fetch user doc, using basic user info:", error);
@@ -105,7 +207,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             uid: firebaseUser.uid,
             email: firebaseUser.email!,
             name: firebaseUser.displayName || "User",
-            role: "client",
+            role: determineUserRole(firebaseUser.email || "", "client"),
             createdAt: Timestamp.now(),
             updatedAt: Timestamp.now(),
           };
@@ -141,26 +243,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     let organizationName: string | undefined;
     let contactId: string | undefined;
     let finalRole: UserRole = resolvedRole;
-
-    const ensureAsiOrganization = async (): Promise<OrgMatch> => {
-      const existingAsi = await getOrganizationByDomain(ASI_DOMAIN);
-      if (existingAsi?.id) {
-        return existingAsi;
-      }
-
-      const createdId = await addDocument(COLLECTIONS.CONTACT_ORGANIZATIONS, {
-        name: "ASI Australia",
-        category: "asi_staff",
-        type: "partner",
-        status: "active",
-        domains: [ASI_DOMAIN],
-        portalRole: "technician",
-        phone: "",
-        email: `admin@${ASI_DOMAIN}`,
-        sites: [],
-      });
-      return { id: createdId, name: "ASI Australia" };
-    };
 
     if (resolvedRole === "admin" || resolvedRole === "technician") {
       const asiOrg = await ensureAsiOrganization();
