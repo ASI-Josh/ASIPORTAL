@@ -190,16 +190,17 @@ export default function BookingsPage() {
     });
 
     const unsubscribeStaff = onSnapshot(staffQuery, (snapshot) => {
-      const loaded = snapshot.docs
-        .map((docSnap) => ({
-          id: docSnap.id,
-          ...(docSnap.data() as { name: string; role: string }),
-        }))
-        .map((staff) => ({
-          id: staff.id,
-          name: staff.name,
-          type: staff.role === "contractor" ? "subcontractor" : "asi_staff",
-        }))
+      const loaded: StaffMember[] = snapshot.docs
+        .map((docSnap) => {
+          const data = docSnap.data() as { name?: string; role?: string };
+          const staffType: StaffMember["type"] =
+            data.role === "contractor" ? "subcontractor" : "asi_staff";
+          return {
+            id: docSnap.id,
+            name: data.name || "Unknown",
+            type: staffType,
+          };
+        })
         .sort((a, b) => a.name.localeCompare(b.name));
       setStaffList(loaded);
     });
@@ -445,7 +446,7 @@ export default function BookingsPage() {
             <p>Your booking has been created.</p>
             {job && (
               <p className="text-sm text-muted-foreground">
-                Job #{job.jobNumber} created -> Added to Works Register -> Updated Job Lifecycle
+                Job #{job.jobNumber} created {"->"} Added to Works Register {"->"} Updated Job Lifecycle
               </p>
             )}
           </div>

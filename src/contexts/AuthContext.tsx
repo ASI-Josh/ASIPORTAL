@@ -69,6 +69,12 @@ function splitName(fullName: string) {
   return { firstName, lastName: rest.join(" ") };
 }
 
+type OrgMatch = {
+  id: string;
+  name: string;
+  portalRole?: UserRole;
+};
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
@@ -136,7 +142,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     let contactId: string | undefined;
     let finalRole: UserRole = resolvedRole;
 
-    const ensureAsiOrganization = async () => {
+    const ensureAsiOrganization = async (): Promise<OrgMatch> => {
       const existingAsi = await getOrganizationByDomain(ASI_DOMAIN);
       if (existingAsi?.id) {
         return existingAsi;

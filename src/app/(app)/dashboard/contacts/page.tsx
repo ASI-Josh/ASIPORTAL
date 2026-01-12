@@ -212,7 +212,10 @@ export default function ContactsPage() {
         abn: org.abn || "",
         marketStream: org.marketStream || "",
         status: org.status,
-        portalRole: org.portalRole || "",
+        portalRole:
+          org.portalRole === "client" || org.portalRole === "contractor"
+            ? org.portalRole
+            : "",
         domains: org.domains ? org.domains.join(", ") : "",
         street: org.address?.street || "",
         suburb: org.address?.suburb || "",

@@ -385,7 +385,7 @@ export interface Address {
 }
 
 export interface SiteLocation {
-  id: string;
+  id?: string;
   name: string;
   address: Address;
   isDefault: boolean;

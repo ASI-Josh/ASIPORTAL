@@ -18,6 +18,7 @@ import {
   serverTimestamp,
 } from "firebase/firestore";
 import { db } from "./firebaseClient";
+import type { ContactOrganization } from "./types";
 
 // ============================================
 // COLLECTION NAMES
@@ -115,7 +116,9 @@ export async function queryDocuments<T>(
   })) as T[];
 }
 
-export async function getOrganizationByDomain(domain: string) {
+export async function getOrganizationByDomain(
+  domain: string
+): Promise<(ContactOrganization & { id: string }) | null> {
   const organizationsRef = collection(db, COLLECTIONS.CONTACT_ORGANIZATIONS);
   const q = query(
     organizationsRef,
@@ -125,7 +128,7 @@ export async function getOrganizationByDomain(domain: string) {
   const snapshot = await getDocs(q);
   if (snapshot.empty) return null;
   const orgDoc = snapshot.docs[0];
-  return { id: orgDoc.id, ...orgDoc.data() };
+  return { id: orgDoc.id, ...(orgDoc.data() as Omit<ContactOrganization, "id">) };
 }
 
 // ============================================
