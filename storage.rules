@@ -1,0 +1,41 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function email() {
+      return request.auth.token.email;
+    }
+
+    function isAdminEmail() {
+      return email() in [
+        "joshua@asi-australia.com.au",
+        "jaydan@asi-australia.com.au",
+        "bobby@asi-australia.com.au"
+      ];
+    }
+
+    function isAsiEmail() {
+      return email() != null && email().matches(".*@asi-australia\\.com\\.au$");
+    }
+
+    function userDoc() {
+      return firestore.get(/databases/(default)/documents/users/$(request.auth.uid));
+    }
+
+    function userRole() {
+      return userDoc().data.role;
+    }
+
+    function isStaff() {
+      return signedIn() && (isAdminEmail() || isAsiEmail() || userRole() == "admin" || userRole() == "technician");
+    }
+
+    match /jobs/{allPaths=**} {
+      allow read, write: if isStaff();
+    }
+  }
+}

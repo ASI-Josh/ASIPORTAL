@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ClipboardList, Search, Calendar, Plus, FileText, Download } from "lucide-react";
 import { useJobs } from "@/contexts/JobsContext";
+import { worksEntryToDisplay } from "@/lib/jobs-data";
 
 function getStatusColor(status: string) {
   switch (status) {
@@ -25,6 +26,8 @@ function getStatusColor(status: string) {
       return "text-amber-400";
     case "Scheduled":
       return "text-blue-400";
+    case "Deleted":
+      return "text-red-400";
     default:
       return "text-muted-foreground";
   }
@@ -45,12 +48,25 @@ function getComplianceColor(compliance: string) {
 
 export default function WorksRegisterPage() {
   const router = useRouter();
-  const { getWorksRegisterDisplayData, worksRegister, jobs } = useJobs();
+  const { worksRegister, jobs, deletedJobs } = useJobs();
   const [searchQuery, setSearchQuery] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
 
-  const worksData = getWorksRegisterDisplayData();
+  const deletedJobIds = new Set(deletedJobs.map((job) => job.id));
+  const deletedJobNumbers = new Set(deletedJobs.map((job) => job.jobNumber));
+
+  const worksData = worksRegister.map((entry) => {
+    const display = worksEntryToDisplay(entry);
+    const isDeleted =
+      deletedJobIds.has(entry.jobId) || deletedJobNumbers.has(entry.jobNumber);
+    return {
+      ...display,
+      jobId: entry.jobId,
+      isDeleted,
+      status: isDeleted ? "Deleted" : display.status,
+    };
+  });
 
   // Filter by search and date range
   const filteredData = worksData.filter((work) => {
@@ -67,14 +83,16 @@ export default function WorksRegisterPage() {
     return matchesSearch && matchesDateRange;
   });
 
-  // Summary stats
-  const totalJobs = worksData.length;
-  const completedJobs = worksData.filter((w) => w.status === "Completed").length;
-  const inProgressJobs = worksData.filter((w) => w.status === "In Progress").length;
+  const activeWorksData = worksData.filter((work) => !work.isDeleted);
+
+  // Summary stats (exclude deleted jobs)
+  const totalJobs = activeWorksData.length;
+  const completedJobs = activeWorksData.filter((w) => w.status === "Completed").length;
+  const inProgressJobs = activeWorksData.filter((w) => w.status === "In Progress").length;
   const complianceRate =
     totalJobs > 0
       ? Math.round(
-          (worksData.filter((w) => w.compliance === "Compliant").length / totalJobs) * 100
+          (activeWorksData.filter((w) => w.compliance === "Compliant").length / totalJobs) * 100
         )
       : 0;
 
@@ -201,17 +219,19 @@ export default function WorksRegisterPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredData.map((work) => (
-                    <TableRow
-                      key={work.jobNumber}
-                      className="hover:bg-muted/20 cursor-pointer"
-                      onClick={() => {
-                        const job = jobs.find((j) => j.jobNumber === work.jobNumber);
+                    {filteredData.map((work) => (
+                      <TableRow
+                        key={work.jobNumber}
+                        className="hover:bg-muted/20 cursor-pointer"
+                        onClick={() => {
+                        const job =
+                          jobs.find((j) => j.jobNumber === work.jobNumber) ||
+                          deletedJobs.find((j) => j.jobNumber === work.jobNumber);
                         if (job) {
                           router.push(`/dashboard/jobs/${job.id}`);
                         }
-                      }}
-                    >
+                        }}
+                      >
                       <TableCell className="font-medium text-primary">
                         {work.jobNumber}
                       </TableCell>

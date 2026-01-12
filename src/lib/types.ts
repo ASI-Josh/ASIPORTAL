@@ -91,6 +91,16 @@ export interface JobVehicle {
 
 export type RepairType = BookingType;
 
+export type RepairWorkStatus = "not_started" | "in_progress" | "on_hold" | "completed";
+export type RepairWorkLogStatus = "started" | "held" | "resumed" | "completed";
+
+export interface RepairWorkLogEntry {
+  status: RepairWorkLogStatus;
+  at: Timestamp;
+  by: string;
+  note?: string;
+}
+
 export interface RepairSite {
   id: string;
   repairType: RepairType;
@@ -107,6 +117,8 @@ export interface RepairSite {
   materialsCost: number; // totalCost * 0.30
   // Status
   isCompleted: boolean;
+  workStatus?: RepairWorkStatus;
+  workLog?: RepairWorkLogEntry[];
   completedAt?: Timestamp;
   completedBy?: string;
 }
@@ -229,6 +241,7 @@ export interface Booking {
 export interface Job {
   id: string;
   jobNumber: string;
+  jobDescription?: string;
   clientId: string;
   clientName: string;
   clientEmail: string;
@@ -252,6 +265,11 @@ export interface Job {
   createdBy: string;
   updatedAt: Timestamp;
   notes?: string;
+  isDeleted?: boolean;
+  deletedAt?: Timestamp;
+  deletedBy?: string;
+  restoredAt?: Timestamp;
+  restoredBy?: string;
   // Site location for the job
   siteLocation?: {
     name: string;
@@ -400,6 +418,7 @@ export interface ContactOrganization {
   category: ContactCategory;
   type: OrganizationType;
   status: OrganizationStatus;
+  jobCode?: string;
   abn?: string;
   marketStream?: MarketStream;
   domains?: string[];

@@ -2,7 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Timestamp, collection, onSnapshot, orderBy, query, where } from "firebase/firestore";
+import {
+  Timestamp,
+  collection,
+  onSnapshot,
+  orderBy,
+  query,
+  where,
+} from "firebase/firestore";
 import { format } from "date-fns";
 import {
   CalendarIcon,
@@ -59,8 +66,10 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { ADMIN_EMAILS, determineUserRole } from "@/lib/auth";
 
 import {
+  Booking,
   BookingType,
   BOOKING_TYPE_LABELS,
   ContactCategory,
@@ -70,9 +79,11 @@ import {
   SiteLocation,
   Address,
 } from "@/lib/types";
-import { COLLECTIONS, addDocument } from "@/lib/firestore";
+import { initialOrganizations, initialContacts } from "@/lib/contacts-data";
+import { COLLECTIONS, addDocument, createDocument } from "@/lib/firestore";
 import { db } from "@/lib/firebaseClient";
 import { useJobs } from "@/contexts/JobsContext";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface NewOrganisationFormData {
   name: string;
@@ -96,17 +107,39 @@ interface NewContactFormData {
   jobTitle: string;
 }
 
-type StaffMember = { id: string; name: string; type: "asi_staff" | "subcontractor" };
+type StaffMember = {
+  id: string;
+  name: string;
+  type: "asi_staff" | "subcontractor";
+  email?: string;
+};
 
 export default function BookingsPage() {
   const router = useRouter();
   const { toast } = useToast();
-  const { bookings, createBooking } = useJobs();
+  const {
+    bookings,
+    deletedJobs,
+    createBooking,
+    updateBooking,
+    updateJob,
+    worksRegister,
+    updateWorksRegisterEntry,
+  } = useJobs();
+  const { user } = useAuth();
 
   // Shared data state (Firestore-backed)
   const [organizations, setOrganizations] = useState<ContactOrganization[]>([]);
   const [contacts, setContacts] = useState<OrganizationContact[]>([]);
+  const [roleStaffList, setRoleStaffList] = useState<StaffMember[]>([]);
+  const [adminStaffList, setAdminStaffList] = useState<StaffMember[]>([]);
+  const [asiContactStaffList, setAsiContactStaffList] = useState<StaffMember[]>([]);
   const [staffList, setStaffList] = useState<StaffMember[]>([]);
+  const [orgsError, setOrgsError] = useState<string | null>(null);
+  const [contactsError, setContactsError] = useState<string | null>(null);
+  const [staffError, setStaffError] = useState<string | null>(null);
+  const [hasLoadedOrgs, setHasLoadedOrgs] = useState(false);
+  const [hasSeededOrgs, setHasSeededOrgs] = useState(false);
 
   // State for booking list view
   const [searchQuery, setSearchQuery] = useState("");
@@ -132,6 +165,15 @@ export default function BookingsPage() {
   const [scheduledTime, setScheduledTime] = useState("");
   const [selectedStaff, setSelectedStaff] = useState<StaffMember[]>([]);
   const [bookingNotes, setBookingNotes] = useState("");
+  const [editingBooking, setEditingBooking] = useState<Booking | null>(null);
+  const [editScheduledDate, setEditScheduledDate] = useState<Date | undefined>();
+  const [editScheduledTime, setEditScheduledTime] = useState("");
+  const [editStaff, setEditStaff] = useState<StaffMember[]>([]);
+  const [editNotes, setEditNotes] = useState("");
+  const [editOrganizationId, setEditOrganizationId] = useState("");
+  const [editContactId, setEditContactId] = useState("");
+  const [editContactsList, setEditContactsList] = useState<OrganizationContact[]>([]);
+  const [editContactsError, setEditContactsError] = useState<string | null>(null);
 
   // New contact dialog (includes option to add new organisation)
   const [showNewContactDialog, setShowNewContactDialog] = useState(false);
@@ -167,50 +209,299 @@ export default function BookingsPage() {
 
   useEffect(() => {
     const orgQuery = query(collection(db, COLLECTIONS.CONTACT_ORGANIZATIONS), orderBy("name"));
-    const contactQuery = query(collection(db, COLLECTIONS.ORGANIZATION_CONTACTS), orderBy("firstName"));
     const staffQuery = query(
       collection(db, COLLECTIONS.USERS),
-      where("role", "in", ["technician", "contractor"])
+      where("role", "in", ["technician", "contractor", "admin"])
     );
 
-    const unsubscribeOrgs = onSnapshot(orgQuery, (snapshot) => {
-      const loaded = snapshot.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...(docSnap.data() as Omit<ContactOrganization, "id">),
-      }));
-      setOrganizations(loaded);
-    });
+    const unsubscribeOrgs = onSnapshot(
+      orgQuery,
+      (snapshot) => {
+        const loaded = snapshot.docs.map((docSnap) => ({
+          id: docSnap.id,
+          ...(docSnap.data() as Omit<ContactOrganization, "id">),
+        }));
+        setOrganizations(loaded);
+        setOrgsError(null);
+        setHasLoadedOrgs(true);
+      },
+      (error) => {
+        console.warn("Failed to load organisations:", error);
+        setOrganizations([]);
+        setOrgsError(error.message || "Unable to load organisations.");
+        setHasLoadedOrgs(true);
+      }
+    );
 
-    const unsubscribeContacts = onSnapshot(contactQuery, (snapshot) => {
-      const loaded = snapshot.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...(docSnap.data() as Omit<OrganizationContact, "id">),
-      }));
-      setContacts(loaded);
-    });
-
-    const unsubscribeStaff = onSnapshot(staffQuery, (snapshot) => {
-      const loaded: StaffMember[] = snapshot.docs
-        .map((docSnap) => {
-          const data = docSnap.data() as { name?: string; role?: string };
-          const staffType: StaffMember["type"] =
-            data.role === "contractor" ? "subcontractor" : "asi_staff";
-          return {
-            id: docSnap.id,
-            name: data.name || "Unknown",
-            type: staffType,
-          };
-        })
-        .sort((a, b) => a.name.localeCompare(b.name));
-      setStaffList(loaded);
-    });
+    const unsubscribeStaff = onSnapshot(
+      staffQuery,
+      (snapshot) => {
+        const loaded = snapshot.docs
+          .map((docSnap) => {
+            const data = docSnap.data() as { name?: string; role?: string; email?: string };
+            const role = (data.role as string | undefined)
+              ?? determineUserRole(data.email || "", "client");
+            const staffType: StaffMember["type"] =
+              role === "contractor" ? "subcontractor" : "asi_staff";
+            return {
+              id: docSnap.id,
+              name: data.name || data.email || "Unknown",
+              type: staffType,
+              email: data.email,
+            };
+          })
+          .sort((a, b) => a.name.localeCompare(b.name));
+        setRoleStaffList(loaded);
+        setStaffError(null);
+      },
+      (error) => {
+        console.warn("Failed to load staff list:", error);
+        setRoleStaffList([]);
+        setStaffError(error.message || "Unable to load staff.");
+      }
+    );
 
     return () => {
       unsubscribeOrgs();
-      unsubscribeContacts();
       unsubscribeStaff();
     };
   }, []);
+
+  useEffect(() => {
+    if (ADMIN_EMAILS.length === 0) return;
+
+    const adminQuery = query(
+      collection(db, COLLECTIONS.USERS),
+      where("email", "in", ADMIN_EMAILS)
+    );
+
+    const unsubscribeAdmins = onSnapshot(
+      adminQuery,
+      (snapshot) => {
+        const loaded = snapshot.docs
+          .map((docSnap) => {
+            const data = docSnap.data() as { name?: string; role?: string; email?: string };
+            const role = (data.role as string | undefined)
+              ?? determineUserRole(data.email || "", "client");
+            const staffType: StaffMember["type"] =
+              role === "contractor" ? "subcontractor" : "asi_staff";
+            return {
+              id: docSnap.id,
+              name: data.name || data.email || "Unknown",
+              type: staffType,
+              email: data.email,
+            };
+          })
+          .sort((a, b) => a.name.localeCompare(b.name));
+        setAdminStaffList(loaded);
+      },
+      (error) => {
+        console.warn("Failed to load admin staff list:", error);
+        setAdminStaffList([]);
+      }
+    );
+
+    return () => unsubscribeAdmins();
+  }, []);
+
+  useEffect(() => {
+    const asiOrgIds = organizations
+      .filter(
+        (org) =>
+          org.category === "asi_staff" ||
+          org.domains?.some(
+            (domain) => domain.toLowerCase().trim() === "asi-australia.com.au"
+          )
+      )
+      .map((org) => org.id);
+
+    if (asiOrgIds.length === 0) {
+      setAsiContactStaffList([]);
+      return;
+    }
+
+    const staffByOrg = new Map<string, StaffMember[]>();
+    const mergeStaff = () => {
+      const merged = new Map<string, StaffMember>();
+      for (const orgStaff of staffByOrg.values()) {
+        orgStaff.forEach((staff) => {
+          const key = staff.email?.toLowerCase().trim() || staff.id;
+          if (!merged.has(key)) {
+            merged.set(key, staff);
+          }
+        });
+      }
+      setAsiContactStaffList(
+        Array.from(merged.values()).sort((a, b) => a.name.localeCompare(b.name))
+      );
+    };
+
+    const unsubscribers = asiOrgIds.map((orgId) => {
+      const contactQuery = query(
+        collection(db, COLLECTIONS.ORGANIZATION_CONTACTS),
+        where("organizationId", "==", orgId)
+      );
+
+      return onSnapshot(
+        contactQuery,
+        (snapshot) => {
+          const loaded = snapshot.docs
+            .map((docSnap) => {
+              const data = docSnap.data() as OrganizationContact;
+              if (data.status === "inactive") return null;
+              const fullName = `${data.firstName} ${data.lastName}`.trim();
+              return {
+                id: data.portalUserId || docSnap.id,
+                name: fullName || data.email || "Unknown",
+                type: "asi_staff",
+                email: data.email,
+              };
+            })
+            .filter((staff): staff is StaffMember => staff !== null)
+            .sort((a, b) => a.name.localeCompare(b.name));
+
+          staffByOrg.set(orgId, loaded);
+          mergeStaff();
+        },
+        (error) => {
+          console.warn("Failed to load ASI contact staff:", error);
+          staffByOrg.set(orgId, []);
+          mergeStaff();
+        }
+      );
+    });
+
+    return () => {
+      unsubscribers.forEach((unsubscribe) => unsubscribe());
+    };
+  }, [organizations]);
+
+  useEffect(() => {
+    if (!editOrganizationId) {
+      setEditContactsList([]);
+      setEditContactsError(null);
+      return;
+    }
+
+    const contactQuery = query(
+      collection(db, COLLECTIONS.ORGANIZATION_CONTACTS),
+      where("organizationId", "==", editOrganizationId)
+    );
+
+    const unsubscribe = onSnapshot(
+      contactQuery,
+      (snapshot) => {
+        const loaded = snapshot.docs
+          .map((docSnap) => ({
+            id: docSnap.id,
+            ...(docSnap.data() as Omit<OrganizationContact, "id">),
+          }))
+          .sort((a, b) =>
+            `${a.firstName} ${a.lastName}`.localeCompare(`${b.firstName} ${b.lastName}`)
+          );
+        setEditContactsList(loaded);
+        setEditContactsError(null);
+      },
+      (error) => {
+        console.warn("Failed to load edit contacts:", error);
+        setEditContactsList([]);
+        setEditContactsError(error.message || "Unable to load contacts.");
+      }
+    );
+
+    return () => unsubscribe();
+  }, [editOrganizationId]);
+
+  useEffect(() => {
+    const merged = new Map<string, StaffMember>();
+    const addStaff = (staff: StaffMember) => {
+      const key = staff.email?.toLowerCase().trim() || staff.id;
+      if (!merged.has(key)) {
+        merged.set(key, staff);
+      }
+    };
+
+    roleStaffList.forEach(addStaff);
+    adminStaffList.forEach(addStaff);
+    asiContactStaffList.forEach(addStaff);
+
+    setStaffList(
+      Array.from(merged.values()).sort((a, b) => a.name.localeCompare(b.name))
+    );
+  }, [roleStaffList, adminStaffList, asiContactStaffList]);
+
+  useEffect(() => {
+    if (!hasLoadedOrgs || hasSeededOrgs || orgsError) return;
+    if (user?.role !== "admin" && user?.role !== "technician") return;
+
+    const hasNonAsiOrg = organizations.some((org) => org.category !== "asi_staff");
+    if (hasNonAsiOrg) return;
+
+    const seedContacts = async () => {
+      try {
+        setHasSeededOrgs(true);
+        const existingOrgIds = new Set(organizations.map((org) => org.id));
+        const orgsToSeed = initialOrganizations.filter((org) => !existingOrgIds.has(org.id));
+        if (orgsToSeed.length === 0) return;
+
+        const seedOrgIds = new Set(orgsToSeed.map((org) => org.id));
+        const contactsToSeed = initialContacts.filter((contact) =>
+          seedOrgIds.has(contact.organizationId)
+        );
+
+        await Promise.all(
+          orgsToSeed.map((org) =>
+            createDocument(COLLECTIONS.CONTACT_ORGANIZATIONS, org.id, org)
+          )
+        );
+        await Promise.all(
+          contactsToSeed.map((contact) =>
+            createDocument(COLLECTIONS.ORGANIZATION_CONTACTS, contact.id, contact)
+          )
+        );
+      } catch (error) {
+        console.warn("Failed to seed organisations:", error);
+      }
+    };
+
+    seedContacts();
+  }, [hasLoadedOrgs, hasSeededOrgs, orgsError, organizations.length, user?.role]);
+
+  useEffect(() => {
+    if (!selectedOrganization) {
+      setContacts([]);
+      setContactsError(null);
+      return;
+    }
+
+    const contactQuery = query(
+      collection(db, COLLECTIONS.ORGANIZATION_CONTACTS),
+      where("organizationId", "==", selectedOrganization.id)
+    );
+
+    const unsubscribeContacts = onSnapshot(
+      contactQuery,
+      (snapshot) => {
+        const loaded = snapshot.docs
+          .map((docSnap) => ({
+            id: docSnap.id,
+            ...(docSnap.data() as Omit<OrganizationContact, "id">),
+          }))
+          .sort((a, b) =>
+            `${a.firstName} ${a.lastName}`.localeCompare(`${b.firstName} ${b.lastName}`)
+          );
+        setContacts(loaded);
+        setContactsError(null);
+      },
+      (error) => {
+        console.warn("Failed to load organisation contacts:", error);
+        setContacts([]);
+        setContactsError(error.message || "Unable to load contacts.");
+      }
+    );
+
+    return () => unsubscribeContacts();
+  }, [selectedOrganization]);
 
   // Get contacts for selected organisation
   const organisationContacts = selectedOrganization
@@ -221,6 +512,8 @@ export default function BookingsPage() {
   const selectedDialogOrg = newContactData.organisationId 
     ? organizations.find(o => o.id === newContactData.organisationId)
     : null;
+  const asiStaff = staffList.filter((s) => s.type === "asi_staff");
+  const subcontractors = staffList.filter((s) => s.type === "subcontractor");
 
   // Time slots
   const timeSlots = [
@@ -232,22 +525,23 @@ export default function BookingsPage() {
 
   const handleSelectOrganization = (org: ContactOrganization) => {
     setSelectedOrganization(org);
+    setSelectedContact(null);
     setOrgSearchQuery("");
     
-    // Auto-select primary contact
-    const primaryContact = contacts.find(
-      (c) => c.organizationId === org.id && c.isPrimary
-    );
-    if (primaryContact) {
-      setSelectedContact(primaryContact);
-    }
-
     // Auto-select default site
     const defaultSite = org.sites.find((s) => s.isDefault) || org.sites[0];
     if (defaultSite) {
       setSelectedSite(defaultSite);
     }
   };
+
+  useEffect(() => {
+    if (!selectedOrganization || selectedContact) return;
+    const primaryContact = contacts.find((c) => c.isPrimary);
+    if (primaryContact) {
+      setSelectedContact(primaryContact);
+    }
+  }, [selectedOrganization, selectedContact, contacts]);
 
   const handleCreateContact = async () => {
     let targetOrgId = newContactData.organisationId;
@@ -486,17 +780,171 @@ export default function BookingsPage() {
     resetNewContactForm();
   };
 
+  const handleOpenEditBooking = (booking: Booking) => {
+    setEditingBooking(booking);
+    setEditScheduledDate(booking.scheduledDate.toDate());
+    setEditScheduledTime(booking.scheduledTime);
+    setEditNotes(booking.notes || "");
+    setEditOrganizationId(booking.organizationId);
+    setEditContactId(booking.contactId);
+    setEditStaff(
+      booking.allocatedStaff.map((staff) => ({
+        id: staff.id,
+        name: staff.name,
+        type: staff.type,
+      }))
+    );
+  };
+
+  const handleCloseEditBooking = () => {
+    setEditingBooking(null);
+    setEditScheduledDate(undefined);
+    setEditScheduledTime("");
+    setEditStaff([]);
+    setEditNotes("");
+    setEditOrganizationId("");
+    setEditContactId("");
+    setEditContactsList([]);
+    setEditContactsError(null);
+  };
+
+  const handleToggleEditStaff = (staff: StaffMember) => {
+    setEditStaff((prev) => {
+      const exists = prev.find((s) => s.id === staff.id);
+      if (exists) {
+        return prev.filter((s) => s.id !== staff.id);
+      }
+      return [...prev, staff];
+    });
+  };
+
+  const handleUpdateBooking = async () => {
+    if (!editingBooking || !editScheduledDate || !editScheduledTime || editStaff.length === 0) {
+      return;
+    }
+
+    const selectedOrg =
+      organizations.find((org) => org.id === editOrganizationId) || selectedOrganization;
+    if (!selectedOrg) {
+      toast({
+        title: "Missing Organisation",
+        description: "Select an organisation before saving.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const selectedContact =
+      editContactsList.find((contact) => contact.id === editContactId) || null;
+    if (!selectedContact) {
+      toast({
+        title: "Missing Contact",
+        description: "Select a contact before saving.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const updatedStaff = editStaff.map((staff) => ({
+      id: staff.id,
+      name: staff.name,
+      type: staff.type,
+    }));
+
+    try {
+      await updateBooking(editingBooking.id, {
+        organizationId: selectedOrg.id,
+        organizationName: selectedOrg.name,
+        contactId: selectedContact.id,
+        contactName: `${selectedContact.firstName} ${selectedContact.lastName}`.trim(),
+        contactEmail: selectedContact.email,
+        contactPhone: selectedContact.mobile || selectedContact.phone,
+        scheduledDate: Timestamp.fromDate(editScheduledDate),
+        scheduledTime: editScheduledTime,
+        allocatedStaff: updatedStaff,
+        allocatedStaffIds: updatedStaff.map((staff) => staff.id),
+        notes: editNotes || undefined,
+      });
+
+      if (editingBooking.convertedJobId) {
+        const now = Timestamp.now();
+        const assignedTechnicians = updatedStaff.map((staff, index) => ({
+          technicianId: staff.id,
+          technicianName: staff.name,
+          role: index === 0 ? "primary" : "secondary",
+          assignedAt: now,
+          assignedBy: user?.uid || "system",
+        }));
+        await updateJob(editingBooking.convertedJobId, {
+          clientId: selectedOrg.id,
+          clientName: selectedOrg.name,
+          clientEmail: selectedContact.email,
+          clientPhone: selectedContact.mobile || selectedContact.phone,
+          organizationId: selectedOrg.id,
+          assignedTechnicians,
+          assignedTechnicianIds: updatedStaff.map((staff) => staff.id),
+          scheduledDate: Timestamp.fromDate(editScheduledDate),
+          updatedAt: now,
+        });
+
+        const worksEntry = worksRegister.find(
+          (entry) => entry.jobId === editingBooking.convertedJobId
+        );
+        if (worksEntry) {
+          await updateWorksRegisterEntry(worksEntry.id, {
+            organizationId: selectedOrg.id,
+            clientName: selectedOrg.name,
+            technicianId: updatedStaff[0]?.id || "unassigned",
+            technicianName: updatedStaff[0]?.name || "Unassigned",
+            startDate: Timestamp.fromDate(editScheduledDate),
+          });
+        }
+      }
+
+      toast({
+        title: "Booking Updated",
+        description: "Booking details have been saved.",
+      });
+      handleCloseEditBooking();
+    } catch (error: any) {
+      toast({
+        title: "Update Failed",
+        description: error.message || "Unable to update booking.",
+        variant: "destructive",
+      });
+    }
+  };
+
   const canProceedToStep2 = bookingType !== "";
   const canProceedToStep3 = selectedOrganization !== null && selectedContact !== null;
   const canProceedToStep4 = scheduledDate !== undefined && scheduledTime !== "" && (selectedSite !== null || useCustomSite);
   const canSubmit = selectedStaff.length > 0;
 
-  const filteredBookings = bookings.filter(
-    (b) =>
-      b.bookingNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      b.organizationName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      b.contactName.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const editStaffOptions = (() => {
+    const merged = new Map<string, StaffMember>();
+    const addStaff = (staff: StaffMember) => {
+      const key = staff.email?.toLowerCase().trim() || staff.id;
+      if (!merged.has(key)) {
+        merged.set(key, staff);
+      }
+    };
+    staffList.forEach(addStaff);
+    editStaff.forEach(addStaff);
+    return Array.from(merged.values()).sort((a, b) => a.name.localeCompare(b.name));
+  })();
+  const editAsiStaff = editStaffOptions.filter((s) => s.type === "asi_staff");
+  const editSubcontractors = editStaffOptions.filter((s) => s.type === "subcontractor");
+
+  const deletedJobIds = new Set(deletedJobs.map((job) => job.id));
+  const filteredBookings = bookings.filter((booking) => {
+    const matchesSearch =
+      booking.bookingNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      booking.organizationName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      booking.contactName.toLowerCase().includes(searchQuery.toLowerCase());
+    const hasDeletedJob =
+      booking.convertedJobId && deletedJobIds.has(booking.convertedJobId);
+    return matchesSearch && !hasDeletedJob;
+  });
 
   return (
     <div className="space-y-6">
@@ -952,6 +1400,11 @@ export default function BookingsPage() {
                               className="pl-10"
                             />
                           </div>
+                          {orgsError && (
+                            <p className="text-sm text-destructive">
+                              Unable to load organisations. Check your Firestore permissions or indexes.
+                            </p>
+                          )}
                           <ScrollArea className="h-[200px]">
                             <div className="space-y-2">
                               {filteredOrganizations.map((org) => (
@@ -976,6 +1429,11 @@ export default function BookingsPage() {
                                   </CardContent>
                                 </Card>
                               ))}
+                              {filteredOrganizations.length === 0 && !orgsError && (
+                                <p className="text-sm text-muted-foreground">
+                                  No organisations available. Add one in Contacts or adjust permissions.
+                                </p>
+                              )}
                             </div>
                           </ScrollArea>
                         </div>
@@ -1142,6 +1600,16 @@ export default function BookingsPage() {
                               </CardContent>
                             </Card>
                           ))}
+                          {contactsError && (
+                            <p className="text-sm text-destructive">
+                              Unable to load contacts. Check Firestore permissions or refresh.
+                            </p>
+                          )}
+                          {!contactsError && organisationContacts.length === 0 && (
+                            <p className="text-sm text-muted-foreground">
+                              No contacts found for this organisation. Add one to continue.
+                            </p>
+                          )}
                         </div>
                       </div>
                     )}
@@ -1349,6 +1817,11 @@ export default function BookingsPage() {
                       <p className="text-sm text-muted-foreground">
                         Select ASI staff and/or subcontractors for this job
                       </p>
+                      {staffError && (
+                        <p className="text-sm text-destructive mt-2">
+                          Unable to load staff list. Check Firestore permissions and refresh.
+                        </p>
+                      )}
                     </div>
 
                     <div className="space-y-4">
@@ -1358,9 +1831,7 @@ export default function BookingsPage() {
                           ASI Staff
                         </h4>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          {staffList
-                            .filter((s) => s.type === "asi_staff")
-                            .map((staff) => (
+                          {asiStaff.map((staff) => (
                               <Card
                                 key={staff.id}
                                 className={cn(
@@ -1385,6 +1856,11 @@ export default function BookingsPage() {
                                 </CardContent>
                               </Card>
                             ))}
+                          {!staffError && asiStaff.length === 0 && (
+                            <p className="text-sm text-muted-foreground">
+                              No ASI staff accounts found. Check the Users collection.
+                            </p>
+                          )}
                         </div>
                       </div>
 
@@ -1394,9 +1870,7 @@ export default function BookingsPage() {
                           Subcontractors
                         </h4>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          {staffList
-                            .filter((s) => s.type === "subcontractor")
-                            .map((staff) => (
+                          {subcontractors.map((staff) => (
                               <Card
                                 key={staff.id}
                                 className={cn(
@@ -1421,6 +1895,11 @@ export default function BookingsPage() {
                                 </CardContent>
                               </Card>
                             ))}
+                          {!staffError && subcontractors.length === 0 && (
+                            <p className="text-sm text-muted-foreground">
+                              No subcontractor accounts found. Add one in Contacts or Users.
+                            </p>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -1659,6 +2138,13 @@ export default function BookingsPage() {
                     <Button
                       variant="ghost"
                       size="sm"
+                      onClick={() => handleOpenEditBooking(booking)}
+                    >
+                      Edit
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
                       onClick={() => {
                         if (booking.convertedJobId) {
                           router.push(`/dashboard/jobs/${booking.convertedJobId}`);
@@ -1687,6 +2173,224 @@ export default function BookingsPage() {
           </Table>
         </CardContent>
       </Card>
+
+      <Dialog open={!!editingBooking} onOpenChange={(open) => {
+        if (!open) handleCloseEditBooking();
+      }}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Edit Booking</DialogTitle>
+            <DialogDescription>
+              Update the booking schedule, assigned staff, and notes.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-6 py-2">
+            <div className="space-y-3">
+              <Label className="text-base font-semibold">Organisation</Label>
+              <Select
+                value={editOrganizationId}
+                onValueChange={(value) => {
+                  setEditOrganizationId(value);
+                  setEditContactId("");
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select organisation" />
+                </SelectTrigger>
+                <SelectContent>
+                  {organizations.map((org) => (
+                    <SelectItem key={org.id} value={org.id}>
+                      {org.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-3">
+              <Label className="text-base font-semibold">Contact</Label>
+              <Select
+                value={editContactId}
+                onValueChange={setEditContactId}
+                disabled={!editOrganizationId}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select contact" />
+                </SelectTrigger>
+                <SelectContent>
+                  {editContactsList.map((contact) => (
+                    <SelectItem key={contact.id} value={contact.id}>
+                      {contact.firstName} {contact.lastName}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {editContactsError && (
+                <p className="text-sm text-destructive">
+                  Unable to load contacts. Check permissions and refresh.
+                </p>
+              )}
+              {!editContactsError && editOrganizationId && editContactsList.length === 0 && (
+                <p className="text-sm text-muted-foreground">
+                  No contacts found for this organisation.
+                </p>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Booking Date *</Label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className={cn(
+                        "w-full justify-start text-left font-normal",
+                        !editScheduledDate && "text-muted-foreground"
+                      )}
+                    >
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                      {editScheduledDate ? format(editScheduledDate, "PPP") : "Select date"}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={editScheduledDate}
+                      onSelect={setEditScheduledDate}
+                      initialFocus
+                    />
+                  </PopoverContent>
+                </Popover>
+              </div>
+              <div className="space-y-2">
+                <Label>Booking Time *</Label>
+                <Select value={editScheduledTime} onValueChange={setEditScheduledTime}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select time" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {timeSlots.map((slot) => (
+                      <SelectItem key={slot} value={slot}>
+                        {slot}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <Label className="text-base font-semibold">Assigned Staff *</Label>
+                {staffError && (
+                  <span className="text-xs text-destructive">Unable to load staff list.</span>
+                )}
+              </div>
+              <div className="space-y-4">
+                <div>
+                  <p className="text-sm font-medium mb-2">ASI Staff</p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {editAsiStaff.map((staff) => (
+                      <Card
+                        key={staff.email ? staff.email.toLowerCase() : staff.id}
+                        className={cn(
+                          "cursor-pointer transition-all hover:border-primary/50",
+                          editStaff.find((s) => s.id === staff.id)
+                            ? "border-primary bg-primary/5"
+                            : "border-border/50"
+                        )}
+                        onClick={() => handleToggleEditStaff(staff)}
+                      >
+                        <CardContent className="p-4">
+                          <div className="flex items-center gap-3">
+                            <Checkbox
+                              checked={!!editStaff.find((s) => s.id === staff.id)}
+                              onCheckedChange={() => handleToggleEditStaff(staff)}
+                            />
+                            <div className="flex items-center gap-2">
+                              <User className="h-4 w-4 text-muted-foreground" />
+                              <span className="font-medium">{staff.name}</span>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                    {!staffError && editAsiStaff.length === 0 && (
+                      <p className="text-sm text-muted-foreground">
+                        No ASI staff accounts found.
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                <div>
+                  <p className="text-sm font-medium mb-2">Subcontractors</p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {editSubcontractors.map((staff) => (
+                      <Card
+                        key={staff.email ? staff.email.toLowerCase() : staff.id}
+                        className={cn(
+                          "cursor-pointer transition-all hover:border-primary/50",
+                          editStaff.find((s) => s.id === staff.id)
+                            ? "border-primary bg-primary/5"
+                            : "border-border/50"
+                        )}
+                        onClick={() => handleToggleEditStaff(staff)}
+                      >
+                        <CardContent className="p-4">
+                          <div className="flex items-center gap-3">
+                            <Checkbox
+                              checked={!!editStaff.find((s) => s.id === staff.id)}
+                              onCheckedChange={() => handleToggleEditStaff(staff)}
+                            />
+                            <div className="flex items-center gap-2">
+                              <Building2 className="h-4 w-4 text-muted-foreground" />
+                              <span className="font-medium">{staff.name}</span>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                    {!staffError && editSubcontractors.length === 0 && (
+                      <p className="text-sm text-muted-foreground">
+                        No subcontractor accounts found.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Booking Notes</Label>
+              <Textarea
+                value={editNotes}
+                onChange={(e) => setEditNotes(e.target.value)}
+                placeholder="Optional booking notes..."
+                rows={3}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={handleCloseEditBooking}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleUpdateBooking}
+              disabled={
+                !editOrganizationId ||
+                !editContactId ||
+                !editScheduledDate ||
+                !editScheduledTime ||
+                editStaff.length === 0
+              }
+            >
+              Save Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

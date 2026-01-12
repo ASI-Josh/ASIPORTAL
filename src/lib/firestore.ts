@@ -135,26 +135,82 @@ export async function getOrganizationByDomain(
 // AUTO-INCREMENT HELPERS
 // ============================================
 
-export async function generateJobNumber(): Promise<string> {
+function normaliseJobCode(value: string) {
+  const cleaned = value.replace(/[^a-zA-Z0-9]/g, "");
+  if (!cleaned) return "JOB";
+  const upper = cleaned.toUpperCase();
+  return upper.length >= 3 ? upper.slice(0, 3) : upper.padEnd(3, "X");
+}
+
+function getOrganizationJobCode(organization: ContactOrganization) {
+  if (organization.jobCode?.trim()) {
+    return normaliseJobCode(organization.jobCode.trim());
+  }
+
+  const domain = organization.domains?.find(Boolean);
+  if (domain) {
+    const base = domain.replace(/^www\./i, "").split(".")[0] || "";
+    const domainCode = normaliseJobCode(base);
+    if (domainCode !== "JOB") return domainCode;
+  }
+
+  const stopWords = new Set([
+    "pty",
+    "ltd",
+    "limited",
+    "the",
+    "and",
+    "group",
+    "company",
+    "co",
+    "inc",
+    "australia",
+    "aust",
+  ]);
+  const cleanedName = organization.name.replace(/[^a-zA-Z0-9 ]/g, " ");
+  const words = cleanedName
+    .split(/\s+/)
+    .filter((word) => word && !stopWords.has(word.toLowerCase()));
+  const base = words[0] || cleanedName || "JOB";
+  return normaliseJobCode(base);
+}
+
+export async function generateJobNumber(
+  organization: ContactOrganization
+): Promise<string> {
   const year = new Date().getFullYear();
+  const yearSuffix = String(year).slice(-2);
+  const jobCode = getOrganizationJobCode(organization);
+  const prefix = `${jobCode}-${yearSuffix}-`;
+
   const jobsRef = collection(db, COLLECTIONS.JOBS);
+  const startOfYear = Timestamp.fromDate(new Date(year, 0, 1));
+  const startOfNextYear = Timestamp.fromDate(new Date(year + 1, 0, 1));
   const q = query(
     jobsRef,
-    where("jobNumber", ">=", `JOB-${year}-`),
-    where("jobNumber", "<", `JOB-${year + 1}-`),
-    orderBy("jobNumber", "desc"),
+    where("organizationId", "==", organization.id),
+    where("createdAt", ">=", startOfYear),
+    where("createdAt", "<", startOfNextYear),
+    orderBy("createdAt", "desc"),
     limit(1)
   );
 
   const snapshot = await getDocs(q);
   if (snapshot.empty) {
-    return `JOB-${year}-0001`;
+    return `${prefix}0001`;
   }
 
-  const lastJobNumber = snapshot.docs[0].data().jobNumber as string;
-  const lastNumber = parseInt(lastJobNumber.split("-")[2]);
-  const nextNumber = (lastNumber + 1).toString().padStart(4, "0");
-  return `JOB-${year}-${nextNumber}`;
+  const lastJobNumber = snapshot.docs[0].data().jobNumber as string | undefined;
+  if (!lastJobNumber || !lastJobNumber.startsWith(prefix)) {
+    return `${prefix}0001`;
+  }
+
+  const lastNumber = parseInt(lastJobNumber.split("-")[2] || "", 10);
+  const nextNumber = Number.isFinite(lastNumber)
+    ? (lastNumber + 1).toString().padStart(4, "0")
+    : "0001";
+
+  return `${prefix}${nextNumber}`;
 }
 
 export async function generateInspectionNumber(): Promise<string> {

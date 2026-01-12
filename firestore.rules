@@ -1,0 +1,112 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function email() {
+      return request.auth.token.email;
+    }
+
+    function isAdminEmail() {
+      return email() in [
+        "joshua@asi-australia.com.au",
+        "jaydan@asi-australia.com.au",
+        "bobby@asi-australia.com.au"
+      ];
+    }
+
+    function isAsiEmail() {
+      return email() != null && email().matches(".*@asi-australia\\.com\\.au$");
+    }
+
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function userExists() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function userRole() {
+      return userDoc().data.role;
+    }
+
+    function userOrgId() {
+      return userDoc().data.organizationId;
+    }
+
+    function isAdmin() {
+      return signedIn() && userRole() == "admin";
+    }
+
+    function isTechnician() {
+      return signedIn() && userRole() == "technician";
+    }
+
+    function isStaff() {
+      return signedIn() && (isAdminEmail() || isAsiEmail() || isAdmin() || isTechnician());
+    }
+
+    function hasOrg(orgId) {
+      return signedIn() && userOrgId() != null && userOrgId() == orgId;
+    }
+
+    match /users/{userId} {
+      allow read: if signedIn() && request.auth.uid == userId;
+      allow read: if signedIn() && (isAdminEmail() || isAsiEmail())
+        && resource.data.role in ["admin", "technician", "contractor"];
+      allow read: if signedIn() && isAdminEmail()
+        && resource.data.email in [
+          "joshua@asi-australia.com.au",
+          "jaydan@asi-australia.com.au",
+          "bobby@asi-australia.com.au"
+        ];
+      allow create: if signedIn() && request.auth.uid == userId;
+      allow update: if signedIn() && request.auth.uid == userId;
+      allow delete: if isAdmin();
+    }
+
+    match /contactOrganizations/{orgId} {
+      allow read: if isStaff() || hasOrg(orgId) || !userExists();
+      allow create: if signedIn() && (!userExists() || isStaff());
+      allow update: if isStaff();
+      allow delete: if isAdmin();
+    }
+
+    match /organizationContacts/{contactId} {
+      allow read: if isStaff() || hasOrg(resource.data.organizationId) || !userExists();
+      allow create: if signedIn()
+        && (!userExists() || hasOrg(request.resource.data.organizationId) || isStaff());
+      allow update: if isStaff();
+      allow delete: if isAdmin();
+    }
+
+    match /bookings/{bookingId} {
+      allow read: if isStaff() || hasOrg(resource.data.organizationId);
+      allow create: if isStaff();
+      allow update: if isStaff();
+      allow delete: if isAdmin();
+    }
+
+    match /jobs/{jobId} {
+      allow read: if isStaff() || hasOrg(resource.data.organizationId);
+      allow create: if isStaff();
+      allow update: if isStaff();
+      allow delete: if isAdmin();
+    }
+
+    match /worksRegister/{entryId} {
+      allow read: if isStaff() || hasOrg(resource.data.organizationId);
+      allow create: if isStaff();
+      allow update: if isStaff();
+      allow delete: if isAdmin();
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

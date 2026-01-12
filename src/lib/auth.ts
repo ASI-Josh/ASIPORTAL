@@ -4,7 +4,7 @@ import { UserRole } from "./types";
 // ROLE ASSIGNMENT LOGIC
 // ============================================
 
-const ADMIN_EMAILS = [
+export const ADMIN_EMAILS = [
   "joshua@asi-australia.com.au",
   "jaydan@asi-australia.com.au",
   "bobby@asi-australia.com.au",

@@ -19,6 +19,7 @@ import {
   ClipboardList,
   GitBranch,
   Wrench,
+  Trash2,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import {
@@ -53,6 +54,7 @@ const adminMenuItems = [
   { href: "/dashboard/contacts", label: "Contacts", icon: Building2 },
   { href: "/dashboard/films", label: "Film Management", icon: FileText },
   { href: "/dashboard/works-register", label: "Works Register", icon: ClipboardList },
+  { href: "/dashboard/recycle-bin", label: "Recycle Bin", icon: Trash2 },
   { href: "/dashboard/reports", label: "Reports", icon: FileText },
 ];
 

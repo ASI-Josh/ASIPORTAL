@@ -1,11 +1,15 @@
 "use client";
 
 import { useParams, useRouter } from "next/navigation";
-import { useState, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
+import { Timestamp } from "firebase/firestore";
+import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { useJobs } from "@/contexts/JobsContext";
+import { useAuth } from "@/contexts/AuthContext";
 import { asiStaff } from "@/lib/contacts-data";
 import { generateJobDescriptionAction } from "@/app/actions/ai";
 import { useToast } from "@/hooks/use-toast";
+import { storage } from "@/lib/firebaseClient";
 import type {
   JobStatus,
   JobVehicle,
@@ -14,6 +18,7 @@ import type {
   MicrofiberDiskUsage,
   MicrofiberDiskGrade,
   MicrofiberDiskSize,
+  RepairWorkStatus,
 } from "@/lib/types";
 import {
   BOOKING_TYPE_LABELS,
@@ -43,6 +48,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogTrigger,
 } from "@/components/ui/dialog";
 import {
   Accordion,
@@ -57,6 +63,7 @@ import {
   Plus,
   Trash2,
   ArrowLeft,
+  ArrowRight,
   Phone,
   Mail,
   CheckCircle,
@@ -71,7 +78,6 @@ import {
   CircleDot,
   Pause,
   Clock,
-  Image,
   Upload,
 } from "lucide-react";
 
@@ -90,10 +96,25 @@ const vehicleStatusColors = {
   on_hold: "bg-red-500/20 text-red-400",
 };
 
+const repairStatusColors: Record<RepairWorkStatus, string> = {
+  not_started: "bg-muted text-muted-foreground",
+  in_progress: "bg-blue-500/20 text-blue-400",
+  on_hold: "bg-amber-500/20 text-amber-400",
+  completed: "bg-green-500/20 text-green-400",
+};
+
+const repairStatusLabels: Record<RepairWorkStatus, string> = {
+  not_started: "Not Started",
+  in_progress: "In Progress",
+  on_hold: "On Hold",
+  completed: "Completed",
+};
+
 export default function JobCardPage() {
   const params = useParams();
   const router = useRouter();
-  const { getJobById, updateJob } = useJobs();
+  const { getJobById, updateJob, updateJobStatus, deleteJob } = useJobs();
+  const { user } = useAuth();
   const { toast } = useToast();
   const jobId = params.id as string;
 
@@ -125,39 +146,65 @@ export default function JobCardPage() {
   const [aiRequest, setAiRequest] = useState("");
   const [aiResult, setAiResult] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
-
-  if (!job) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-4">
-        <Briefcase className="h-16 w-16 text-muted-foreground" />
-        <h2 className="text-xl font-semibold">Job Not Found</h2>
-        <p className="text-muted-foreground">The requested job could not be found.</p>
-        <Button onClick={() => router.push("/dashboard/job-lifecycle")}>
-          <ArrowLeft className="mr-2 h-4 w-4" />
-          Back to Job Lifecycle
-        </Button>
-      </div>
-    );
-  }
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [photoPreview, setPhotoPreview] = useState<{ url: string; label: string } | null>(
+    null
+  );
+  const [uploadingPhotos, setUploadingPhotos] = useState<Record<string, boolean>>({});
+  const [jobDescription, setJobDescription] = useState(() =>
+    job?.jobDescription ?? extractAiDescription(job?.notes)
+  );
+  const [descriptionDirty, setDescriptionDirty] = useState(false);
 
   const formatDate = (timestamp: any) => {
     if (!timestamp) return "N/A";
     const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
     return date.toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" });
   };
+  const formatDateTime = (timestamp: any) => {
+    if (!timestamp) return "N/A";
+    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+    return date.toLocaleString("en-AU", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
 
-  // Parse job notes for service type
-  const notesLines = job.notes?.split("\n") || [];
-  const serviceType = notesLines[0]?.replace("Service: ", "") || "Not specified";
+  function extractAiDescription(notes?: string) {
+    if (!notes) return "";
+    const marker = "AI Job Description:";
+    const index = notes.indexOf(marker);
+    if (index === -1) return "";
+    return notes.slice(index + marker.length).trim();
+  }
 
-  // Get technician details
-  const assignedTechs = job.assignedTechnicians.map((assignment) => {
-    const staff = asiStaff.find((s) => s.id === assignment.technicianId);
-    return {
-      ...assignment,
-      name: assignment.technicianName || staff?.name || assignment.technicianId,
-    };
-  });
+  function upsertAiDescription(notes: string, description: string) {
+    const trimmedNotes = notes.trim();
+    const marker = "AI Job Description:";
+    if (!description) {
+      if (!trimmedNotes) return "";
+      if (!trimmedNotes.includes(marker)) return notes;
+      const before = trimmedNotes.split(marker)[0].trimEnd();
+      return before;
+    }
+    if (!trimmedNotes) {
+      return `${marker}\n${description}`.trim();
+    }
+    if (trimmedNotes.includes(marker)) {
+      const before = trimmedNotes.split(marker)[0].trimEnd();
+      return `${before}\n\n${marker}\n${description}`.trim();
+    }
+    return `${trimmedNotes}\n\n${marker}\n${description}`.trim();
+  }
+
+  useEffect(() => {
+    if (!job || descriptionDirty) return;
+    const nextDescription = job.jobDescription ?? extractAiDescription(job.notes);
+    setJobDescription(nextDescription);
+  }, [job, descriptionDirty]);
 
   // Calculate totals
   const jobTotals = useMemo(() => {
@@ -175,6 +222,43 @@ export default function JobCardPage() {
 
     return { totalCost, totalLabour, totalMaterials };
   }, [jobVehicles]);
+
+  if (!job) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-4">
+        <Briefcase className="h-16 w-16 text-muted-foreground" />
+        <h2 className="text-xl font-semibold">Job Not Found</h2>
+        <p className="text-muted-foreground">The requested job could not be found.</p>
+        <Button onClick={() => router.push("/dashboard/job-lifecycle")}>
+          <ArrowLeft className="mr-2 h-4 w-4" />
+          Back to Job Lifecycle
+        </Button>
+      </div>
+    );
+  }
+
+  // Parse job notes for service type
+  const notesLines = job.notes?.split("\n") || [];
+  const serviceType = notesLines[0]?.replace("Service: ", "") || "Not specified";
+
+  // Get technician details
+  const assignedTechs = job.assignedTechnicians.map((assignment) => {
+    const staff = asiStaff.find((s) => s.id === assignment.technicianId);
+    return {
+      ...assignment,
+      name: assignment.technicianName || staff?.name || assignment.technicianId,
+    };
+  });
+
+  const getRepairStatus = (repair: RepairSite): RepairWorkStatus => {
+    if (repair.workStatus) return repair.workStatus;
+    return repair.isCompleted ? "completed" : "not_started";
+  };
+
+  const updateJobVehiclesState = async (updatedVehicles: JobVehicle[]) => {
+    setJobVehicles(updatedVehicles);
+    await updateJob(job.id, { jobVehicles: updatedVehicles });
+  };
 
   // Add new vehicle
   const handleAddVehicle = () => {
@@ -228,6 +312,8 @@ export default function JobCardPage() {
       labourCost,
       materialsCost,
       isCompleted: false,
+      workStatus: "not_started",
+      workLog: [],
     };
 
     setJobVehicles(
@@ -328,6 +414,116 @@ export default function JobCardPage() {
     );
   };
 
+  const handleRepairAction = async (
+    vehicleId: string,
+    repairId: string,
+    action: "start" | "hold" | "resume" | "complete"
+  ) => {
+    const now = Timestamp.now();
+    const changedBy = user?.name || user?.email || user?.uid || "System";
+    const actionToStatus: Record<"start" | "hold" | "resume" | "complete", RepairWorkStatus> = {
+      start: "in_progress",
+      hold: "on_hold",
+      resume: "in_progress",
+      complete: "completed",
+    };
+    const actionToLogStatus: Record<
+      "start" | "hold" | "resume" | "complete",
+      "started" | "held" | "resumed" | "completed"
+    > = {
+      start: "started",
+      hold: "held",
+      resume: "resumed",
+      complete: "completed",
+    };
+
+    const updatedVehicles = jobVehicles.map((v) => {
+      if (v.id !== vehicleId) return v;
+      const updatedRepairs = v.repairSites.map((repair) => {
+        if (repair.id !== repairId) return repair;
+        const workLog = [
+          ...(repair.workLog || []),
+          { status: actionToLogStatus[action], at: now, by: changedBy },
+        ];
+        const nextStatus = actionToStatus[action];
+        const isCompleted = nextStatus === "completed";
+        return {
+          ...repair,
+          workStatus: nextStatus,
+          workLog,
+          isCompleted,
+          completedAt: isCompleted ? now : repair.completedAt,
+          completedBy: isCompleted ? changedBy : repair.completedBy,
+        };
+      });
+      return { ...v, repairSites: updatedRepairs };
+    });
+
+    await updateJobVehiclesState(updatedVehicles);
+
+    const allRepairs = updatedVehicles.flatMap((vehicle) => vehicle.repairSites);
+    if (allRepairs.length > 0) {
+      const allCompleted = allRepairs.every((repair) => getRepairStatus(repair) === "completed");
+      const anyActive = allRepairs.some((repair) => {
+        const status = getRepairStatus(repair);
+        return status === "in_progress" || status === "on_hold";
+      });
+
+      if (allCompleted && job.status !== "completed") {
+        await updateJobStatus(job.id, "completed", changedBy, "All repair sites completed");
+      } else if (anyActive && (job.status === "scheduled" || job.status === "pending")) {
+        await updateJobStatus(job.id, "in_progress", changedBy, "Repair work started");
+      }
+    }
+  };
+
+  const handleRepairPhotoUpload = async (
+    vehicleId: string,
+    repairId: string,
+    kind: "pre" | "post",
+    files: FileList | null
+  ) => {
+    if (!files || files.length === 0) return;
+    const key = `${vehicleId}-${repairId}-${kind}`;
+    setUploadingPhotos((prev) => ({ ...prev, [key]: true }));
+
+    try {
+      const uploadedUrls = await Promise.all(
+        Array.from(files).map(async (file) => {
+          const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+          const path = `jobs/${job.id}/vehicles/${vehicleId}/repairs/${repairId}/${kind}/${Date.now()}-${safeName}`;
+          const fileRef = ref(storage, path);
+          await uploadBytes(fileRef, file, { contentType: file.type });
+          return getDownloadURL(fileRef);
+        })
+      );
+
+      const updatedVehicles = jobVehicles.map((vehicle) => {
+        if (vehicle.id !== vehicleId) return vehicle;
+        const updatedRepairs = vehicle.repairSites.map((repair) => {
+          if (repair.id !== repairId) return repair;
+          const existing =
+            kind === "pre" ? repair.preWorkPhotos ?? [] : repair.postWorkPhotos ?? [];
+          const nextPhotos = [...existing, ...uploadedUrls];
+          return kind === "pre"
+            ? { ...repair, preWorkPhotos: nextPhotos }
+            : { ...repair, postWorkPhotos: nextPhotos };
+        });
+        return { ...vehicle, repairSites: updatedRepairs };
+      });
+
+      await updateJobVehiclesState(updatedVehicles);
+    } catch (error: any) {
+      toast({
+        title: "Upload Failed",
+        description: error.message || "Unable to upload photos. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setUploadingPhotos((prev) => ({ ...prev, [key]: false }));
+    }
+  };
+
   // Delete vehicle
   const handleDeleteVehicle = (vehicleId: string) => {
     setJobVehicles(jobVehicles.filter((v) => v.id !== vehicleId));
@@ -399,15 +595,38 @@ export default function JobCardPage() {
 
   const handleApplyJobDescription = async () => {
     if (!aiResult.trim()) return;
-    const existingNotes = job.notes ? job.notes.trim() : "";
-    const updatedNotes = existingNotes
-      ? `${existingNotes}\n\nAI Job Description:\n${aiResult.trim()}`
-      : `AI Job Description:\n${aiResult.trim()}`;
-    await updateJob(job.id, { notes: updatedNotes });
+    const description = aiResult.trim();
+    const updatedNotes = upsertAiDescription(job.notes || "", description);
+    await updateJob(job.id, { jobDescription: description, notes: updatedNotes });
+    setJobDescription(description);
+    setDescriptionDirty(false);
     toast({
       title: "Job Notes Updated",
       description: "The AI description has been added to the job notes.",
     });
+  };
+
+  const handleSaveJobDescription = async () => {
+    const description = jobDescription.trim();
+    const updatedNotes = upsertAiDescription(job.notes || "", description);
+    await updateJob(job.id, {
+      jobDescription: description || undefined,
+      notes: updatedNotes,
+    });
+    setDescriptionDirty(false);
+    toast({
+      title: "Job Description Saved",
+      description: "The job description has been updated.",
+    });
+  };
+
+  const handleDeleteJob = async () => {
+    await deleteJob(job.id, user?.uid || "system");
+    toast({
+      title: "Job Moved to Recycle Bin",
+      description: "The job has been removed from active lists.",
+    });
+    router.push("/dashboard/job-lifecycle");
   };
 
   return (
@@ -450,6 +669,29 @@ export default function JobCardPage() {
               <CheckCircle className="mr-2 h-4 w-4" />
               Save Changes
             </Button>
+            <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+              <DialogTrigger asChild>
+                <Button variant="destructive">
+                  Move to Recycle Bin
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Move Job to Recycle Bin?</DialogTitle>
+                  <DialogDescription>
+                    This removes the job from active lists. You can restore it later if needed.
+                  </DialogDescription>
+                </DialogHeader>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setShowDeleteDialog(false)}>
+                    Cancel
+                  </Button>
+                  <Button variant="destructive" onClick={handleDeleteJob}>
+                    Move to Recycle Bin
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
           </div>
         </div>
       </div>
@@ -579,6 +821,39 @@ export default function JobCardPage() {
               )}
             </CardContent>
           </Card>
+
+          <Card className="bg-card/50 backdrop-blur">
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <FileText className="h-4 w-4 text-primary" />
+                Job Description
+              </CardTitle>
+              <CardDescription>
+                Editable summary shown on the job overview.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <Textarea
+                value={jobDescription}
+                onChange={(e) => {
+                  setJobDescription(e.target.value);
+                  setDescriptionDirty(true);
+                }}
+                placeholder="Add a clear job description for this work order..."
+                rows={5}
+              />
+              <div className="flex items-center gap-2">
+                <Button onClick={handleSaveJobDescription} disabled={!descriptionDirty}>
+                  Save Description
+                </Button>
+                {!descriptionDirty && (
+                  <span className="text-xs text-muted-foreground">
+                    Description is up to date.
+                  </span>
+                )}
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
 
         {/* Vehicles & Repairs Tab */}
@@ -685,74 +960,280 @@ export default function JobCardPage() {
                         </p>
                       ) : (
                         <div className="space-y-3">
-                          {vehicle.repairSites.map((repair, repairIndex) => (
-                            <Card key={repair.id} className="bg-muted/20">
-                              <CardContent className="p-4 space-y-4">
-                                <div className="flex items-start justify-between">
-                                  <div>
-                                    <Badge variant="outline" className="mb-2">
-                                      {BOOKING_TYPE_LABELS[repair.repairType]}
-                                    </Badge>
-                                    <p className="font-medium">{repair.location}</p>
-                                    {repair.description && (
-                                      <p className="text-sm text-muted-foreground">
-                                        {repair.description}
-                                      </p>
-                                    )}
+                          {vehicle.repairSites.map((repair) => {
+                            const repairStatus = getRepairStatus(repair);
+                            const preKey = `${vehicle.id}-${repair.id}-pre`;
+                            const postKey = `${vehicle.id}-${repair.id}-post`;
+                            const preCameraId = `${preKey}-camera`;
+                            const preUploadId = `${preKey}-upload`;
+                            const postCameraId = `${postKey}-camera`;
+                            const postUploadId = `${postKey}-upload`;
+                            const preUploading = uploadingPhotos[preKey];
+                            const postUploading = uploadingPhotos[postKey];
+                            const prePhotos = repair.preWorkPhotos ?? [];
+                            const postPhotos = repair.postWorkPhotos ?? [];
+                            return (
+                              <Card key={repair.id} className="bg-muted/20">
+                                <CardContent className="p-4 space-y-4">
+                                  <div className="flex items-start justify-between">
+                                    <div>
+                                      <Badge variant="outline" className="mb-2">
+                                        {BOOKING_TYPE_LABELS[repair.repairType]}
+                                      </Badge>
+                                      <p className="font-medium">{repair.location}</p>
+                                      {repair.description && (
+                                        <p className="text-sm text-muted-foreground">
+                                          {repair.description}
+                                        </p>
+                                      )}
+                                    </div>
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="text-destructive"
+                                      onClick={() => handleDeleteRepair(vehicle.id, repair.id)}
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                    </Button>
                                   </div>
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    className="text-destructive"
-                                    onClick={() => handleDeleteRepair(vehicle.id, repair.id)}
-                                  >
-                                    <Trash2 className="h-4 w-4" />
-                                  </Button>
-                                </div>
 
-                                {/* Photos */}
-                                <div className="grid grid-cols-2 gap-4">
-                                  <div className="space-y-2">
-                                    <Label className="text-xs">Pre-Work Photos</Label>
-                                    <div className="flex gap-2 flex-wrap">
-                                      {repair.preWorkPhotos.map((_, idx) => (
-                                        <div
-                                          key={idx}
-                                          className="h-16 w-16 rounded bg-muted flex items-center justify-center"
-                                        >
-                                          <Image className="h-6 w-6 text-muted-foreground" />
-                                        </div>
-                                      ))}
-                                      <Button
-                                        size="sm"
-                                        variant="outline"
-                                        className="h-16 w-16"
-                                      >
-                                        <Camera className="h-5 w-5" />
-                                      </Button>
+                                  {/* Work Status */}
+                                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border/50 px-3 py-2">
+                                    <div className="flex items-center gap-2">
+                                      <Badge className={repairStatusColors[repairStatus]} variant="outline">
+                                        {repairStatusLabels[repairStatus]}
+                                      </Badge>
+                                      {repair.workLog && repair.workLog.length > 0 && (
+                                        <span className="text-xs text-muted-foreground">
+                                          Last update {formatDateTime(repair.workLog[repair.workLog.length - 1].at)}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="flex flex-wrap gap-2">
+                                      {repairStatus === "not_started" && (
+                                        <Button size="sm" onClick={() => handleRepairAction(vehicle.id, repair.id, "start")}>
+                                          <CircleDot className="mr-1 h-4 w-4" />
+                                          Start
+                                        </Button>
+                                      )}
+                                      {repairStatus === "in_progress" && (
+                                        <>
+                                          <Button
+                                            size="sm"
+                                            variant="outline"
+                                            onClick={() => handleRepairAction(vehicle.id, repair.id, "hold")}
+                                          >
+                                            <Pause className="mr-1 h-4 w-4" />
+                                            Hold
+                                          </Button>
+                                          <Button
+                                            size="sm"
+                                            onClick={() => handleRepairAction(vehicle.id, repair.id, "complete")}
+                                          >
+                                            <CheckCircle className="mr-1 h-4 w-4" />
+                                            Complete
+                                          </Button>
+                                        </>
+                                      )}
+                                      {repairStatus === "on_hold" && (
+                                        <>
+                                          <Button
+                                            size="sm"
+                                            onClick={() => handleRepairAction(vehicle.id, repair.id, "resume")}
+                                          >
+                                            <ArrowRight className="mr-1 h-4 w-4" />
+                                            Resume
+                                          </Button>
+                                          <Button
+                                            size="sm"
+                                            variant="outline"
+                                            onClick={() => handleRepairAction(vehicle.id, repair.id, "complete")}
+                                          >
+                                            <CheckCircle className="mr-1 h-4 w-4" />
+                                            Complete
+                                          </Button>
+                                        </>
+                                      )}
                                     </div>
                                   </div>
-                                  <div className="space-y-2">
-                                    <Label className="text-xs">Post-Work Photos</Label>
-                                    <div className="flex gap-2 flex-wrap">
-                                      {repair.postWorkPhotos.map((_, idx) => (
-                                        <div
-                                          key={idx}
-                                          className="h-16 w-16 rounded bg-muted flex items-center justify-center"
-                                        >
-                                          <Image className="h-6 w-6 text-muted-foreground" />
-                                        </div>
-                                      ))}
-                                      <Button
-                                        size="sm"
-                                        variant="outline"
-                                        className="h-16 w-16"
-                                      >
-                                        <Camera className="h-5 w-5" />
-                                      </Button>
+
+                                  {/* Work Log */}
+                                  {repair.workLog && repair.workLog.length > 0 && (
+                                    <div className="rounded-md border border-border/50 px-3 py-2 text-xs">
+                                      <div className="flex items-center gap-2 text-muted-foreground">
+                                        <Clock className="h-3.5 w-3.5" />
+                                        Work log
+                                      </div>
+                                      <div className="mt-2 space-y-1">
+                                        {repair.workLog.map((entry, index) => (
+                                          <div key={`${entry.status}-${index}`} className="flex items-center justify-between">
+                                            <span className="capitalize">{entry.status.replace("_", " ")}</span>
+                                            <span className="text-muted-foreground">
+                                              {formatDateTime(entry.at)} • {entry.by}
+                                            </span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {/* Photos */}
+                                  <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                                    <div className="space-y-2">
+                                      <Label className="text-xs">Pre-Work Photos</Label>
+                                      <div className="flex gap-2 flex-wrap">
+                                        {prePhotos.map((url, idx) => (
+                                          <button
+                                            key={`${url}-${idx}`}
+                                            type="button"
+                                            className="h-16 w-16 overflow-hidden rounded border border-border/50"
+                                            onClick={() => setPhotoPreview({ url, label: "Pre-Work Photo" })}
+                                          >
+                                            <img
+                                              src={url}
+                                              alt="Pre-work"
+                                              className="h-full w-full object-cover"
+                                              loading="lazy"
+                                            />
+                                          </button>
+                                        ))}
+                                        {prePhotos.length === 0 && (
+                                          <div className="h-16 w-16 rounded bg-muted flex items-center justify-center text-xs text-muted-foreground">
+                                            No photos
+                                          </div>
+                                        )}
+                                      </div>
+                                      <div className="flex flex-wrap gap-2">
+                                        <input
+                                          id={preCameraId}
+                                          type="file"
+                                          accept="image/*"
+                                          capture="environment"
+                                          multiple
+                                          className="hidden"
+                                          onChange={(event) => {
+                                            void handleRepairPhotoUpload(
+                                              vehicle.id,
+                                              repair.id,
+                                              "pre",
+                                              event.target.files
+                                            );
+                                            event.currentTarget.value = "";
+                                          }}
+                                        />
+                                        <Button size="sm" variant="outline" asChild disabled={preUploading}>
+                                          <Label htmlFor={preCameraId} className="cursor-pointer">
+                                            <Camera className="mr-1 h-4 w-4" />
+                                            Camera
+                                          </Label>
+                                        </Button>
+                                        <input
+                                          id={preUploadId}
+                                          type="file"
+                                          accept="image/*"
+                                          multiple
+                                          className="hidden"
+                                          onChange={(event) => {
+                                            void handleRepairPhotoUpload(
+                                              vehicle.id,
+                                              repair.id,
+                                              "pre",
+                                              event.target.files
+                                            );
+                                            event.currentTarget.value = "";
+                                          }}
+                                        />
+                                        <Button size="sm" variant="outline" asChild disabled={preUploading}>
+                                          <Label htmlFor={preUploadId} className="cursor-pointer">
+                                            <Upload className="mr-1 h-4 w-4" />
+                                            Upload
+                                          </Label>
+                                        </Button>
+                                        {preUploading && (
+                                          <span className="text-xs text-muted-foreground">
+                                            Uploading...
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
+                                    <div className="space-y-2">
+                                      <Label className="text-xs">Post-Work Photos</Label>
+                                      <div className="flex gap-2 flex-wrap">
+                                        {postPhotos.map((url, idx) => (
+                                          <button
+                                            key={`${url}-${idx}`}
+                                            type="button"
+                                            className="h-16 w-16 overflow-hidden rounded border border-border/50"
+                                            onClick={() => setPhotoPreview({ url, label: "Post-Work Photo" })}
+                                          >
+                                            <img
+                                              src={url}
+                                              alt="Post-work"
+                                              className="h-full w-full object-cover"
+                                              loading="lazy"
+                                            />
+                                          </button>
+                                        ))}
+                                        {postPhotos.length === 0 && (
+                                          <div className="h-16 w-16 rounded bg-muted flex items-center justify-center text-xs text-muted-foreground">
+                                            No photos
+                                          </div>
+                                        )}
+                                      </div>
+                                      <div className="flex flex-wrap gap-2">
+                                        <input
+                                          id={postCameraId}
+                                          type="file"
+                                          accept="image/*"
+                                          capture="environment"
+                                          multiple
+                                          className="hidden"
+                                          onChange={(event) => {
+                                            void handleRepairPhotoUpload(
+                                              vehicle.id,
+                                              repair.id,
+                                              "post",
+                                              event.target.files
+                                            );
+                                            event.currentTarget.value = "";
+                                          }}
+                                        />
+                                        <Button size="sm" variant="outline" asChild disabled={postUploading}>
+                                          <Label htmlFor={postCameraId} className="cursor-pointer">
+                                            <Camera className="mr-1 h-4 w-4" />
+                                            Camera
+                                          </Label>
+                                        </Button>
+                                        <input
+                                          id={postUploadId}
+                                          type="file"
+                                          accept="image/*"
+                                          multiple
+                                          className="hidden"
+                                          onChange={(event) => {
+                                            void handleRepairPhotoUpload(
+                                              vehicle.id,
+                                              repair.id,
+                                              "post",
+                                              event.target.files
+                                            );
+                                            event.currentTarget.value = "";
+                                          }}
+                                        />
+                                        <Button size="sm" variant="outline" asChild disabled={postUploading}>
+                                          <Label htmlFor={postUploadId} className="cursor-pointer">
+                                            <Upload className="mr-1 h-4 w-4" />
+                                            Upload
+                                          </Label>
+                                        </Button>
+                                        {postUploading && (
+                                          <span className="text-xs text-muted-foreground">
+                                            Uploading...
+                                          </span>
+                                        )}
+                                      </div>
                                     </div>
                                   </div>
-                                </div>
 
                                 {/* Cost Entry */}
                                 <div className="grid grid-cols-3 gap-4 pt-2 border-t">
@@ -791,9 +1272,10 @@ export default function JobCardPage() {
                                     </p>
                                   </div>
                                 </div>
-                              </CardContent>
-                            </Card>
-                          ))}
+                                </CardContent>
+                              </Card>
+                            );
+                          })}
                         </div>
                       )}
                     </div>
@@ -1121,6 +1603,29 @@ export default function JobCardPage() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      <Dialog
+        open={!!photoPreview}
+        onOpenChange={(open) => {
+          if (!open) setPhotoPreview(null);
+        }}
+      >
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>{photoPreview?.label || "Photo Preview"}</DialogTitle>
+            <DialogDescription>Tap or click outside the image to close.</DialogDescription>
+          </DialogHeader>
+          {photoPreview && (
+            <div className="flex items-center justify-center">
+              <img
+                src={photoPreview.url}
+                alt={photoPreview.label}
+                className="max-h-[70vh] w-full rounded-md object-contain"
+              />
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Add Vehicle Dialog */}
       <Dialog open={showAddVehicleDialog} onOpenChange={setShowAddVehicleDialog}>

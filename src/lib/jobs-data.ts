@@ -19,10 +19,10 @@ const INITIAL_TIMESTAMP = Timestamp.fromDate(new Date("2025-01-01T00:00:00Z"));
 
 let jobCounter = 0;
 
-export function generateJobNumber(): string {
-  const year = new Date().getFullYear();
+export function generateJobNumber(clientCode = "JOB"): string {
+  const yearSuffix = String(new Date().getFullYear()).slice(-2);
   jobCounter++;
-  return `JOB-${year}-${String(jobCounter).padStart(4, "0")}`;
+  return `${clientCode}-${yearSuffix}-${String(jobCounter).padStart(4, "0")}`;
 }
 
 export function generateBookingNumber(): string {

@@ -81,6 +81,7 @@ type OrganizationFormData = {
   marketStream: MarketStream | "";
   status: OrganizationStatus;
   portalRole: "client" | "contractor" | "";
+  jobCode: string;
   domains: string;
   street: string;
   suburb: string;
@@ -106,6 +107,7 @@ const initialOrgForm: OrganizationFormData = {
   marketStream: "",
   status: "active",
   portalRole: "",
+  jobCode: "",
   domains: "",
   street: "",
   suburb: "",
@@ -130,6 +132,7 @@ export default function ContactsPage() {
   const [organizations, setOrganizations] = useState<ContactOrganization[]>([]);
   const [contacts, setContacts] = useState<OrganizationContact[]>([]);
   const [hasLoaded, setHasLoaded] = useState(false);
+  const [hasLoadedContacts, setHasLoadedContacts] = useState(false);
   const [hasSeeded, setHasSeeded] = useState(false);
 
   const [orgDialogOpen, setOrgDialogOpen] = useState(false);
@@ -163,6 +166,7 @@ export default function ContactsPage() {
         ...(docSnap.data() as Omit<OrganizationContact, "id">),
       }));
       setContacts(loaded);
+      setHasLoadedContacts(true);
     });
 
     return () => {
@@ -172,16 +176,63 @@ export default function ContactsPage() {
   }, []);
 
   useEffect(() => {
-    if (!hasLoaded || organizations.length > 0 || hasSeeded) return;
+    if (!hasLoaded || !hasLoadedContacts || hasSeeded) return;
 
     const seedContacts = async () => {
+      const existingOrgIds = new Set(organizations.map((org) => org.id));
+      const orgsByName = new Map(
+        organizations.map((org) => [org.name.trim().toLowerCase(), org.id])
+      );
+      const seedOrgIdMap = new Map<string, string>();
+
+      const orgsToSeed = initialOrganizations.filter((org) => {
+        if (existingOrgIds.has(org.id)) {
+          seedOrgIdMap.set(org.id, org.id);
+          return false;
+        }
+        const matchedId = orgsByName.get(org.name.trim().toLowerCase());
+        if (matchedId) {
+          seedOrgIdMap.set(org.id, matchedId);
+          return false;
+        }
+        seedOrgIdMap.set(org.id, org.id);
+        return true;
+      });
+
+      const existingContactKeys = new Set(
+        contacts.map((contact) =>
+          [
+            contact.organizationId,
+            contact.firstName.trim().toLowerCase(),
+            contact.lastName.trim().toLowerCase(),
+            contact.email.trim().toLowerCase(),
+          ].join("|")
+        )
+      );
+
+      const contactsToSeed = initialContacts
+        .map((contact) => ({
+          ...contact,
+          organizationId: seedOrgIdMap.get(contact.organizationId) || contact.organizationId,
+        }))
+        .filter((contact) => {
+          const key = [
+            contact.organizationId,
+            contact.firstName.trim().toLowerCase(),
+            contact.lastName.trim().toLowerCase(),
+            contact.email.trim().toLowerCase(),
+          ].join("|");
+          return !existingContactKeys.has(key);
+        });
+
+      if (orgsToSeed.length === 0 && contactsToSeed.length === 0) return;
       await Promise.all(
-        initialOrganizations.map((org) =>
+        orgsToSeed.map((org) =>
           createDocument(COLLECTIONS.CONTACT_ORGANIZATIONS, org.id, org)
         )
       );
       await Promise.all(
-        initialContacts.map((contact) =>
+        contactsToSeed.map((contact) =>
           createDocument(COLLECTIONS.ORGANIZATION_CONTACTS, contact.id, contact)
         )
       );
@@ -189,7 +240,7 @@ export default function ContactsPage() {
     };
 
     seedContacts();
-  }, [hasLoaded, organizations, hasSeeded]);
+  }, [hasLoaded, hasLoadedContacts, hasSeeded, organizations, contacts]);
 
   const filteredOrganizations = organizations.filter(
     (org) =>
@@ -216,6 +267,7 @@ export default function ContactsPage() {
           org.portalRole === "client" || org.portalRole === "contractor"
             ? org.portalRole
             : "",
+        jobCode: org.jobCode || "",
         domains: org.domains ? org.domains.join(", ") : "",
         street: org.address?.street || "",
         suburb: org.address?.suburb || "",
@@ -244,6 +296,7 @@ export default function ContactsPage() {
         marketStream: orgForm.marketStream || undefined,
         status: orgForm.status,
         portalRole: orgForm.portalRole || undefined,
+        jobCode: orgForm.jobCode.trim() || undefined,
         domains: parseDomains(orgForm.domains),
         address: {
           street: orgForm.street,
@@ -263,6 +316,7 @@ export default function ContactsPage() {
         abn: orgForm.abn || undefined,
         marketStream: orgForm.marketStream || undefined,
         portalRole: orgForm.portalRole || undefined,
+        jobCode: orgForm.jobCode.trim() || undefined,
         domains: parseDomains(orgForm.domains),
         address: {
           street: orgForm.street,
@@ -637,6 +691,18 @@ export default function ContactsPage() {
                     <SelectItem value="contractor">Contractor</SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="org-job-code">Job Code</Label>
+                <Input
+                  id="org-job-code"
+                  value={orgForm.jobCode}
+                  onChange={(e) => setOrgForm({ ...orgForm, jobCode: e.target.value })}
+                  placeholder="e.g., NUL, BSS, LSH"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Short code used in job numbers for this organisation.
+                </p>
               </div>
               <div className="grid gap-2">
                 <Label htmlFor="org-domains">Email Domains</Label>
