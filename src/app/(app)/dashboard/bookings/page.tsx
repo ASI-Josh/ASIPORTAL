@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Timestamp } from "firebase/firestore";
+import { Timestamp, collection, onSnapshot, orderBy, query, where } from "firebase/firestore";
 import { format } from "date-fns";
 import {
   CalendarIcon,
@@ -69,13 +69,10 @@ import {
   OrganizationContact,
   SiteLocation,
   Address,
-  Booking,
 } from "@/lib/types";
-import {
-  initialOrganizations,
-  initialContacts,
-  asiStaff,
-} from "@/lib/contacts-data";
+import { COLLECTIONS, addDocument } from "@/lib/firestore";
+import { db } from "@/lib/firebaseClient";
+import { useJobs } from "@/contexts/JobsContext";
 
 interface NewOrganisationFormData {
   name: string;
@@ -99,18 +96,20 @@ interface NewContactFormData {
   jobTitle: string;
 }
 
+type StaffMember = { id: string; name: string; type: "asi_staff" | "subcontractor" };
+
 export default function BookingsPage() {
   const router = useRouter();
   const { toast } = useToast();
+  const { bookings, createBooking } = useJobs();
 
-  // Shared data state (will be replaced with Firestore later)
-  const [organizations, setOrganizations] = useState<ContactOrganization[]>(initialOrganizations);
-  const [contacts, setContacts] = useState<OrganizationContact[]>(initialContacts);
-  const [staffList] = useState(asiStaff);
+  // Shared data state (Firestore-backed)
+  const [organizations, setOrganizations] = useState<ContactOrganization[]>([]);
+  const [contacts, setContacts] = useState<OrganizationContact[]>([]);
+  const [staffList, setStaffList] = useState<StaffMember[]>([]);
 
   // State for booking list view
   const [searchQuery, setSearchQuery] = useState("");
-  const [bookings, setBookings] = useState<Booking[]>([]);
 
   // State for new booking form
   const [showNewBookingDialog, setShowNewBookingDialog] = useState(false);
@@ -131,7 +130,7 @@ export default function BookingsPage() {
   });
   const [scheduledDate, setScheduledDate] = useState<Date | undefined>();
   const [scheduledTime, setScheduledTime] = useState("");
-  const [selectedStaff, setSelectedStaff] = useState<typeof asiStaff>([]);
+  const [selectedStaff, setSelectedStaff] = useState<StaffMember[]>([]);
   const [bookingNotes, setBookingNotes] = useState("");
 
   // New contact dialog (includes option to add new organisation)
@@ -165,6 +164,52 @@ export default function BookingsPage() {
       org.name.toLowerCase().includes(orgSearchQuery.toLowerCase()) ||
       org.email?.toLowerCase().includes(orgSearchQuery.toLowerCase())
   );
+
+  useEffect(() => {
+    const orgQuery = query(collection(db, COLLECTIONS.CONTACT_ORGANIZATIONS), orderBy("name"));
+    const contactQuery = query(collection(db, COLLECTIONS.ORGANIZATION_CONTACTS), orderBy("firstName"));
+    const staffQuery = query(
+      collection(db, COLLECTIONS.USERS),
+      where("role", "in", ["technician", "contractor"])
+    );
+
+    const unsubscribeOrgs = onSnapshot(orgQuery, (snapshot) => {
+      const loaded = snapshot.docs.map((docSnap) => ({
+        id: docSnap.id,
+        ...(docSnap.data() as Omit<ContactOrganization, "id">),
+      }));
+      setOrganizations(loaded);
+    });
+
+    const unsubscribeContacts = onSnapshot(contactQuery, (snapshot) => {
+      const loaded = snapshot.docs.map((docSnap) => ({
+        id: docSnap.id,
+        ...(docSnap.data() as Omit<OrganizationContact, "id">),
+      }));
+      setContacts(loaded);
+    });
+
+    const unsubscribeStaff = onSnapshot(staffQuery, (snapshot) => {
+      const loaded = snapshot.docs
+        .map((docSnap) => ({
+          id: docSnap.id,
+          ...(docSnap.data() as { name: string; role: string }),
+        }))
+        .map((staff) => ({
+          id: staff.id,
+          name: staff.name,
+          type: staff.role === "contractor" ? "subcontractor" : "asi_staff",
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      setStaffList(loaded);
+    });
+
+    return () => {
+      unsubscribeOrgs();
+      unsubscribeContacts();
+      unsubscribeStaff();
+    };
+  }, []);
 
   // Get contacts for selected organisation
   const organisationContacts = selectedOrganization
@@ -203,7 +248,7 @@ export default function BookingsPage() {
     }
   };
 
-  const handleCreateContact = () => {
+  const handleCreateContact = async () => {
     let targetOrgId = newContactData.organisationId;
     let targetOrg: ContactOrganization | null = null;
 
@@ -243,9 +288,11 @@ export default function BookingsPage() {
         updatedAt: Timestamp.now(),
       };
 
-      setOrganizations(prev => [...prev, newOrg]);
-      targetOrgId = newOrg.id;
-      targetOrg = newOrg;
+      const createdOrgId = await addDocument(COLLECTIONS.CONTACT_ORGANIZATIONS, {
+        ...newOrg,
+      });
+      targetOrgId = createdOrgId;
+      targetOrg = { ...newOrg, id: createdOrgId };
     } else {
       targetOrg = organizations.find(o => o.id === targetOrgId) || null;
     }
@@ -272,11 +319,14 @@ export default function BookingsPage() {
       updatedAt: Timestamp.now(),
     };
 
-    setContacts(prev => [...prev, newContact]);
+    const createdContactId = await addDocument(COLLECTIONS.ORGANIZATION_CONTACTS, {
+      ...newContact,
+    });
+    const createdContact = { ...newContact, id: createdContactId };
     
     // Auto-select the organisation and contact in the booking form
     setSelectedOrganization(targetOrg);
-    setSelectedContact(newContact);
+    setSelectedContact(createdContact);
     if (targetOrg.sites.length > 0) {
       setSelectedSite(targetOrg.sites.find(s => s.isDefault) || targetOrg.sites[0]);
     }
@@ -291,7 +341,7 @@ export default function BookingsPage() {
     });
   };
 
-  const handleAddContactToExistingOrg = () => {
+  const handleAddContactToExistingOrg = async () => {
     if (!selectedOrganization) return;
 
     const newContact: OrganizationContact = {
@@ -311,8 +361,10 @@ export default function BookingsPage() {
       updatedAt: Timestamp.now(),
     };
 
-    setContacts(prev => [...prev, newContact]);
-    setSelectedContact(newContact);
+    const createdContactId = await addDocument(COLLECTIONS.ORGANIZATION_CONTACTS, {
+      ...newContact,
+    });
+    setSelectedContact({ ...newContact, id: createdContactId });
     resetNewContactForm();
 
     toast({
@@ -345,7 +397,7 @@ export default function BookingsPage() {
     setIsCreatingNewOrg(false);
   };
 
-  const handleToggleStaff = (staff: (typeof asiStaff)[0]) => {
+  const handleToggleStaff = (staff: StaffMember) => {
     setSelectedStaff((prev) => {
       const exists = prev.find((s) => s.id === staff.id);
       if (exists) {
@@ -355,7 +407,7 @@ export default function BookingsPage() {
     });
   };
 
-  const handleCreateBooking = () => {
+  const handleCreateBooking = async () => {
     if (!bookingType || !selectedOrganization || !selectedContact || !scheduledDate || !scheduledTime) {
       toast({
         title: "Missing Information",
@@ -369,51 +421,52 @@ export default function BookingsPage() {
       ? customSite
       : selectedSite?.address || customSite;
 
-    const newBooking: Booking = {
-      id: `booking-${Date.now()}`,
-      bookingNumber: `BK-${new Date().getFullYear()}-${String(bookings.length + 1).padStart(4, "0")}`,
-      bookingType: bookingType as BookingType,
-      organizationId: selectedOrganization.id,
-      organizationName: selectedOrganization.name,
-      contactId: selectedContact.id,
-      contactName: `${selectedContact.firstName} ${selectedContact.lastName}`,
-      contactEmail: selectedContact.email,
-      contactPhone: selectedContact.mobile || selectedContact.phone,
-      siteLocation: {
-        id: useCustomSite ? undefined : selectedSite?.id,
-        name: useCustomSite ? "Custom Location" : selectedSite?.name || "Custom Location",
-        address: siteAddress,
-      },
-      scheduledDate: Timestamp.fromDate(scheduledDate),
-      scheduledTime,
-      allocatedStaff: selectedStaff.map((s) => ({ id: s.id, name: s.name, type: s.type })),
-      notes: bookingNotes,
-      status: "confirmed",
-      createdAt: Timestamp.now(),
-      createdBy: "current-user",
-      updatedAt: Timestamp.now(),
-    };
+    try {
+      const job = await createBooking({
+        bookingType: bookingType as BookingType,
+        organization: selectedOrganization,
+        contact: selectedContact,
+        siteLocation: {
+          id: useCustomSite ? undefined : selectedSite?.id,
+          name: useCustomSite ? "Custom Location" : selectedSite?.name || "Custom Location",
+          address: siteAddress,
+          isDefault: false,
+        },
+        scheduledDate,
+        scheduledTime,
+        allocatedStaff: selectedStaff.map((s) => ({ id: s.id, name: s.name, type: s.type })),
+        notes: bookingNotes,
+      });
 
-    setBookings([newBooking, ...bookings]);
+      toast({
+        title: "Booking Created Successfully",
+        description: (
+          <div className="mt-2 space-y-1">
+            <p>Your booking has been created.</p>
+            {job && (
+              <p className="text-sm text-muted-foreground">
+                Job #{job.jobNumber} created -> Added to Works Register -> Updated Job Lifecycle
+              </p>
+            )}
+          </div>
+        ),
+      });
 
-    toast({
-      title: "Booking Created Successfully",
-      description: (
-        <div className="mt-2 space-y-1">
-          <p>Booking #{newBooking.bookingNumber} has been created.</p>
-          <p className="text-sm text-muted-foreground">
-            A job card will be automatically generated and the booking has been logged to the Works Register.
-          </p>
-        </div>
-      ),
-    });
+      // Reset form
+      resetBookingForm();
+      setShowNewBookingDialog(false);
 
-    // Reset form
-    resetBookingForm();
-    setShowNewBookingDialog(false);
-
-    // Navigate to the new job (in real app, this would be the job ID from the created job)
-    // router.push(`/dashboard/jobs/${newBooking.id}`);
+      // Navigate to the new job
+      if (job) {
+        router.push(`/dashboard/jobs/${job.id}`);
+      }
+    } catch (error: any) {
+      toast({
+        title: "Booking Failed",
+        description: error.message || "Unable to create booking.",
+        variant: "destructive",
+      });
+    }
   };
 
   const resetBookingForm = () => {
@@ -1605,7 +1658,17 @@ export default function BookingsPage() {
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => router.push(`/dashboard/jobs/${booking.id}`)}
+                      onClick={() => {
+                        if (booking.convertedJobId) {
+                          router.push(`/dashboard/jobs/${booking.convertedJobId}`);
+                          return;
+                        }
+                        toast({
+                          title: "Job Not Available",
+                          description: "This booking has not been converted into a job yet.",
+                          variant: "destructive",
+                        });
+                      }}
                     >
                       View
                     </Button>

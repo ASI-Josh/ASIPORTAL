@@ -3,6 +3,7 @@ import './globals.css';
 import { Toaster } from '@/components/ui/toaster';
 import { cn } from '@/lib/utils';
 import { AuthProvider } from '@/contexts/AuthContext';
+import { RoleBasedRedirect } from '@/components/ProtectedRoute';
 
 export const metadata: Metadata = {
   title: 'ASI Portal',
@@ -25,7 +26,7 @@ export default function RootLayout({
       </head>
       <body className={cn('font-body antialiased')}>
         <AuthProvider>
-          {children}
+          <RoleBasedRedirect>{children}</RoleBasedRedirect>
           <Toaster />
         </AuthProvider>
       </body>

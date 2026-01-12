@@ -12,7 +12,7 @@ const ADMIN_EMAILS = [
 
 const TECHNICIAN_DOMAIN = "@asi-australia.com.au";
 
-export function determineUserRole(email: string): UserRole {
+export function determineUserRole(email: string, fallbackRole: UserRole = "client"): UserRole {
   const normalizedEmail = email.toLowerCase().trim();
 
   // Check if admin
@@ -26,7 +26,7 @@ export function determineUserRole(email: string): UserRole {
   }
 
   // Default to client
-  return "client";
+  return fallbackRole;
 }
 
 // ============================================
@@ -36,15 +36,15 @@ export function determineUserRole(email: string): UserRole {
 export function getDefaultRouteForRole(role: UserRole): string {
   switch (role) {
     case "admin":
-      return "/dashboard";
+      return "/admin";
     case "technician":
-      return "/technician/dashboard";
+      return "/technician";
     case "client":
-      return "/client/dashboard";
+      return "/client";
     case "contractor":
-      return "/contractor/dashboard";
+      return "/contractor";
     default:
-      return "/dashboard";
+      return "/admin";
   }
 }
 
@@ -52,7 +52,7 @@ export function isAuthorizedForRoute(role: UserRole, path: string): boolean {
   // Admin can access everything
   if (role === "admin") return true;
 
-  // Technicians can access technician and shared routes
+  // Technicians can access technician routes and shared jobs/inspections
   if (role === "technician") {
     return (
       path.startsWith("/technician") ||

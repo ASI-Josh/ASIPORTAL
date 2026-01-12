@@ -3,6 +3,7 @@ import {
   doc,
   getDoc,
   getDocs,
+  addDoc,
   setDoc,
   updateDoc,
   deleteDoc,
@@ -24,6 +25,7 @@ import { db } from "./firebaseClient";
 
 export const COLLECTIONS = {
   USERS: "users",
+  BOOKINGS: "bookings",
   JOBS: "jobs",
   INSPECTIONS: "inspections",
   LEADS: "leads",
@@ -56,6 +58,19 @@ export async function createDocument<T extends DocumentData>(
     updatedAt: serverTimestamp(),
   });
   return id;
+}
+
+export async function addDocument<T extends DocumentData>(
+  collectionName: string,
+  data: T
+) {
+  const collectionRef = collection(db, collectionName);
+  const docRef = await addDoc(collectionRef, {
+    ...data,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+  return docRef.id;
 }
 
 export async function getDocument<T>(
@@ -98,6 +113,19 @@ export async function queryDocuments<T>(
     id: doc.id,
     ...doc.data(),
   })) as T[];
+}
+
+export async function getOrganizationByDomain(domain: string) {
+  const organizationsRef = collection(db, COLLECTIONS.CONTACT_ORGANIZATIONS);
+  const q = query(
+    organizationsRef,
+    where("domains", "array-contains", domain),
+    limit(1)
+  );
+  const snapshot = await getDocs(q);
+  if (snapshot.empty) return null;
+  const orgDoc = snapshot.docs[0];
+  return { id: orgDoc.id, ...orgDoc.data() };
 }
 
 // ============================================
@@ -170,19 +198,40 @@ export async function generateQuoteNumber(): Promise<string> {
   return `QUO-${year}-${nextNumber}`;
 }
 
+export async function generateBookingNumber(): Promise<string> {
+  const year = new Date().getFullYear();
+  const bookingsRef = collection(db, COLLECTIONS.BOOKINGS);
+  const q = query(
+    bookingsRef,
+    where("bookingNumber", ">=", `BK-${year}-`),
+    where("bookingNumber", "<", `BK-${year + 1}-`),
+    orderBy("bookingNumber", "desc"),
+    limit(1)
+  );
+
+  const snapshot = await getDocs(q);
+  if (snapshot.empty) {
+    return `BK-${year}-0001`;
+  }
+
+  const lastNumber = parseInt(snapshot.docs[0].data().bookingNumber.split("-")[2]);
+  const nextNumber = (lastNumber + 1).toString().padStart(4, "0");
+  return `BK-${year}-${nextNumber}`;
+}
+
 // ============================================
 // ROLE-BASED QUERY HELPERS
 // ============================================
 
-export function getJobsForUser(userId: string, role: string) {
+export function getJobsForUser(userId: string, role: string, organizationId?: string) {
   const constraints: QueryConstraint[] = [];
 
-  if (role === "client") {
-    constraints.push(where("clientId", "==", userId));
+  if (role === "client" || role === "contractor") {
+    if (organizationId) {
+      constraints.push(where("organizationId", "==", organizationId));
+    }
   } else if (role === "technician") {
-    constraints.push(
-      where("assignedTechnicians", "array-contains", { technicianId: userId })
-    );
+    constraints.push(where("assignedTechnicianIds", "array-contains", userId));
   }
   // Admin sees all jobs (no filter)
 

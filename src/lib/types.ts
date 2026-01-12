@@ -13,7 +13,9 @@ export interface User {
   name: string;
   phone?: string;
   avatarUrl?: string;
-  companyId?: string;
+  organizationId?: string;
+  organizationName?: string;
+  contactId?: string;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
@@ -51,6 +53,10 @@ export const JOB_LIFECYCLE_LABELS: Record<JobLifecycleStage, string> = {
   management_closeoff: "Management Close Off",
 };
 
+// ============================================
+// VEHICLE & REPAIR SITE TYPES (Job Card Data Entry)
+// ============================================
+
 export interface Vehicle {
   registration: string;
   make: string;
@@ -60,6 +66,85 @@ export interface Vehicle {
   color?: string;
 }
 
+export interface JobVehicle {
+  id: string;
+  // Required: Registration OR VIN (at least one)
+  registration?: string;
+  vin?: string;
+  // Optional fields
+  fleetAssetNumber?: string;
+  bodyManufacturer?: string;
+  year?: number;
+  poWorksOrderNumber?: string;
+  // Repair sites on this vehicle
+  repairSites: RepairSite[];
+  // Consumables used (for scratch/graffiti repairs)
+  microfiberDisksUsed: MicrofiberDiskUsage[];
+  // Vehicle-level status
+  status: "pending" | "in_progress" | "completed" | "on_hold";
+  holdReason?: string; // Required if status is on_hold (e.g., "Parts on order", "Awaiting approval")
+  // Calculated totals
+  totalCost: number;
+  totalLabourCost: number;
+  totalMaterialsCost: number;
+}
+
+export type RepairType = BookingType;
+
+export interface RepairSite {
+  id: string;
+  repairType: RepairType;
+  location: string; // e.g., "Front windscreen - driver side", "Rear bumper - left panel"
+  description?: string;
+  severity?: "minor" | "moderate" | "severe";
+  // Photos
+  preWorkPhotos: string[]; // URLs to pre-work images
+  postWorkPhotos: string[]; // URLs to post-work images
+  // Cost entry by user
+  totalCost: number;
+  // Auto-calculated: 70% labour, 30% materials
+  labourCost: number; // totalCost * 0.70
+  materialsCost: number; // totalCost * 0.30
+  // Status
+  isCompleted: boolean;
+  completedAt?: Timestamp;
+  completedBy?: string;
+}
+
+// Microfiber Disk consumables for scratch/graffiti removal
+export type MicrofiberDiskGrade = "1" | "2" | "3" | "4" | "5";
+export type MicrofiberDiskSize = "2" | "3" | "5"; // inches
+
+export interface MicrofiberDiskUsage {
+  grade: MicrofiberDiskGrade;
+  size: MicrofiberDiskSize;
+  quantity: number;
+}
+
+// Pre-defined microfiber disk options for UI
+export const MICROFIBER_DISK_GRADES: { value: MicrofiberDiskGrade; label: string }[] = [
+  { value: "1", label: "Grade #1" },
+  { value: "2", label: "Grade #2" },
+  { value: "3", label: "Grade #3" },
+  { value: "4", label: "Grade #4" },
+  { value: "5", label: "Grade #5" },
+];
+
+export const MICROFIBER_DISK_SIZES: { value: MicrofiberDiskSize; label: string }[] = [
+  { value: "2", label: "2\"" },
+  { value: "3", label: "3\"" },
+  { value: "5", label: "5\"" },
+];
+
+// Helper function to calculate cost breakdown
+export function calculateCostBreakdown(totalCost: number): { labourCost: number; materialsCost: number } {
+  return {
+    labourCost: Math.round(totalCost * 0.70 * 100) / 100,
+    materialsCost: Math.round(totalCost * 0.30 * 100) / 100,
+  };
+}
+
+// Legacy DamageItem for backwards compatibility
 export interface DamageItem {
   id: string;
   description: string;
@@ -90,6 +175,7 @@ export interface QuoteDetails {
 
 export interface TechnicianAssignment {
   technicianId: string;
+  technicianName?: string;
   role: "primary" | "secondary";
   assignedAt: Timestamp;
   assignedBy: string;
@@ -131,6 +217,7 @@ export interface Booking {
     name: string;
     type: "asi_staff" | "subcontractor";
   }[];
+  allocatedStaffIds: string[];
   notes?: string;
   status: "pending" | "confirmed" | "converted_to_job" | "cancelled";
   convertedJobId?: string;
@@ -146,10 +233,16 @@ export interface Job {
   clientName: string;
   clientEmail: string;
   clientPhone?: string;
+  organizationId?: string;
+  // Legacy vehicle array (for backwards compatibility)
   vehicles: Vehicle[];
+  // New: Enhanced job vehicles with repair sites and cost tracking
+  jobVehicles: JobVehicle[];
+  // Legacy damage array (for backwards compatibility)
   damage: DamageItem[];
   status: JobStatus;
   assignedTechnicians: TechnicianAssignment[];
+  assignedTechnicianIds?: string[];
   booking?: BookingInfo;
   quoteDetails?: QuoteDetails;
   statusLog: StatusLogEntry[];
@@ -159,6 +252,15 @@ export interface Job {
   createdBy: string;
   updatedAt: Timestamp;
   notes?: string;
+  // Site location for the job
+  siteLocation?: {
+    name: string;
+    address: string;
+  };
+  // Job-level totals (calculated from all vehicles)
+  totalJobCost?: number;
+  totalLabourCost?: number;
+  totalMaterialsCost?: number;
 }
 
 // ============================================
@@ -167,11 +269,11 @@ export interface Job {
 
 export type InspectionStatus = "draft" | "submitted" | "approved" | "converted";
 
-export type RepairType = "bodywork" | "paint" | "glass" | "trim" | "mechanical" | "other";
+export type InspectionRepairType = "bodywork" | "paint" | "glass" | "trim" | "mechanical" | "other";
 
 export interface DamageReportItem {
   id: string;
-  repairType: RepairType;
+  repairType: InspectionRepairType;
   description: string;
   location: string;
   severity: "minor" | "moderate" | "severe";
@@ -300,6 +402,8 @@ export interface ContactOrganization {
   status: OrganizationStatus;
   abn?: string;
   marketStream?: MarketStream;
+  domains?: string[];
+  portalRole?: UserRole;
   industry?: string;
   address?: Address;
   sites: SiteLocation[];
@@ -437,6 +541,7 @@ export interface WorksRegisterEntry {
   id: string;
   jobId: string;
   jobNumber: string;
+  organizationId: string;
   clientName: string;
   serviceType: string;
   technicianId: string;

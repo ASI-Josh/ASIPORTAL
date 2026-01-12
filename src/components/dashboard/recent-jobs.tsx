@@ -1,4 +1,4 @@
-import { mockJobsDisplay } from "@/lib/data";
+import { useJobs } from "@/contexts/JobsContext";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -16,6 +16,15 @@ const statusLabels: { [key: string]: string } = {
 };
 
 export function RecentJobs() {
+    const { jobs } = useJobs();
+    const recentJobs = [...jobs]
+        .sort((a, b) => {
+            const aTime = a.createdAt?.toDate?.().getTime() ?? 0;
+            const bTime = b.createdAt?.toDate?.().getTime() ?? 0;
+            return bTime - aTime;
+        })
+        .slice(0, 5);
+
     return (
         <Card className="bg-card/50 backdrop-blur-lg border-border/20 h-full">
             <CardHeader>
@@ -24,18 +33,26 @@ export function RecentJobs() {
             </CardHeader>
             <CardContent>
                 <div className="space-y-4">
-                    {mockJobsDisplay.map(job => (
-                        <div key={job.id} className="flex items-center space-x-4">
+                    {recentJobs.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">No jobs yet.</p>
+                    ) : (
+                        recentJobs.map((job) => (
+                            <div key={job.id} className="flex items-center space-x-4">
                             <div className="flex-1">
-                                <p className="text-sm font-medium leading-none">{job.title}</p>
-                                <p className="text-sm text-muted-foreground">{job.client}</p>
+                                <p className="text-sm font-medium leading-none">{job.jobNumber}</p>
+                                <p className="text-sm text-muted-foreground">{job.clientName}</p>
                             </div>
-                            <div className="text-sm text-muted-foreground">{job.assigned}</div>
+                            <div className="text-sm text-muted-foreground">
+                                {job.assignedTechnicians.length
+                                    ? `Assigned: ${job.assignedTechnicians.length}`
+                                    : "Unassigned"}
+                            </div>
                             <Badge variant="outline" className={cn("text-xs", statusColors[job.status])}>
                                 {statusLabels[job.status]}
                             </Badge>
                         </div>
-                    ))}
+                        ))
+                    )}
                 </div>
             </CardContent>
         </Card>

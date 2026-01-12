@@ -1,7 +1,16 @@
 "use client";
 
-import { useState } from "react";
-import { Timestamp } from "firebase/firestore";
+import { useEffect, useState } from "react";
+import {
+  Timestamp,
+  collection,
+  onSnapshot,
+  orderBy,
+  doc,
+  updateDoc,
+  deleteDoc,
+  query,
+} from "firebase/firestore";
 import {
   Building2,
   Users,
@@ -61,10 +70,9 @@ import {
   MarketStream,
   OrganizationStatus,
 } from "@/lib/types";
-import {
-  initialOrganizations,
-  initialContacts,
-} from "@/lib/contacts-data";
+import { initialOrganizations, initialContacts } from "@/lib/contacts-data";
+import { COLLECTIONS, addDocument, createDocument } from "@/lib/firestore";
+import { db } from "@/lib/firebaseClient";
 
 type OrganizationFormData = {
   name: string;
@@ -72,6 +80,8 @@ type OrganizationFormData = {
   abn: string;
   marketStream: MarketStream | "";
   status: OrganizationStatus;
+  portalRole: "client" | "contractor" | "";
+  domains: string;
   street: string;
   suburb: string;
   state: string;
@@ -95,6 +105,8 @@ const initialOrgForm: OrganizationFormData = {
   abn: "",
   marketStream: "",
   status: "active",
+  portalRole: "",
+  domains: "",
   street: "",
   suburb: "",
   state: "",
@@ -115,8 +127,10 @@ const initialContactForm: ContactFormData = {
 export default function ContactsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState<ContactCategory>("trade_client");
-  const [organizations, setOrganizations] = useState(initialOrganizations);
-  const [contacts, setContacts] = useState(initialContacts);
+  const [organizations, setOrganizations] = useState<ContactOrganization[]>([]);
+  const [contacts, setContacts] = useState<OrganizationContact[]>([]);
+  const [hasLoaded, setHasLoaded] = useState(false);
+  const [hasSeeded, setHasSeeded] = useState(false);
 
   const [orgDialogOpen, setOrgDialogOpen] = useState(false);
   const [contactDialogOpen, setContactDialogOpen] = useState(false);
@@ -126,6 +140,56 @@ export default function ContactsPage() {
 
   const [orgForm, setOrgForm] = useState<OrganizationFormData>(initialOrgForm);
   const [contactForm, setContactForm] = useState<ContactFormData>(initialContactForm);
+
+  useEffect(() => {
+    const orgQuery = query(collection(db, COLLECTIONS.CONTACT_ORGANIZATIONS), orderBy("name"));
+    const contactsQuery = query(
+      collection(db, COLLECTIONS.ORGANIZATION_CONTACTS),
+      orderBy("firstName")
+    );
+
+    const unsubscribeOrgs = onSnapshot(orgQuery, (snapshot) => {
+      const loaded = snapshot.docs.map((docSnap) => ({
+        id: docSnap.id,
+        ...(docSnap.data() as Omit<ContactOrganization, "id">),
+      }));
+      setOrganizations(loaded);
+      setHasLoaded(true);
+    });
+
+    const unsubscribeContacts = onSnapshot(contactsQuery, (snapshot) => {
+      const loaded = snapshot.docs.map((docSnap) => ({
+        id: docSnap.id,
+        ...(docSnap.data() as Omit<OrganizationContact, "id">),
+      }));
+      setContacts(loaded);
+    });
+
+    return () => {
+      unsubscribeOrgs();
+      unsubscribeContacts();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!hasLoaded || organizations.length > 0 || hasSeeded) return;
+
+    const seedContacts = async () => {
+      await Promise.all(
+        initialOrganizations.map((org) =>
+          createDocument(COLLECTIONS.CONTACT_ORGANIZATIONS, org.id, org)
+        )
+      );
+      await Promise.all(
+        initialContacts.map((contact) =>
+          createDocument(COLLECTIONS.ORGANIZATION_CONTACTS, contact.id, contact)
+        )
+      );
+      setHasSeeded(true);
+    };
+
+    seedContacts();
+  }, [hasLoaded, organizations, hasSeeded]);
 
   const filteredOrganizations = organizations.filter(
     (org) =>
@@ -148,6 +212,8 @@ export default function ContactsPage() {
         abn: org.abn || "",
         marketStream: org.marketStream || "",
         status: org.status,
+        portalRole: org.portalRole || "",
+        domains: org.domains ? org.domains.join(", ") : "",
         street: org.address?.street || "",
         suburb: org.address?.suburb || "",
         state: org.address?.state || "",
@@ -160,39 +226,41 @@ export default function ContactsPage() {
     setOrgDialogOpen(true);
   };
 
-  const handleSaveOrg = () => {
+  const parseDomains = (value: string) =>
+    value
+      .split(",")
+      .map((domain) => domain.trim().toLowerCase())
+      .filter(Boolean);
+
+  const handleSaveOrg = async () => {
     if (editingOrg) {
-      setOrganizations((prev) =>
-        prev.map((org) =>
-          org.id === editingOrg.id
-            ? {
-                ...org,
-                name: orgForm.name,
-                category: orgForm.category,
-                abn: orgForm.abn || undefined,
-                marketStream: orgForm.marketStream || undefined,
-                status: orgForm.status,
-                address: {
-                  street: orgForm.street,
-                  suburb: orgForm.suburb,
-                  state: orgForm.state,
-                  postcode: orgForm.postcode,
-                  country: "Australia",
-                },
-                updatedAt: Timestamp.now(),
-              }
-            : org
-        )
-      );
+      await updateDoc(doc(db, COLLECTIONS.CONTACT_ORGANIZATIONS, editingOrg.id), {
+        name: orgForm.name,
+        category: orgForm.category,
+        abn: orgForm.abn || undefined,
+        marketStream: orgForm.marketStream || undefined,
+        status: orgForm.status,
+        portalRole: orgForm.portalRole || undefined,
+        domains: parseDomains(orgForm.domains),
+        address: {
+          street: orgForm.street,
+          suburb: orgForm.suburb,
+          state: orgForm.state,
+          postcode: orgForm.postcode,
+          country: "Australia",
+        },
+        updatedAt: Timestamp.now(),
+      });
     } else {
-      const newOrg: ContactOrganization = {
-        id: `org-${Date.now()}`,
+      await addDocument(COLLECTIONS.CONTACT_ORGANIZATIONS, {
         name: orgForm.name,
         category: orgForm.category,
         type: "customer",
         status: orgForm.status,
         abn: orgForm.abn || undefined,
         marketStream: orgForm.marketStream || undefined,
+        portalRole: orgForm.portalRole || undefined,
+        domains: parseDomains(orgForm.domains),
         address: {
           street: orgForm.street,
           suburb: orgForm.suburb,
@@ -201,18 +269,20 @@ export default function ContactsPage() {
           country: "Australia",
         },
         sites: [],
-        createdAt: Timestamp.now(),
-        updatedAt: Timestamp.now(),
-      };
-      setOrganizations((prev) => [...prev, newOrg]);
+      });
     }
     setOrgDialogOpen(false);
     setOrgForm(initialOrgForm);
   };
 
-  const handleDeleteOrg = (orgId: string) => {
-    setOrganizations((prev) => prev.filter((org) => org.id !== orgId));
-    setContacts((prev) => prev.filter((c) => c.organizationId !== orgId));
+  const handleDeleteOrg = async (orgId: string) => {
+    await deleteDoc(doc(db, COLLECTIONS.CONTACT_ORGANIZATIONS, orgId));
+    const contactsToRemove = contacts.filter((c) => c.organizationId === orgId);
+    await Promise.all(
+      contactsToRemove.map((contact) =>
+        deleteDoc(doc(db, COLLECTIONS.ORGANIZATION_CONTACTS, contact.id))
+      )
+    );
   };
 
   const handleOpenContactDialog = (orgId: string, contact?: OrganizationContact) => {
@@ -236,31 +306,23 @@ export default function ContactsPage() {
     setContactDialogOpen(true);
   };
 
-  const handleSaveContact = () => {
+  const handleSaveContact = async () => {
     if (!selectedOrgId) return;
 
     if (editingContact) {
-      setContacts((prev) =>
-        prev.map((c) =>
-          c.id === editingContact.id
-            ? {
-                ...c,
-                firstName: contactForm.firstName,
-                lastName: contactForm.lastName,
-                email: contactForm.email,
-                phone: contactForm.phone,
-                role: contactForm.role,
-                jobTitle: contactForm.jobTitle || undefined,
-                isPrimary: contactForm.isPrimary,
-                hasPortalAccess: contactForm.hasPortalAccess,
-                updatedAt: Timestamp.now(),
-              }
-            : c
-        )
-      );
+      await updateDoc(doc(db, COLLECTIONS.ORGANIZATION_CONTACTS, editingContact.id), {
+        firstName: contactForm.firstName,
+        lastName: contactForm.lastName,
+        email: contactForm.email,
+        phone: contactForm.phone,
+        role: contactForm.role,
+        jobTitle: contactForm.jobTitle || undefined,
+        isPrimary: contactForm.isPrimary,
+        hasPortalAccess: contactForm.hasPortalAccess,
+        updatedAt: Timestamp.now(),
+      });
     } else {
-      const newContact: OrganizationContact = {
-        id: `contact-${Date.now()}`,
+      await addDocument(COLLECTIONS.ORGANIZATION_CONTACTS, {
         organizationId: selectedOrgId,
         firstName: contactForm.firstName,
         lastName: contactForm.lastName,
@@ -271,18 +333,15 @@ export default function ContactsPage() {
         status: "active",
         isPrimary: contactForm.isPrimary,
         hasPortalAccess: contactForm.hasPortalAccess,
-        createdAt: Timestamp.now(),
-        updatedAt: Timestamp.now(),
-      };
-      setContacts((prev) => [...prev, newContact]);
+      });
     }
     setContactDialogOpen(false);
     setContactForm(initialContactForm);
     setSelectedOrgId(null);
   };
 
-  const handleDeleteContact = (contactId: string) => {
-    setContacts((prev) => prev.filter((c) => c.id !== contactId));
+  const handleDeleteContact = async (contactId: string) => {
+    await deleteDoc(doc(db, COLLECTIONS.ORGANIZATION_CONTACTS, contactId));
   };
 
   return (
@@ -293,7 +352,7 @@ export default function ContactsPage() {
             Contacts Database
           </h2>
           <p className="text-muted-foreground">
-            Manage organizations and contacts by category.
+            Manage organisations and contacts by category.
           </p>
         </div>
         <Button onClick={() => handleOpenOrgDialog()}>
@@ -308,7 +367,7 @@ export default function ContactsPage() {
             <div className="relative flex-1 max-w-sm">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Search organizations..."
+                placeholder="Search organisations..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-9"
@@ -336,7 +395,7 @@ export default function ContactsPage() {
                 {filteredOrganizations.length === 0 ? (
                   <div className="text-center py-12 text-muted-foreground">
                     <Building2 className="mx-auto h-12 w-12 mb-4 opacity-50" />
-                    <p>No organizations found in this category.</p>
+                    <p>No organisations found in this category.</p>
                   </div>
                 ) : (
                   <div className="space-y-4">
@@ -518,23 +577,23 @@ export default function ContactsPage() {
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>
-              {editingOrg ? "Edit Organization" : "Add Organization"}
+              {editingOrg ? "Edit Organisation" : "Add Organisation"}
             </DialogTitle>
             <DialogDescription>
               {editingOrg
-                ? "Update organization details."
-                : "Add a new organization to the database."}
+                ? "Update organisation details."
+                : "Add a new organisation to the database."}
             </DialogDescription>
           </DialogHeader>
           <ScrollArea className="max-h-[60vh]">
             <div className="grid gap-4 py-4 pr-4">
               <div className="grid gap-2">
-                <Label htmlFor="org-name">Organization Name</Label>
+                <Label htmlFor="org-name">Organisation Name</Label>
                 <Input
                   id="org-name"
                   value={orgForm.name}
                   onChange={(e) => setOrgForm({ ...orgForm, name: e.target.value })}
-                  placeholder="Enter organization name"
+                  placeholder="Enter organisation name"
                 />
               </div>
               <div className="grid gap-2">
@@ -554,6 +613,39 @@ export default function ContactsPage() {
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="org-portal-role">Portal Role</Label>
+                <Select
+                  value={orgForm.portalRole}
+                  onValueChange={(v) =>
+                    setOrgForm({
+                      ...orgForm,
+                      portalRole: v as OrganizationFormData["portalRole"],
+                    })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select portal role" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">Not set</SelectItem>
+                    <SelectItem value="client">Client</SelectItem>
+                    <SelectItem value="contractor">Contractor</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="org-domains">Email Domains</Label>
+                <Input
+                  id="org-domains"
+                  value={orgForm.domains}
+                  onChange={(e) => setOrgForm({ ...orgForm, domains: e.target.value })}
+                  placeholder="example.com, subcontractor.com.au"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Used to auto-match signups to this organisation.
+                </p>
               </div>
               <div className="grid gap-2">
                 <Label htmlFor="org-abn">ABN</Label>
@@ -632,7 +724,7 @@ export default function ContactsPage() {
               Cancel
             </Button>
             <Button onClick={handleSaveOrg} disabled={!orgForm.name}>
-              {editingOrg ? "Save Changes" : "Add Organization"}
+              {editingOrg ? "Save Changes" : "Add Organisation"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -648,7 +740,7 @@ export default function ContactsPage() {
             <DialogDescription>
               {editingContact
                 ? "Update contact details."
-                : "Add a new contact to the organization."}
+                : "Add a new contact to the organisation."}
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">

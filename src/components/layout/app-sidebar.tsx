@@ -18,6 +18,7 @@ import {
   Building2,
   ClipboardList,
   GitBranch,
+  Wrench,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import {
@@ -42,7 +43,7 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 
-const menuItems = [
+const adminMenuItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/dashboard/crm", label: "CRM", icon: KanbanSquare },
   { href: "/dashboard/bookings", label: "Bookings", icon: Briefcase },
@@ -60,6 +61,18 @@ export function AppSidebar() {
   const router = useRouter();
   const { user, signOut } = useAuth();
   const { state, toggleSidebar, isMobile } = useSidebar();
+  const menuItems = user
+    ? {
+        admin: adminMenuItems,
+        technician: [
+          { href: "/technician", label: "Technician Dashboard", icon: Wrench },
+        ],
+        client: [{ href: "/client", label: "Client Portal", icon: UserIcon }],
+        contractor: [
+          { href: "/contractor", label: "Contractor Portal", icon: Building2 },
+        ],
+      }[user.role] || adminMenuItems
+    : adminMenuItems;
 
   const isActive = (href: string) => {
     if (href === "/dashboard") {

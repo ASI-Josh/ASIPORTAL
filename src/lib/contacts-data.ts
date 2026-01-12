@@ -17,6 +17,8 @@ const unsortedOrganizations: ContactOrganization[] = [
     type: "partner",
     status: "active",
     abn: "",
+    domains: ["asi-australia.com.au"],
+    portalRole: "technician",
     address: {
       street: "",
       suburb: "Melbourne",
@@ -38,6 +40,8 @@ const unsortedOrganizations: ContactOrganization[] = [
     type: "customer",
     status: "active",
     abn: "",
+    domains: ["bssvic.com.au"],
+    portalRole: "client",
     address: {
       street: "",
       suburb: "",
@@ -71,6 +75,8 @@ const unsortedOrganizations: ContactOrganization[] = [
     type: "customer",
     status: "active",
     abn: "85 620 099 756",
+    domains: ["eurohub.com.au"],
+    portalRole: "client",
     address: {
       street: "706 Lorimer St",
       suburb: "Port Melbourne",
@@ -104,6 +110,8 @@ const unsortedOrganizations: ContactOrganization[] = [
     type: "customer",
     status: "active",
     abn: "56 454 174 836",
+    domains: ["hardenpackaging.com.au"],
+    portalRole: "client",
     address: {
       street: "29 Korong Rd",
       suburb: "Heidelberg West",
@@ -137,6 +145,7 @@ const unsortedOrganizations: ContactOrganization[] = [
     type: "customer",
     status: "active",
     abn: "53 162 612 795",
+    portalRole: "client",
     address: {
       street: "49 Greenhills Rd",
       suburb: "Pakenham",
@@ -170,6 +179,8 @@ const unsortedOrganizations: ContactOrganization[] = [
     type: "customer",
     status: "active",
     abn: "77 618 554 635",
+    domains: ["mbmelbourne.com.au"],
+    portalRole: "client",
     address: {
       street: "135 Kings Way",
       suburb: "South Melbourne",
@@ -203,6 +214,7 @@ const unsortedOrganizations: ContactOrganization[] = [
     type: "customer",
     status: "active",
     abn: "43 666 685 589",
+    portalRole: "client",
     address: {
       street: "6 Lennox St",
       suburb: "Moorabbin",
@@ -236,6 +248,8 @@ const unsortedOrganizations: ContactOrganization[] = [
     type: "customer",
     status: "active",
     abn: "74 533 584 563",
+    domains: ["millenniumauto.com.au"],
+    portalRole: "client",
     address: {
       street: "146-148 Thistlethwaite St",
       suburb: "South Melbourne",
@@ -269,6 +283,8 @@ const unsortedOrganizations: ContactOrganization[] = [
     type: "customer",
     status: "active",
     abn: "25 981 499 326",
+    domains: ["nulinecharter.com.au"],
+    portalRole: "client",
     address: {
       street: "36-44 Whiteside Rd",
       suburb: "Clayton South",
@@ -302,6 +318,8 @@ const unsortedOrganizations: ContactOrganization[] = [
     type: "customer",
     status: "active",
     abn: "52 408 358 400",
+    domains: ["pagebrosrv.com.au"],
+    portalRole: "client",
     address: {
       street: "893-895 Princes Hwy",
       suburb: "Springvale",
@@ -335,6 +353,7 @@ const unsortedOrganizations: ContactOrganization[] = [
     type: "customer",
     status: "active",
     abn: "",
+    portalRole: "client",
     address: {
       street: "13 Lilydale Road",
       suburb: "Healesville",

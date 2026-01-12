@@ -1,19 +1,23 @@
 "use client";
 
 import { useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
-import { getDefaultRouteForRole } from "@/lib/auth";
+import { getDefaultRouteForRole, isAuthorizedForRoute } from "@/lib/auth";
 
 export function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
 
   useEffect(() => {
     if (!loading && !user) {
       router.push("/");
     }
-  }, [user, loading, router]);
+    if (!loading && user && !isAuthorizedForRoute(user.role, pathname)) {
+      router.replace(getDefaultRouteForRole(user.role));
+    }
+  }, [user, loading, router, pathname]);
 
   if (loading) {
     return (
@@ -36,17 +40,17 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
 export function RoleBasedRedirect({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
 
   useEffect(() => {
     if (!loading && user) {
       const defaultRoute = getDefaultRouteForRole(user.role);
-      const currentPath = window.location.pathname;
       
-      if (currentPath === "/" || currentPath === "/login" || currentPath === "/signup") {
+      if (pathname === "/" || pathname === "/login" || pathname === "/signup") {
         router.push(defaultRoute);
       }
     }
-  }, [user, loading, router]);
+  }, [user, loading, router, pathname]);
 
   return <>{children}</>;
 }

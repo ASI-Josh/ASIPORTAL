@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -10,194 +12,230 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
-import { ClipboardList, Search, Calendar } from "lucide-react";
-
-const mockWorksData = [
-  {
-    jobNumber: "WR-2024-001",
-    client: "Metro Rail Authority",
-    serviceType: "Track Inspection",
-    technician: "John Smith",
-    startDate: "2024-01-15",
-    completionDate: "2024-01-18",
-    status: "Completed",
-    compliance: "Compliant",
-  },
-  {
-    jobNumber: "WR-2024-002",
-    client: "Sydney Trains",
-    serviceType: "Signal Maintenance",
-    technician: "Sarah Johnson",
-    startDate: "2024-01-20",
-    completionDate: "2024-01-22",
-    status: "Completed",
-    compliance: "Compliant",
-  },
-  {
-    jobNumber: "WR-2024-003",
-    client: "ARTC",
-    serviceType: "Level Crossing Audit",
-    technician: "Mike Chen",
-    startDate: "2024-02-01",
-    completionDate: "-",
-    status: "In Progress",
-    compliance: "Pending",
-  },
-  {
-    jobNumber: "WR-2024-004",
-    client: "Queensland Rail",
-    serviceType: "Track Geometry Survey",
-    technician: "Emma Wilson",
-    startDate: "2024-02-05",
-    completionDate: "2024-02-08",
-    status: "Completed",
-    compliance: "Compliant",
-  },
-  {
-    jobNumber: "WR-2024-005",
-    client: "V/Line",
-    serviceType: "Rail Flaw Detection",
-    technician: "David Brown",
-    startDate: "2024-02-10",
-    completionDate: "-",
-    status: "Scheduled",
-    compliance: "Pending",
-  },
-  {
-    jobNumber: "WR-2024-006",
-    client: "Metro Trains Melbourne",
-    serviceType: "Overhead Line Inspection",
-    technician: "Lisa Taylor",
-    startDate: "2024-02-12",
-    completionDate: "2024-02-14",
-    status: "Completed",
-    compliance: "Non-Conformance",
-  },
-];
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { ClipboardList, Search, Calendar, Plus, FileText, Download } from "lucide-react";
+import { useJobs } from "@/contexts/JobsContext";
 
 function getStatusColor(status: string) {
   switch (status) {
     case "Completed":
       return "text-green-400";
     case "In Progress":
-      return "text-yellow-400";
+      return "text-amber-400";
     case "Scheduled":
       return "text-blue-400";
     default:
-      return "text-gray-400";
+      return "text-muted-foreground";
   }
 }
 
 function getComplianceColor(compliance: string) {
   switch (compliance) {
     case "Compliant":
-      return "text-green-400 bg-green-400/10";
+      return "bg-green-500/20 text-green-400 border-green-500/30";
     case "Non-Conformance":
-      return "text-red-400 bg-red-400/10";
+      return "bg-red-500/20 text-red-400 border-red-500/30";
     case "Pending":
-      return "text-yellow-400 bg-yellow-400/10";
+      return "bg-amber-500/20 text-amber-400 border-amber-500/30";
     default:
-      return "text-gray-400 bg-gray-400/10";
+      return "bg-muted text-muted-foreground";
   }
 }
 
 export default function WorksRegisterPage() {
+  const router = useRouter();
+  const { getWorksRegisterDisplayData, worksRegister, jobs } = useJobs();
+  const [searchQuery, setSearchQuery] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+
+  const worksData = getWorksRegisterDisplayData();
+
+  // Filter by search and date range
+  const filteredData = worksData.filter((work) => {
+    const matchesSearch =
+      work.jobNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      work.client.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      work.technician.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      work.serviceType.toLowerCase().includes(searchQuery.toLowerCase());
+
+    const matchesDateRange =
+      (!startDate || work.startDate >= startDate) &&
+      (!endDate || work.startDate <= endDate);
+
+    return matchesSearch && matchesDateRange;
+  });
+
+  // Summary stats
+  const totalJobs = worksData.length;
+  const completedJobs = worksData.filter((w) => w.status === "Completed").length;
+  const inProgressJobs = worksData.filter((w) => w.status === "In Progress").length;
+  const complianceRate =
+    totalJobs > 0
+      ? Math.round(
+          (worksData.filter((w) => w.compliance === "Compliant").length / totalJobs) * 100
+        )
+      : 0;
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-6">
-      <div className="max-w-7xl mx-auto space-y-6">
-        {/* Header */}
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
           <div className="p-3 rounded-lg bg-blue-500/20 backdrop-blur-sm">
             <ClipboardList className="h-8 w-8 text-blue-400" />
           </div>
           <div>
-            <h1 className="text-3xl font-bold text-white">Works Register</h1>
-            <p className="text-slate-400">ISO 9001 Compliant Works Tracking</p>
+            <h1 className="text-3xl font-bold">Works Register</h1>
+            <p className="text-muted-foreground">ISO 9001 Compliant Works Tracking</p>
           </div>
         </div>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm">
+            <Download className="mr-2 h-4 w-4" />
+            Export CSV
+          </Button>
+          <Button size="sm" onClick={() => router.push("/dashboard/bookings")}>
+            <Plus className="mr-2 h-4 w-4" />
+            New Booking
+          </Button>
+        </div>
+      </div>
 
-        {/* Filters */}
-        <Card className="bg-slate-800/50 backdrop-blur-sm border-slate-700">
-          <CardContent className="p-4">
-            <div className="flex flex-wrap gap-4">
-              <div className="relative flex-1 min-w-[250px]">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                <Input
-                  placeholder="Search by job number, client, or technician..."
-                  className="pl-10 bg-slate-900/50 border-slate-600 text-white placeholder:text-slate-500"
-                />
-              </div>
-              <div className="flex items-center gap-2">
-                <Calendar className="h-4 w-4 text-slate-400" />
-                <Input
-                  type="date"
-                  className="bg-slate-900/50 border-slate-600 text-white w-[150px]"
-                />
-                <span className="text-slate-400">to</span>
-                <Input
-                  type="date"
-                  className="bg-slate-900/50 border-slate-600 text-white w-[150px]"
-                />
-              </div>
-            </div>
+      {/* Stats Cards */}
+      <div className="grid gap-4 md:grid-cols-4">
+        <Card className="bg-card/50 backdrop-blur">
+          <CardContent className="pt-6">
+            <div className="text-2xl font-bold">{totalJobs}</div>
+            <p className="text-xs text-muted-foreground">Total Jobs</p>
           </CardContent>
         </Card>
+        <Card className="bg-card/50 backdrop-blur">
+          <CardContent className="pt-6">
+            <div className="text-2xl font-bold text-green-400">{completedJobs}</div>
+            <p className="text-xs text-muted-foreground">Completed</p>
+          </CardContent>
+        </Card>
+        <Card className="bg-card/50 backdrop-blur">
+          <CardContent className="pt-6">
+            <div className="text-2xl font-bold text-amber-400">{inProgressJobs}</div>
+            <p className="text-xs text-muted-foreground">In Progress</p>
+          </CardContent>
+        </Card>
+        <Card className="bg-card/50 backdrop-blur">
+          <CardContent className="pt-6">
+            <div className="text-2xl font-bold text-blue-400">{complianceRate}%</div>
+            <p className="text-xs text-muted-foreground">Compliance Rate</p>
+          </CardContent>
+        </Card>
+      </div>
 
-        {/* Works Table */}
-        <Card className="bg-slate-800/50 backdrop-blur-sm border-slate-700">
-          <CardHeader>
-            <CardTitle className="text-white flex items-center gap-2">
-              <ClipboardList className="h-5 w-5 text-blue-400" />
-              Historical Works Record
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="rounded-md border border-slate-700 overflow-hidden">
+      {/* Filters */}
+      <Card className="bg-card/50 backdrop-blur">
+        <CardContent className="p-4">
+          <div className="flex flex-wrap gap-4">
+            <div className="relative flex-1 min-w-[250px]">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search by job number, client, or technician..."
+                className="pl-10"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <Calendar className="h-4 w-4 text-muted-foreground" />
+              <Input
+                type="date"
+                className="w-[150px]"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+              />
+              <span className="text-muted-foreground">to</span>
+              <Input
+                type="date"
+                className="w-[150px]"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+              />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Works Table */}
+      <Card className="bg-card/50 backdrop-blur">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <FileText className="h-5 w-5 text-primary" />
+            Historical Works Record
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {filteredData.length === 0 ? (
+            <div className="text-center py-12">
+              <ClipboardList className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+              <h3 className="text-lg font-medium mb-2">No Works Records Yet</h3>
+              <p className="text-muted-foreground mb-4">
+                Create a booking to generate your first works register entry.
+              </p>
+              <Button onClick={() => router.push("/dashboard/bookings")}>
+                <Plus className="mr-2 h-4 w-4" />
+                Create Booking
+              </Button>
+            </div>
+          ) : (
+            <div className="rounded-md border border-border/50 overflow-hidden">
               <Table>
                 <TableHeader>
-                  <TableRow className="bg-slate-900/50 hover:bg-slate-900/50 border-slate-700">
-                    <TableHead className="text-slate-300">Job Number</TableHead>
-                    <TableHead className="text-slate-300">Client</TableHead>
-                    <TableHead className="text-slate-300">Service Type</TableHead>
-                    <TableHead className="text-slate-300">Technician</TableHead>
-                    <TableHead className="text-slate-300">Start Date</TableHead>
-                    <TableHead className="text-slate-300">Completion Date</TableHead>
-                    <TableHead className="text-slate-300">Status</TableHead>
-                    <TableHead className="text-slate-300">Compliance</TableHead>
+                  <TableRow className="bg-muted/30 hover:bg-muted/30">
+                    <TableHead>Job Number</TableHead>
+                    <TableHead>Client</TableHead>
+                    <TableHead>Service Type</TableHead>
+                    <TableHead>Technician</TableHead>
+                    <TableHead>Start Date</TableHead>
+                    <TableHead>Completion Date</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Compliance</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {mockWorksData.map((work) => (
+                  {filteredData.map((work) => (
                     <TableRow
                       key={work.jobNumber}
-                      className="border-slate-700 hover:bg-slate-700/50"
+                      className="hover:bg-muted/20 cursor-pointer"
+                      onClick={() => {
+                        const job = jobs.find((j) => j.jobNumber === work.jobNumber);
+                        if (job) {
+                          router.push(`/dashboard/jobs/${job.id}`);
+                        }
+                      }}
                     >
-                      <TableCell className="font-medium text-blue-400">
+                      <TableCell className="font-medium text-primary">
                         {work.jobNumber}
                       </TableCell>
-                      <TableCell className="text-slate-200">{work.client}</TableCell>
-                      <TableCell className="text-slate-200">{work.serviceType}</TableCell>
-                      <TableCell className="text-slate-200">{work.technician}</TableCell>
-                      <TableCell className="text-slate-300">{work.startDate}</TableCell>
-                      <TableCell className="text-slate-300">{work.completionDate}</TableCell>
+                      <TableCell>{work.client}</TableCell>
+                      <TableCell>{work.serviceType}</TableCell>
+                      <TableCell>{work.technician}</TableCell>
+                      <TableCell>{work.startDate}</TableCell>
+                      <TableCell>{work.completionDate}</TableCell>
                       <TableCell className={getStatusColor(work.status)}>
                         {work.status}
                       </TableCell>
                       <TableCell>
-                        <span
-                          className={`px-2 py-1 rounded-full text-xs font-medium ${getComplianceColor(work.compliance)}`}
-                        >
+                        <Badge variant="outline" className={getComplianceColor(work.compliance)}>
                           {work.compliance}
-                        </span>
+                        </Badge>
                       </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
             </div>
-          </CardContent>
-        </Card>
-      </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
