@@ -59,11 +59,14 @@ export const JOB_LIFECYCLE_LABELS: Record<JobLifecycleStage, string> = {
 
 export interface Vehicle {
   registration: string;
-  make: string;
-  model: string;
-  year: number;
+  make?: string;
+  model?: string;
+  year?: number;
   vin?: string;
   color?: string;
+  fleetAssetNumber?: string;
+  bodyManufacturer?: string;
+  poWorksOrderNumber?: string;
 }
 
 export interface JobVehicle {
@@ -293,19 +296,24 @@ export interface Job {
 // INSPECTION SYSTEM
 // ============================================
 
-export type InspectionStatus = "draft" | "submitted" | "approved" | "converted";
+export type InspectionStatus = "draft" | "submitted" | "approved" | "converted" | "rejected";
 
 export type InspectionRepairType = "bodywork" | "paint" | "glass" | "trim" | "mechanical" | "other";
 
 export interface DamageReportItem {
   id: string;
-  repairType: InspectionRepairType;
+  repairType: RepairType;
   description: string;
   location: string;
   severity: "minor" | "moderate" | "severe";
-  photoUrls: string[];
+  photoUrls?: string[];
+  preWorkPhotos?: string[];
+  postWorkPhotos?: string[];
   recommendedAction?: string;
   estimatedCost?: number;
+  totalCost?: number;
+  labourCost?: number;
+  materialsCost?: number;
 }
 
 export interface VehicleReport {
@@ -319,10 +327,28 @@ export interface VehicleReport {
 export interface Inspection {
   id: string;
   inspectionNumber: string;
+  organizationId?: string;
+  organizationName?: string;
+  contactId?: string;
+  contactName?: string;
   clientId?: string;
   clientName: string;
   clientEmail: string;
   clientPhone?: string;
+  scheduledDate?: Timestamp;
+  scheduledTime?: string;
+  assignedStaff?: {
+    id: string;
+    name: string;
+    type: "asi_staff" | "subcontractor";
+    email?: string;
+  }[];
+  assignedStaffIds?: string[];
+  notes?: string;
+  siteLocation?: {
+    name: string;
+    address: Address;
+  };
   vehicleReports: VehicleReport[];
   status: InspectionStatus;
   submittedAt?: Timestamp;
@@ -332,6 +358,8 @@ export interface Inspection {
   createdBy: string;
   updatedAt: Timestamp;
   findings?: string;
+  reportSummary?: string;
+  reportSummaryUpdatedAt?: Timestamp;
 }
 
 // ============================================

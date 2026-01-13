@@ -175,19 +175,27 @@ export default function JobCardPage() {
   const [invoiceDate, setInvoiceDate] = useState("");
   const [invoiceSentDate, setInvoiceSentDate] = useState("");
 
-  const formatDate = (timestamp: any) => {
-    if (!timestamp) return "N/A";
-    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+  const toDateValue = (value?: Timestamp | string | number | Date | null | undefined) => {
+    if (!value) return null;
+    if (value instanceof Timestamp) return value.toDate();
+    const hasToDate = (value as { toDate?: () => Date }).toDate;
+    if (typeof hasToDate === "function") return hasToDate.call(value);
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+  };
+  const formatDate = (timestamp?: Timestamp | string | number | Date | null) => {
+    const date = toDateValue(timestamp);
+    if (!date) return "N/A";
     return date.toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" });
   };
-  const formatDateInput = (timestamp?: Timestamp) => {
-    if (!timestamp) return "";
-    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+  const formatDateInput = (timestamp?: Timestamp | string | number | Date | null) => {
+    const date = toDateValue(timestamp);
+    if (!date) return "";
     return date.toISOString().split("T")[0];
   };
-  const formatDateTime = (timestamp: any) => {
-    if (!timestamp) return "N/A";
-    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+  const formatDateTime = (timestamp?: Timestamp | string | number | Date | null) => {
+    const date = toDateValue(timestamp);
+    if (!date) return "N/A";
     return date.toLocaleString("en-AU", {
       day: "2-digit",
       month: "short",

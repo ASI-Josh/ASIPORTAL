@@ -346,20 +346,19 @@ export default function BookingsPage() {
       return onSnapshot(
         contactQuery,
         (snapshot) => {
-          const loaded = snapshot.docs
-            .map((docSnap) => {
-              const data = docSnap.data() as OrganizationContact;
-              if (data.status === "inactive") return null;
-              const fullName = `${data.firstName} ${data.lastName}`.trim();
-              return {
-                id: data.portalUserId || docSnap.id,
-                name: fullName || data.email || "Unknown",
-                type: "asi_staff",
-                email: data.email,
-              };
-            })
-            .filter((staff): staff is StaffMember => staff !== null)
-            .sort((a, b) => a.name.localeCompare(b.name));
+          const loaded = snapshot.docs.reduce<StaffMember[]>((acc, docSnap) => {
+            const data = docSnap.data() as OrganizationContact;
+            if (data.status === "inactive") return acc;
+            const fullName = `${data.firstName} ${data.lastName}`.trim();
+            acc.push({
+              id: data.portalUserId || docSnap.id,
+              name: fullName || data.email || "Unknown",
+              type: "asi_staff",
+              email: data.email || undefined,
+            });
+            return acc;
+          }, []);
+          loaded.sort((a, b) => a.name.localeCompare(b.name));
 
           staffByOrg.set(orgId, loaded);
           mergeStaff();
@@ -867,15 +866,15 @@ export default function BookingsPage() {
         notes: editNotes || undefined,
       });
 
-      if (editingBooking.convertedJobId) {
-        const now = Timestamp.now();
-        const assignedTechnicians = updatedStaff.map((staff, index) => ({
-          technicianId: staff.id,
-          technicianName: staff.name,
-          role: index === 0 ? "primary" : "secondary",
-          assignedAt: now,
-          assignedBy: user?.uid || "system",
-        }));
+        if (editingBooking.convertedJobId) {
+          const now = Timestamp.now();
+          const assignedTechnicians = updatedStaff.map((staff, index) => ({
+            technicianId: staff.id,
+            technicianName: staff.name,
+            role: (index === 0 ? "primary" : "secondary") as "primary" | "secondary",
+            assignedAt: now,
+            assignedBy: user?.uid || "system",
+          }));
         await updateJob(editingBooking.convertedJobId, {
           clientId: selectedOrg.id,
           clientName: selectedOrg.name,

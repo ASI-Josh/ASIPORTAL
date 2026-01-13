@@ -92,6 +92,13 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    match /inspections/{inspectionId} {
+      allow read: if isStaff() || hasOrg(resource.data.organizationId);
+      allow create: if isStaff();
+      allow update: if isStaff();
+      allow delete: if isAdmin();
+    }
+
     match /jobs/{jobId} {
       allow read: if isStaff() || hasOrg(resource.data.organizationId);
       allow create: if isStaff();

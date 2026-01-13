@@ -57,10 +57,7 @@ export default function JobLifecyclePage() {
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
 
   const pipelineJobs = useMemo(
-    () =>
-      jobs.filter(
-        (job) => !job.isDeleted && job.status !== "pending" && job.status !== "cancelled"
-      ),
+    () => jobs.filter((job) => !job.isDeleted && job.status !== "cancelled"),
     [jobs]
   );
 
@@ -83,15 +80,20 @@ export default function JobLifecyclePage() {
     });
   }, [pipelineJobs, selectedOrganisation]);
 
+  const listJobs = useMemo(
+    () => filteredJobs.filter((job) => job.status !== "pending"),
+    [filteredJobs]
+  );
+
   const recentJobs = useMemo(() => {
-    return [...filteredJobs]
+    return [...listJobs]
       .sort((a, b) => {
         const aTime = (a.updatedAt ?? a.createdAt).toMillis();
         const bTime = (b.updatedAt ?? b.createdAt).toMillis();
         return bTime - aTime;
       })
       .slice(0, 10);
-  }, [filteredJobs]);
+  }, [listJobs]);
 
   useEffect(() => {
     if (recentJobs.length === 0) {
