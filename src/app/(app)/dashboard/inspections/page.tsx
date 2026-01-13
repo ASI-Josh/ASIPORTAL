@@ -162,6 +162,19 @@ export default function InspectionsPage() {
     }
   }, [contacts, selectedOrgId, isCreatingNewOrg, isCreatingNewContact]);
 
+  const toDateValue = (value?: Timestamp | string | number | Date | null | undefined) => {
+    if (!value) return null;
+    if (value instanceof Timestamp) return value.toDate();
+    if (value instanceof Date) return value;
+    const hasToDate = (value as { toDate?: () => Date }).toDate;
+    if (typeof hasToDate === "function") return hasToDate.call(value);
+    if (typeof value === "string" || typeof value === "number") {
+      const date = new Date(value);
+      return Number.isNaN(date.getTime()) ? null : date;
+    }
+    return null;
+  };
+
   const resetNewInspectionForm = () => {
     setSelectedOrgId("");
     setSelectedContactId("");
@@ -645,13 +658,13 @@ export default function InspectionsPage() {
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      {inspection.scheduledDate
-                        ? inspection.scheduledDate.toDate().toLocaleDateString("en-AU")
+                      {toDateValue(inspection.scheduledDate)
+                        ? toDateValue(inspection.scheduledDate)!.toLocaleDateString("en-AU")
                         : "-"}
                     </TableCell>
                     <TableCell>
-                      {inspection.updatedAt
-                        ? inspection.updatedAt.toDate().toLocaleDateString("en-AU")
+                      {toDateValue(inspection.updatedAt)
+                        ? toDateValue(inspection.updatedAt)!.toLocaleDateString("en-AU")
                         : "-"}
                     </TableCell>
                     <TableCell className="text-right">
