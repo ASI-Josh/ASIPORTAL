@@ -338,7 +338,7 @@ export function JobsProvider({ children }: { children: ReactNode }) {
         job_scheduled: "scheduled",
         job_live: "in_progress",
         job_completed: "completed",
-        management_closeoff: "completed",
+        management_closeoff: "closed",
       };
       const newStatus = statusMap[stage];
       await updateJobStatus(jobId, newStatus, changedBy, `Moved to ${stage.replace(/_/g, " ")}`);

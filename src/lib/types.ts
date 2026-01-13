@@ -24,7 +24,7 @@ export interface User {
 // JOB LIFECYCLE MANAGEMENT (JLM)
 // ============================================
 
-export type JobStatus = "pending" | "scheduled" | "in_progress" | "completed" | "cancelled";
+export type JobStatus = "pending" | "scheduled" | "in_progress" | "completed" | "closed" | "cancelled";
 
 export type JobLifecycleStage = "rfq" | "job_scheduled" | "job_live" | "job_completed" | "management_closeoff";
 
@@ -50,7 +50,7 @@ export const JOB_LIFECYCLE_LABELS: Record<JobLifecycleStage, string> = {
   job_scheduled: "Job Scheduled",
   job_live: "Job Live",
   job_completed: "Job Completed",
-  management_closeoff: "Management Close Off",
+  management_closeoff: "Management Close-off",
 };
 
 // ============================================
@@ -262,6 +262,13 @@ export interface Job {
   statusLog: StatusLogEntry[];
   scheduledDate?: Timestamp;
   completedDate?: Timestamp;
+  managementApprovedAt?: Timestamp;
+  managementApprovedBy?: string;
+  invoiceNumber?: string;
+  invoiceDate?: Timestamp;
+  invoiceSentAt?: Timestamp;
+  closedAt?: Timestamp;
+  closedBy?: string;
   createdAt: Timestamp;
   createdBy: string;
   updatedAt: Timestamp;

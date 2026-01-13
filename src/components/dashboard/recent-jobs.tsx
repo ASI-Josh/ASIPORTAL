@@ -7,12 +7,18 @@ const statusColors: { [key: string]: string } = {
     'completed': 'bg-green-500/20 text-green-400 border-green-500/30',
     'in_progress': 'bg-blue-500/20 text-blue-400 border-blue-500/30',
     'pending': 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
+    'scheduled': 'bg-blue-500/20 text-blue-400 border-blue-500/30',
+    'closed': 'bg-slate-500/20 text-slate-400 border-slate-500/30',
+    'cancelled': 'bg-red-500/20 text-red-400 border-red-500/30',
 };
 
 const statusLabels: { [key: string]: string } = {
     'completed': 'Completed',
     'in_progress': 'In Progress',
     'pending': 'Pending',
+    'scheduled': 'Scheduled',
+    'closed': 'Closed',
+    'cancelled': 'Cancelled',
 };
 
 export function RecentJobs() {

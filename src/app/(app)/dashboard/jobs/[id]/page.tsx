@@ -87,6 +87,7 @@ const statusColors: Record<JobStatus, string> = {
   scheduled: "bg-blue-500/20 text-blue-400 border-blue-500/30",
   in_progress: "bg-purple-500/20 text-purple-400 border-purple-500/30",
   completed: "bg-green-500/20 text-green-400 border-green-500/30",
+  closed: "bg-slate-500/20 text-slate-400 border-slate-500/30",
   cancelled: "bg-red-500/20 text-red-400 border-red-500/30",
 };
 
@@ -170,11 +171,19 @@ export default function JobCardPage() {
     repairId: string;
   } | null>(null);
   const [showCompleteDialog, setShowCompleteDialog] = useState(false);
+  const [invoiceNumber, setInvoiceNumber] = useState(job?.invoiceNumber ?? "");
+  const [invoiceDate, setInvoiceDate] = useState("");
+  const [invoiceSentDate, setInvoiceSentDate] = useState("");
 
   const formatDate = (timestamp: any) => {
     if (!timestamp) return "N/A";
     const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
     return date.toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" });
+  };
+  const formatDateInput = (timestamp?: Timestamp) => {
+    if (!timestamp) return "";
+    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+    return date.toISOString().split("T")[0];
   };
   const formatDateTime = (timestamp: any) => {
     if (!timestamp) return "N/A";
@@ -220,6 +229,13 @@ export default function JobCardPage() {
     const nextDescription = job.jobDescription ?? extractAiDescription(job.notes);
     setJobDescription(nextDescription);
   }, [job, descriptionDirty]);
+
+  useEffect(() => {
+    if (!job) return;
+    setInvoiceNumber(job.invoiceNumber ?? "");
+    setInvoiceDate(formatDateInput(job.invoiceDate));
+    setInvoiceSentDate(formatDateInput(job.invoiceSentAt));
+  }, [job]);
 
   // Calculate totals
   const jobTotals = useMemo(() => {
@@ -397,7 +413,7 @@ export default function JobCardPage() {
   const handleSaveChanges = async () => {
     const { allCompleted } = getRepairCompletionState(jobVehicles);
 
-    if (allCompleted && job.status !== "completed") {
+    if (allCompleted && job.status !== "completed" && job.status !== "closed") {
       await completeJobFlow("All repair sites completed");
       toast({
         title: "Job Completed",
@@ -416,6 +432,58 @@ export default function JobCardPage() {
     toast({
       title: "Changes Saved",
       description: "Job card updates have been saved.",
+    });
+  };
+
+  const parseDateInput = (value: string) => {
+    if (!value) return undefined;
+    return Timestamp.fromDate(new Date(`${value}T00:00:00`));
+  };
+
+  const handleSaveInvoiceDetails = async () => {
+    await updateJob(job.id, {
+      invoiceNumber: invoiceNumber.trim() || undefined,
+      invoiceDate: parseDateInput(invoiceDate),
+      invoiceSentAt: parseDateInput(invoiceSentDate),
+    });
+    toast({
+      title: "Invoicing Details Saved",
+      description: "Invoice information has been updated.",
+    });
+  };
+
+  const handleManagementCloseOff = async () => {
+    if (job.status !== "completed" && job.status !== "closed") {
+      toast({
+        title: "Job Not Completed",
+        description: "Complete the job before closing it off for invoicing.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!invoiceNumber.trim() || !invoiceDate) {
+      toast({
+        title: "Missing Invoice Details",
+        description: "Add the invoice number and invoice date to close this job.",
+        variant: "destructive",
+      });
+      return;
+    }
+    const changedBy = user?.name || user?.email || user?.uid || "System";
+    const now = Timestamp.now();
+    await updateJob(job.id, {
+      invoiceNumber: invoiceNumber.trim(),
+      invoiceDate: parseDateInput(invoiceDate),
+      invoiceSentAt: parseDateInput(invoiceSentDate) ?? now,
+      managementApprovedAt: job.managementApprovedAt ?? now,
+      managementApprovedBy: job.managementApprovedBy ?? changedBy,
+      closedAt: now,
+      closedBy: changedBy,
+    });
+    await updateJobStatus(job.id, "closed", changedBy, "Management close-off completed");
+    toast({
+      title: "Job Closed",
+      description: "The job has been marked as closed after invoicing.",
     });
   };
 
@@ -810,7 +878,10 @@ export default function JobCardPage() {
   };
 
   const completionState = getRepairCompletionState(jobVehicles);
-  const readyToCloseJob = completionState.allCompleted && job.status !== "completed";
+  const readyToCloseJob =
+    completionState.allCompleted && job.status !== "completed" && job.status !== "closed";
+  const canManageCloseOff = user?.role === "admin";
+  const isClosed = job.status === "closed";
 
   return (
     <div className="space-y-6">
@@ -1747,6 +1818,73 @@ export default function JobCardPage() {
                     </CardContent>
                   </Card>
                 </>
+              )}
+            </CardContent>
+          </Card>
+          <Card className="bg-card/50 backdrop-blur">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <FileText className="h-5 w-5 text-primary" />
+                Management Close-off
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-4 md:grid-cols-3">
+                <div className="space-y-2">
+                  <Label>Invoice number</Label>
+                  <Input
+                    value={invoiceNumber}
+                    onChange={(e) => setInvoiceNumber(e.target.value)}
+                    placeholder="INV-0001"
+                    disabled={!canManageCloseOff || isClosed}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Invoice date</Label>
+                  <Input
+                    type="date"
+                    value={invoiceDate}
+                    onChange={(e) => setInvoiceDate(e.target.value)}
+                    disabled={!canManageCloseOff || isClosed}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Invoice sent date</Label>
+                  <Input
+                    type="date"
+                    value={invoiceSentDate}
+                    onChange={(e) => setInvoiceSentDate(e.target.value)}
+                    disabled={!canManageCloseOff || isClosed}
+                  />
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
+                <span>
+                  Management approved:{" "}
+                  {job.managementApprovedAt ? formatDate(job.managementApprovedAt) : "Not yet"}
+                </span>
+                <span>
+                  Invoice sent: {job.invoiceSentAt ? formatDate(job.invoiceSentAt) : "Not yet"}
+                </span>
+                <Badge className={statusColors[job.status]} variant="outline">
+                  {job.status.replace("_", " ").toUpperCase()}
+                </Badge>
+              </div>
+
+              {canManageCloseOff ? (
+                <div className="flex flex-wrap gap-2">
+                  <Button variant="outline" onClick={handleSaveInvoiceDetails} disabled={isClosed}>
+                    Save invoicing details
+                  </Button>
+                  <Button onClick={handleManagementCloseOff} disabled={isClosed}>
+                    Mark job as closed
+                  </Button>
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Only admins can close jobs after invoicing.
+                </p>
               )}
             </CardContent>
           </Card>

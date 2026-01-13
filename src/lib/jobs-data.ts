@@ -75,6 +75,8 @@ export function getLifecycleStageFromStatus(status: JobStatus): JobLifecycleStag
       return "job_live";
     case "completed":
       return "job_completed";
+    case "closed":
+      return "management_closeoff";
     case "cancelled":
       return "management_closeoff";
     default:
@@ -93,7 +95,7 @@ export function getStatusFromLifecycleStage(stage: JobLifecycleStage): JobStatus
     case "job_completed":
       return "completed";
     case "management_closeoff":
-      return "completed";
+      return "closed";
     default:
       return "pending";
   }

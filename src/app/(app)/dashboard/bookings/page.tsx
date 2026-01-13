@@ -952,6 +952,7 @@ export default function BookingsPage() {
   const getBookingStatusVariant = (status: string) => {
     switch (status) {
       case "completed":
+      case "closed":
       case "in_progress":
         return "default";
       case "scheduled":
