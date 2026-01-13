@@ -2,14 +2,15 @@
 
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState, useMemo } from "react";
-import { Timestamp } from "firebase/firestore";
+import { Timestamp, addDoc, collection, getDocs, query, where } from "firebase/firestore";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { useJobs } from "@/contexts/JobsContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { asiStaff } from "@/lib/contacts-data";
 import { generateJobDescriptionAction } from "@/app/actions/ai";
 import { useToast } from "@/hooks/use-toast";
-import { storage } from "@/lib/firebaseClient";
+import { db, storage } from "@/lib/firebaseClient";
+import { COLLECTIONS } from "@/lib/firestore";
 import type {
   JobStatus,
   JobVehicle,
@@ -113,7 +114,14 @@ const repairStatusLabels: Record<RepairWorkStatus, string> = {
 export default function JobCardPage() {
   const params = useParams();
   const router = useRouter();
-  const { getJobById, updateJob, updateJobStatus, deleteJob } = useJobs();
+  const {
+    getJobById,
+    updateJob,
+    updateJobStatus,
+    deleteJob,
+    worksRegister,
+    completeWorksRegisterEntry,
+  } = useJobs();
   const { user } = useAuth();
   const { toast } = useToast();
   const jobId = params.id as string;
@@ -155,6 +163,13 @@ export default function JobCardPage() {
     job?.jobDescription ?? extractAiDescription(job?.notes)
   );
   const [descriptionDirty, setDescriptionDirty] = useState(false);
+  const [holdDialogOpen, setHoldDialogOpen] = useState(false);
+  const [holdReason, setHoldReason] = useState("");
+  const [holdTarget, setHoldTarget] = useState<{
+    vehicleId: string;
+    repairId: string;
+  } | null>(null);
+  const [showCompleteDialog, setShowCompleteDialog] = useState(false);
 
   const formatDate = (timestamp: any) => {
     if (!timestamp) return "N/A";
@@ -258,6 +273,150 @@ export default function JobCardPage() {
   const updateJobVehiclesState = async (updatedVehicles: JobVehicle[]) => {
     setJobVehicles(updatedVehicles);
     await updateJob(job.id, { jobVehicles: updatedVehicles });
+  };
+
+  const queueNotification = async (
+    userId: string,
+    title: string,
+    message: string,
+    type: "job_started" | "job_on_hold" | "job_completed"
+  ) => {
+    await addDoc(collection(db, COLLECTIONS.NOTIFICATIONS), {
+      userId,
+      type,
+      title,
+      message,
+      read: false,
+      relatedEntityId: job.id,
+      relatedEntityType: "job",
+      createdAt: Timestamp.now(),
+    });
+  };
+
+  const queueEmail = async (recipientEmail: string, subject: string, text: string) => {
+    await addDoc(collection(db, COLLECTIONS.MAIL), {
+      to: [recipientEmail],
+      message: {
+        subject,
+        text,
+      },
+    });
+  };
+
+  const notifyClients = async (
+    type: "job_started" | "job_on_hold" | "job_completed",
+    title: string,
+    message: string,
+    subject: string
+  ) => {
+    try {
+      if (!job.organizationId) {
+        if (job.clientEmail) {
+          await queueEmail(job.clientEmail, subject, message);
+        }
+        return;
+      }
+      const usersRef = collection(db, COLLECTIONS.USERS);
+      const clientQuery = query(
+        usersRef,
+        where("organizationId", "==", job.organizationId),
+        where("role", "==", "client")
+      );
+      const snapshot = await getDocs(clientQuery);
+      if (snapshot.empty && job.clientEmail) {
+        await queueEmail(job.clientEmail, subject, message);
+        return;
+      }
+      await Promise.all(
+        snapshot.docs.map(async (docSnap) => {
+          const data = docSnap.data() as { email?: string };
+          await queueNotification(docSnap.id, title, message, type);
+          if (data.email) {
+            await queueEmail(data.email, subject, message);
+          }
+        })
+      );
+    } catch (error) {
+      console.warn("Failed to notify clients:", error);
+    }
+  };
+
+  const notifyAdmins = async (title: string, message: string, subject: string) => {
+    try {
+      const usersRef = collection(db, COLLECTIONS.USERS);
+      const adminQuery = query(usersRef, where("role", "==", "admin"));
+      const snapshot = await getDocs(adminQuery);
+      await Promise.all(
+        snapshot.docs.map(async (docSnap) => {
+          const data = docSnap.data() as { email?: string };
+          await queueNotification(docSnap.id, title, message, "job_completed");
+          if (data.email) {
+            await queueEmail(data.email, subject, message);
+          }
+        })
+      );
+    } catch (error) {
+      console.warn("Failed to notify admins:", error);
+    }
+  };
+
+  const completeJobFlow = async (note: string) => {
+    const changedBy = user?.name || user?.email || user?.uid || "System";
+    await updateJob(job.id, {
+      jobVehicles,
+      totalJobCost: jobTotals.totalCost,
+      totalLabourCost: jobTotals.totalLabour,
+      totalMaterialsCost: jobTotals.totalMaterials,
+    });
+    await updateJobStatus(job.id, "completed", changedBy, note);
+    const worksEntry = worksRegister.find((entry) => entry.jobId === job.id);
+    if (worksEntry && !worksEntry.completionDate) {
+      await completeWorksRegisterEntry(worksEntry.id, changedBy);
+    }
+    await notifyAdmins(
+      `Job ${job.jobNumber} completed`,
+      `${job.jobNumber} for ${job.clientName} is complete and ready for review/invoicing.`,
+      `Job completed: ${job.jobNumber}`
+    );
+    await notifyClients(
+      "job_completed",
+      `Job ${job.jobNumber} completed`,
+      `Your job ${job.jobNumber} with ASI is complete. We'll be in touch shortly.`,
+      `ASI Job Complete: ${job.jobNumber}`
+    );
+  };
+
+  const getRepairCompletionState = (vehicles: JobVehicle[]) => {
+    const repairs = vehicles.flatMap((vehicle) => vehicle.repairSites);
+    const allCompleted =
+      repairs.length > 0 &&
+      repairs.every((repair) => getRepairStatus(repair) === "completed");
+    return { repairs, allCompleted };
+  };
+
+  const handleSaveChanges = async () => {
+    const { allCompleted } = getRepairCompletionState(jobVehicles);
+
+    if (allCompleted && job.status !== "completed") {
+      await completeJobFlow("All repair sites completed");
+      toast({
+        title: "Job Completed",
+        description: "Notifications have been sent to the client and admins.",
+      });
+      router.push("/dashboard/bookings");
+      return;
+    }
+
+    await updateJob(job.id, {
+      jobVehicles,
+      totalJobCost: jobTotals.totalCost,
+      totalLabourCost: jobTotals.totalLabour,
+      totalMaterialsCost: jobTotals.totalMaterials,
+    });
+    toast({
+      title: "Changes Saved",
+      description: "Job card updates have been saved.",
+    });
   };
 
   // Add new vehicle
@@ -417,7 +576,8 @@ export default function JobCardPage() {
   const handleRepairAction = async (
     vehicleId: string,
     repairId: string,
-    action: "start" | "hold" | "resume" | "complete"
+    action: "start" | "hold" | "resume" | "complete",
+    note?: string
   ) => {
     const now = Timestamp.now();
     const changedBy = user?.name || user?.email || user?.uid || "System";
@@ -443,7 +603,12 @@ export default function JobCardPage() {
         if (repair.id !== repairId) return repair;
         const workLog = [
           ...(repair.workLog || []),
-          { status: actionToLogStatus[action], at: now, by: changedBy },
+          {
+            status: actionToLogStatus[action],
+            at: now,
+            by: changedBy,
+            note: note?.trim() || undefined,
+          },
         ];
         const nextStatus = actionToStatus[action];
         const isCompleted = nextStatus === "completed";
@@ -454,6 +619,7 @@ export default function JobCardPage() {
           isCompleted,
           completedAt: isCompleted ? now : repair.completedAt,
           completedBy: isCompleted ? changedBy : repair.completedBy,
+          holdReason: action === "hold" ? note || repair.holdReason : repair.holdReason,
         };
       });
       return { ...v, repairSites: updatedRepairs };
@@ -469,10 +635,24 @@ export default function JobCardPage() {
         return status === "in_progress" || status === "on_hold";
       });
 
-      if (allCompleted && job.status !== "completed") {
-        await updateJobStatus(job.id, "completed", changedBy, "All repair sites completed");
-      } else if (anyActive && (job.status === "scheduled" || job.status === "pending")) {
+      if (anyActive && (job.status === "scheduled" || job.status === "pending")) {
         await updateJobStatus(job.id, "in_progress", changedBy, "Repair work started");
+        if (action === "start") {
+          await notifyClients(
+            "job_started",
+            `Job ${job.jobNumber} started`,
+            `Our technician has started work on job ${job.jobNumber}.`,
+            `ASI Job Started: ${job.jobNumber}`
+          );
+        }
+      }
+      if (action === "hold") {
+        await notifyClients(
+          "job_on_hold",
+          `Job ${job.jobNumber} on hold`,
+          `Job ${job.jobNumber} is on hold. Reason: ${note || "Awaiting update"}.`,
+          `ASI Job On Hold: ${job.jobNumber}`
+        );
       }
     }
   };
@@ -629,6 +809,9 @@ export default function JobCardPage() {
     router.push("/dashboard/job-lifecycle");
   };
 
+  const completionState = getRepairCompletionState(jobVehicles);
+  const readyToCloseJob = completionState.allCompleted && job.status !== "completed";
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -657,18 +840,44 @@ export default function JobCardPage() {
           </div>
           <div className="flex gap-2">
             <Button
-              onClick={() =>
-                updateJob(job.id, {
-                  jobVehicles,
-                  totalJobCost: jobTotals.totalCost,
-                  totalLabourCost: jobTotals.totalLabour,
-                  totalMaterialsCost: jobTotals.totalMaterials,
-                })
-              }
+              onClick={handleSaveChanges}
+              className={readyToCloseJob ? "bg-emerald-600 hover:bg-emerald-700" : undefined}
             >
               <CheckCircle className="mr-2 h-4 w-4" />
-              Save Changes
+              {readyToCloseJob ? "Save & Close Job" : "Save Changes"}
             </Button>
+            <Dialog open={showCompleteDialog} onOpenChange={setShowCompleteDialog}>
+              <DialogTrigger asChild>
+                <Button
+                  variant="outline"
+                  disabled={!readyToCloseJob}
+                >
+                  Mark Job Complete
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Mark Job as Complete?</DialogTitle>
+                  <DialogDescription>
+                    This will notify the client and alert admins to review and invoice the job.
+                  </DialogDescription>
+                </DialogHeader>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setShowCompleteDialog(false)}>
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={async () => {
+                      await completeJobFlow("Marked complete by technician");
+                      setShowCompleteDialog(false);
+                      router.push("/dashboard/bookings");
+                    }}
+                  >
+                    Confirm Complete
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
             <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
               <DialogTrigger asChild>
                 <Button variant="destructive">
@@ -1021,7 +1230,11 @@ export default function JobCardPage() {
                                           <Button
                                             size="sm"
                                             variant="outline"
-                                            onClick={() => handleRepairAction(vehicle.id, repair.id, "hold")}
+                                            onClick={() => {
+                                              setHoldTarget({ vehicleId: vehicle.id, repairId: repair.id });
+                                              setHoldReason(repair.holdReason || "");
+                                              setHoldDialogOpen(true);
+                                            }}
                                           >
                                             <Pause className="mr-1 h-4 w-4" />
                                             Hold
@@ -1057,6 +1270,12 @@ export default function JobCardPage() {
                                     </div>
                                   </div>
 
+                                  {repairStatus === "on_hold" && repair.holdReason && (
+                                    <p className="text-sm text-amber-400">
+                                      Hold reason: {repair.holdReason}
+                                    </p>
+                                  )}
+
                                   {/* Work Log */}
                                   {repair.workLog && repair.workLog.length > 0 && (
                                     <div className="rounded-md border border-border/50 px-3 py-2 text-xs">
@@ -1066,11 +1285,20 @@ export default function JobCardPage() {
                                       </div>
                                       <div className="mt-2 space-y-1">
                                         {repair.workLog.map((entry, index) => (
-                                          <div key={`${entry.status}-${index}`} className="flex items-center justify-between">
-                                            <span className="capitalize">{entry.status.replace("_", " ")}</span>
-                                            <span className="text-muted-foreground">
-                                              {formatDateTime(entry.at)} • {entry.by}
-                                            </span>
+                                          <div key={`${entry.status}-${index}`} className="space-y-0.5">
+                                            <div className="flex items-center justify-between">
+                                              <span className="capitalize">
+                                                {entry.status.replace("_", " ")}
+                                              </span>
+                                              <span className="text-muted-foreground">
+                                                {formatDateTime(entry.at)} • {entry.by}
+                                              </span>
+                                            </div>
+                                            {entry.note && (
+                                              <div className="text-muted-foreground">
+                                                Note: {entry.note}
+                                              </div>
+                                            )}
                                           </div>
                                         ))}
                                       </div>
@@ -1603,6 +1831,54 @@ export default function JobCardPage() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      <Dialog
+        open={holdDialogOpen}
+        onOpenChange={(open) => {
+          setHoldDialogOpen(open);
+          if (!open) {
+            setHoldTarget(null);
+            setHoldReason("");
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Place Repair On Hold</DialogTitle>
+            <DialogDescription>
+              Provide a reason so the client knows why work paused.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="repair-hold-reason">Hold Reason</Label>
+            <Input
+              id="repair-hold-reason"
+              placeholder="e.g., Awaiting parts, Client approval required"
+              value={holdReason}
+              onChange={(e) => setHoldReason(e.target.value)}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setHoldDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={async () => {
+                if (!holdTarget) return;
+                const reason = holdReason.trim();
+                if (!reason) return;
+                await handleRepairAction(holdTarget.vehicleId, holdTarget.repairId, "hold", reason);
+                setHoldDialogOpen(false);
+                setHoldTarget(null);
+                setHoldReason("");
+              }}
+              disabled={!holdReason.trim()}
+            >
+              Set Hold
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={!!photoPreview}

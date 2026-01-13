@@ -41,6 +41,7 @@ export const COLLECTIONS = {
   CALENDAR_TOKENS: "calendarTokens",
   WORKS_REGISTER: "worksRegister",
   NOTIFICATIONS: "notifications",
+  MAIL: "mail",
 } as const;
 
 // ============================================

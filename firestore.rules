@@ -58,6 +58,7 @@ service cloud.firestore {
       allow read: if signedIn() && request.auth.uid == userId;
       allow read: if signedIn() && (isAdminEmail() || isAsiEmail())
         && resource.data.role in ["admin", "technician", "contractor"];
+      allow read: if isStaff() && resource.data.role == "client";
       allow read: if signedIn() && isAdminEmail()
         && resource.data.email in [
           "joshua@asi-australia.com.au",
@@ -103,6 +104,19 @@ service cloud.firestore {
       allow create: if isStaff();
       allow update: if isStaff();
       allow delete: if isAdmin();
+    }
+
+    match /notifications/{notificationId} {
+      allow read: if signedIn() && request.auth.uid == resource.data.userId;
+      allow create: if isStaff();
+      allow update: if signedIn() && request.auth.uid == resource.data.userId;
+      allow delete: if isAdmin();
+    }
+
+    match /mail/{mailId} {
+      allow create: if isStaff();
+      allow read: if isAdmin();
+      allow update, delete: if false;
     }
 
     match /{document=**} {

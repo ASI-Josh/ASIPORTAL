@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Timestamp,
@@ -119,6 +119,7 @@ export default function BookingsPage() {
   const { toast } = useToast();
   const {
     bookings,
+    jobs,
     deletedJobs,
     createBooking,
     updateBooking,
@@ -934,6 +935,37 @@ export default function BookingsPage() {
   })();
   const editAsiStaff = editStaffOptions.filter((s) => s.type === "asi_staff");
   const editSubcontractors = editStaffOptions.filter((s) => s.type === "subcontractor");
+
+  const jobsById = useMemo(() => new Map(jobs.map((job) => [job.id, job])), [jobs]);
+  const getBookingDisplayStatus = (booking: Booking) => {
+    if (booking.convertedJobId) {
+      const job = jobsById.get(booking.convertedJobId);
+      if (job) return job.status;
+      return "converted_to_job";
+    }
+    return booking.status;
+  };
+  const getBookingStatusLabel = (status: string) =>
+    status === "converted_to_job"
+      ? "Converted"
+      : status.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+  const getBookingStatusVariant = (status: string) => {
+    switch (status) {
+      case "completed":
+      case "in_progress":
+        return "default";
+      case "scheduled":
+      case "pending":
+      case "confirmed":
+        return "secondary";
+      case "converted_to_job":
+        return "outline";
+      case "cancelled":
+        return "destructive";
+      default:
+        return "secondary";
+    }
+  };
 
   const deletedJobIds = new Set(deletedJobs.map((job) => job.id));
   const filteredBookings = bookings.filter((booking) => {
@@ -2071,8 +2103,24 @@ export default function BookingsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredBookings.map((booking) => (
-                <TableRow key={booking.id}>
+              {filteredBookings.map((booking) => {
+                const displayStatus = getBookingDisplayStatus(booking);
+                return (
+                <TableRow
+                  key={booking.id}
+                  className="cursor-pointer hover:bg-muted/20"
+                  onClick={() => {
+                    if (booking.convertedJobId) {
+                      router.push(`/dashboard/jobs/${booking.convertedJobId}`);
+                      return;
+                    }
+                    toast({
+                      title: "Job Not Available",
+                      description: "This booking has not been converted into a job yet.",
+                      variant: "destructive",
+                    });
+                  }}
+                >
                   <TableCell className="font-medium">{booking.bookingNumber}</TableCell>
                   <TableCell>
                     <Badge variant="outline">
@@ -2121,31 +2169,27 @@ export default function BookingsPage() {
                   </TableCell>
                   <TableCell>
                     <Badge
-                      variant={
-                        booking.status === "confirmed"
-                          ? "default"
-                          : booking.status === "pending"
-                          ? "secondary"
-                          : booking.status === "converted_to_job"
-                          ? "outline"
-                          : "destructive"
-                      }
+                      variant={getBookingStatusVariant(displayStatus)}
                     >
-                      {booking.status === "converted_to_job" ? "Converted" : booking.status}
+                      {getBookingStatusLabel(displayStatus)}
                     </Badge>
                   </TableCell>
                   <TableCell className="text-right">
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => handleOpenEditBooking(booking)}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        handleOpenEditBooking(booking);
+                      }}
                     >
                       Edit
                     </Button>
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => {
+                      onClick={(event) => {
+                        event.stopPropagation();
                         if (booking.convertedJobId) {
                           router.push(`/dashboard/jobs/${booking.convertedJobId}`);
                           return;
@@ -2161,7 +2205,8 @@ export default function BookingsPage() {
                     </Button>
                   </TableCell>
                 </TableRow>
-              ))}
+              );
+              })}
               {filteredBookings.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">

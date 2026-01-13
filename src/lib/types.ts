@@ -119,6 +119,7 @@ export interface RepairSite {
   isCompleted: boolean;
   workStatus?: RepairWorkStatus;
   workLog?: RepairWorkLogEntry[];
+  holdReason?: string;
   completedAt?: Timestamp;
   completedBy?: string;
 }
@@ -589,7 +590,15 @@ export interface QualityCheck {
 // NOTIFICATIONS
 // ============================================
 
-export type NotificationType = "job_assigned" | "job_status_changed" | "quote_approved" | "inspection_submitted" | "booking_received";
+export type NotificationType =
+  | "job_assigned"
+  | "job_status_changed"
+  | "job_started"
+  | "job_on_hold"
+  | "job_completed"
+  | "quote_approved"
+  | "inspection_submitted"
+  | "booking_received";
 
 export interface Notification {
   id: string;
