@@ -8,6 +8,10 @@ import {
   createUserWithEmailAndPassword,
   signOut as firebaseSignOut,
   updateProfile,
+  GoogleAuthProvider,
+  signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
 } from "firebase/auth";
 import {
   collection,
@@ -30,6 +34,7 @@ interface AuthContextType {
   firebaseUser: FirebaseUser | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
+  signInWithGoogle: () => Promise<void>;
   signUp: (data: SignUpData) => Promise<void>;
   signOut: () => Promise<void>;
 }
@@ -88,6 +93,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    getRedirectResult(auth).catch((error) => {
+      console.warn("Google sign-in redirect failed:", error);
+    });
+  }, []);
 
   const ensureAsiOrganization = async (): Promise<OrgMatch> => {
     const existingAsi = await getOrganizationByDomain(ASI_DOMAIN);
@@ -228,6 +239,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await signInWithEmailAndPassword(auth, email, password);
   };
 
+  const signInWithGoogle = async () => {
+    const provider = new GoogleAuthProvider();
+    try {
+      await signInWithPopup(auth, provider);
+    } catch (error: any) {
+      const code = error?.code as string | undefined;
+      if (
+        code === "auth/popup-blocked" ||
+        code === "auth/popup-closed-by-user" ||
+        code === "auth/operation-not-supported-in-this-environment"
+      ) {
+        await signInWithRedirect(auth, provider);
+        return;
+      }
+      throw error;
+    }
+  };
+
   const signUp = async (data: SignUpData) => {
     const { email, password, name, phone, role, organization } = data;
     const userCredential = await createUserWithEmailAndPassword(auth, email, password);
@@ -350,7 +379,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, firebaseUser, loading, signIn, signUp, signOut }}>
+    <AuthContext.Provider value={{ user, firebaseUser, loading, signIn, signInWithGoogle, signUp, signOut }}>
       {children}
     </AuthContext.Provider>
   );

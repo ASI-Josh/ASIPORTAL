@@ -29,9 +29,10 @@ export default function HomePage() {
   const [forgotDialogOpen, setForgotDialogOpen] = useState(false);
   const [forgotLoading, setForgotLoading] = useState(false);
   
-  const { user, loading: authLoading, signIn } = useAuth();
+  const { user, loading: authLoading, signIn, signInWithGoogle } = useAuth();
   const router = useRouter();
   const { toast } = useToast();
+  const [googleLoading, setGoogleLoading] = useState(false);
 
   useEffect(() => {
     if (!authLoading && user) {
@@ -72,6 +73,21 @@ export default function HomePage() {
         variant: "destructive",
       });
       setLoading(false);
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    setGoogleLoading(true);
+    try {
+      await signInWithGoogle();
+    } catch (error: any) {
+      toast({
+        title: "Google sign-in failed",
+        description: error.message || "Unable to sign in with Google.",
+        variant: "destructive",
+      });
+    } finally {
+      setGoogleLoading(false);
     }
   };
 
@@ -247,7 +263,7 @@ export default function HomePage() {
             <Button
               type="submit"
               className="w-full bg-gradient-to-r from-primary to-accent hover:opacity-90 transition-opacity font-semibold"
-              disabled={loading}
+              disabled={loading || googleLoading}
             >
               {loading ? (
                 <span className="flex items-center gap-2">
@@ -259,6 +275,18 @@ export default function HomePage() {
               )}
             </Button>
           </form>
+
+          <div className="mt-4">
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full"
+              onClick={handleGoogleSignIn}
+              disabled={loading || googleLoading}
+            >
+              {googleLoading ? "Connecting to Google..." : "Continue with Google"}
+            </Button>
+          </div>
 
           <div className="mt-6 text-center">
             <p className="text-sm text-muted-foreground">
