@@ -90,7 +90,7 @@ interface JobsContextValue {
   getJobByNumber: (jobNumber: string) => Job | undefined;
 
   // Booking operations
-  createBooking: (input: CreateBookingInput) => Promise<Job | null>;
+  createBooking: (input: CreateBookingInput) => Promise<{ job: Job; booking: Booking } | null>;
   updateBooking: (bookingId: string, updates: Partial<Booking>) => Promise<void>;
 
   // Works register operations
@@ -360,7 +360,7 @@ export function JobsProvider({ children }: { children: ReactNode }) {
   );
 
   const createBooking = useCallback(
-    async (input: CreateBookingInput): Promise<Job | null> => {
+    async (input: CreateBookingInput): Promise<{ job: Job; booking: Booking } | null> => {
       if (!user) return null;
 
       const bookingNumber = await generateBookingNumber();
@@ -423,7 +423,7 @@ export function JobsProvider({ children }: { children: ReactNode }) {
         updatedAt: Timestamp.now(),
       });
 
-      return job;
+      return { job, booking };
     },
     [user]
   );

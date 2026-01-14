@@ -114,6 +114,121 @@ type StaffMember = {
   email?: string;
 };
 
+type CalendarEventPayload = {
+  summary: string;
+  description?: string;
+  location?: string;
+  start: string;
+  end: string;
+  attendees?: string[];
+  createMeet?: boolean;
+};
+
+type BookingCalendarPayloadInput = {
+  bookingNumber: string;
+  jobNumber?: string;
+  bookingTypeLabel: string;
+  organizationName: string;
+  contactName: string;
+  contactEmail?: string;
+  contactPhone?: string;
+  siteName?: string;
+  siteAddress?: Address;
+  scheduledDate: Date;
+  scheduledTime: string;
+  notes?: string;
+  assignedStaff?: string[];
+  attendees?: string[];
+  createMeet?: boolean;
+};
+
+const DEFAULT_EVENT_DURATION_MINUTES = 120;
+
+const padTime = (value: number) => String(value).padStart(2, "0");
+
+const formatAddress = (address?: Address) => {
+  if (!address) return "";
+  return [address.street, address.suburb, address.state, address.postcode, address.country]
+    .map((value) => value?.trim())
+    .filter((value) => value)
+    .join(", ");
+};
+
+const buildEventTimes = (date: Date, time: string) => {
+  const [hours, minutes] = time.split(":").map((part) => Number(part));
+  const start = new Date(date);
+  if (Number.isFinite(hours)) start.setHours(hours);
+  if (Number.isFinite(minutes)) start.setMinutes(minutes);
+  start.setSeconds(0, 0);
+  const end = new Date(start);
+  end.setMinutes(end.getMinutes() + DEFAULT_EVENT_DURATION_MINUTES);
+
+  const formatLocal = (value: Date) =>
+    `${value.getFullYear()}-${padTime(value.getMonth() + 1)}-${padTime(value.getDate())}T${padTime(
+      value.getHours()
+    )}:${padTime(value.getMinutes())}:00`;
+
+  return { start: formatLocal(start), end: formatLocal(end) };
+};
+
+const buildBookingCalendarPayload = (input: BookingCalendarPayloadInput): CalendarEventPayload => {
+  const addressText = formatAddress(input.siteAddress);
+  const location =
+    input.siteName && addressText
+      ? `${input.siteName}, ${addressText}`
+      : input.siteName || addressText || undefined;
+
+  const lines: string[] = [`Booking: ${input.bookingNumber}`];
+  if (input.jobNumber) {
+    lines.push(`Job: ${input.jobNumber}`);
+  }
+  lines.push(`Service: ${input.bookingTypeLabel}`);
+  lines.push(`Organisation: ${input.organizationName}`);
+
+  if (input.contactName) {
+    const contactLine = input.contactEmail
+      ? `Contact: ${input.contactName} (${input.contactEmail})`
+      : `Contact: ${input.contactName}`;
+    lines.push(contactLine);
+  } else if (input.contactEmail) {
+    lines.push(`Contact: ${input.contactEmail}`);
+  }
+
+  if (input.contactPhone) {
+    lines.push(`Phone: ${input.contactPhone}`);
+  }
+
+  if (input.siteName) {
+    lines.push(`Site: ${input.siteName}`);
+  }
+
+  if (addressText) {
+    lines.push(`Address: ${addressText}`);
+  }
+
+  if (input.assignedStaff?.length) {
+    lines.push(`Assigned staff: ${input.assignedStaff.join(", ")}`);
+  }
+
+  if (input.notes) {
+    lines.push("");
+    lines.push("Notes:");
+    lines.push(input.notes);
+  }
+
+  const { start, end } = buildEventTimes(input.scheduledDate, input.scheduledTime);
+
+  return {
+    summary: `Booking ${input.bookingNumber} - ${input.organizationName} - ${input.bookingTypeLabel}`,
+    description: lines.join("\n"),
+    location,
+    start,
+    end,
+    attendees: input.attendees,
+    createMeet: input.createMeet,
+  };
+};
+
 export default function BookingsPage() {
   const router = useRouter();
   const { toast } = useToast();
@@ -127,7 +242,7 @@ export default function BookingsPage() {
     worksRegister,
     updateWorksRegisterEntry,
   } = useJobs();
-  const { user } = useAuth();
+  const { user, firebaseUser } = useAuth();
 
   // Shared data state (Firestore-backed)
   const [organizations, setOrganizations] = useState<ContactOrganization[]>([]);
@@ -514,6 +629,57 @@ export default function BookingsPage() {
     : null;
   const asiStaff = staffList.filter((s) => s.type === "asi_staff");
   const subcontractors = staffList.filter((s) => s.type === "subcontractor");
+  const canSyncCalendar = user?.role === "admin" || user?.role === "technician";
+
+  const staffEmailById = useMemo(
+    () => new Map(staffList.map((staff) => [staff.id, staff.email])),
+    [staffList]
+  );
+
+  const resolveStaffEmails = (staffMembers: StaffMember[]) =>
+    staffMembers
+      .map((staff) => staff.email || staffEmailById.get(staff.id))
+      .filter((email): email is string => Boolean(email));
+
+  const buildAttendeeEmails = (emails: (string | undefined)[]) => {
+    const unique = new Set<string>();
+    emails.forEach((email) => {
+      const cleaned = email?.trim().toLowerCase();
+      if (cleaned) unique.add(cleaned);
+    });
+    return Array.from(unique);
+  };
+
+  const syncCalendarEvent = async (
+    payload: CalendarEventPayload,
+    eventId?: string
+  ): Promise<{ eventId?: string } | null> => {
+    if (!firebaseUser || !canSyncCalendar) return null;
+    const token = await firebaseUser.getIdToken();
+    const endpoint = eventId
+      ? "/api/google/calendar/update-event"
+      : "/api/google/calendar/create-event";
+    const body = eventId ? { eventId, ...payload } : payload;
+
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      const errorPayload = await response.json().catch(() => null);
+      const message =
+        (errorPayload && typeof errorPayload.error === "string" && errorPayload.error) ||
+        "Calendar sync failed.";
+      throw new Error(message);
+    }
+
+    return (await response.json()) as { eventId?: string };
+  };
 
   // Time slots
   const timeSlots = [
@@ -717,7 +883,7 @@ export default function BookingsPage() {
       : selectedSite?.address || customSite;
 
     try {
-      const job = await createBooking({
+      const created = await createBooking({
         bookingType: bookingType as BookingType,
         organization: selectedOrganization,
         contact: selectedContact,
@@ -732,6 +898,43 @@ export default function BookingsPage() {
         allocatedStaff: selectedStaff.map((s) => ({ id: s.id, name: s.name, type: s.type })),
         notes: bookingNotes,
       });
+      if (!created) {
+        throw new Error("Unable to create booking.");
+      }
+      const { job, booking: createdBooking } = created;
+
+      try {
+        const attendeeEmails = buildAttendeeEmails([
+          selectedContact.email,
+          ...resolveStaffEmails(selectedStaff),
+        ]);
+        const calendarPayload = buildBookingCalendarPayload({
+          bookingNumber: createdBooking.bookingNumber,
+          jobNumber: job.jobNumber,
+          bookingTypeLabel: BOOKING_TYPE_LABELS[bookingType as BookingType],
+          organizationName: selectedOrganization.name,
+          contactName: `${selectedContact.firstName} ${selectedContact.lastName}`.trim(),
+          contactEmail: selectedContact.email,
+          contactPhone: selectedContact.mobile || selectedContact.phone,
+          siteName: createdBooking.siteLocation.name,
+          siteAddress: createdBooking.siteLocation.address,
+          scheduledDate,
+          scheduledTime,
+          notes: bookingNotes || undefined,
+          assignedStaff: selectedStaff.map((staff) => staff.name),
+          attendees: attendeeEmails,
+          createMeet: true,
+        });
+        const calendarResult = await syncCalendarEvent(calendarPayload);
+        if (calendarResult?.eventId) {
+          await updateBooking(createdBooking.id, { calendarEventId: calendarResult.eventId });
+        }
+      } catch (calendarError: any) {
+        toast({
+          title: "Calendar sync skipped",
+          description: calendarError?.message || "Booking saved without calendar sync.",
+        });
+      }
 
       toast({
         title: "Booking Created Successfully",
@@ -866,15 +1069,15 @@ export default function BookingsPage() {
         notes: editNotes || undefined,
       });
 
-        if (editingBooking.convertedJobId) {
-          const now = Timestamp.now();
-          const assignedTechnicians = updatedStaff.map((staff, index) => ({
-            technicianId: staff.id,
-            technicianName: staff.name,
-            role: (index === 0 ? "primary" : "secondary") as "primary" | "secondary",
-            assignedAt: now,
-            assignedBy: user?.uid || "system",
-          }));
+      if (editingBooking.convertedJobId) {
+        const now = Timestamp.now();
+        const assignedTechnicians = updatedStaff.map((staff, index) => ({
+          technicianId: staff.id,
+          technicianName: staff.name,
+          role: (index === 0 ? "primary" : "secondary") as "primary" | "secondary",
+          assignedAt: now,
+          assignedBy: user?.uid || "system",
+        }));
         await updateJob(editingBooking.convertedJobId, {
           clientId: selectedOrg.id,
           clientName: selectedOrg.name,
@@ -899,6 +1102,46 @@ export default function BookingsPage() {
             startDate: Timestamp.fromDate(editScheduledDate),
           });
         }
+      }
+
+      try {
+        const attendeeEmails = buildAttendeeEmails([
+          selectedContact.email,
+          ...resolveStaffEmails(editStaff),
+        ]);
+        const linkedJob = editingBooking.convertedJobId
+          ? jobs.find((job) => job.id === editingBooking.convertedJobId)
+          : null;
+        const calendarPayload = buildBookingCalendarPayload({
+          bookingNumber: editingBooking.bookingNumber,
+          jobNumber: linkedJob?.jobNumber,
+          bookingTypeLabel: BOOKING_TYPE_LABELS[editingBooking.bookingType],
+          organizationName: selectedOrg.name,
+          contactName: `${selectedContact.firstName} ${selectedContact.lastName}`.trim(),
+          contactEmail: selectedContact.email,
+          contactPhone: selectedContact.mobile || selectedContact.phone,
+          siteName: editingBooking.siteLocation.name,
+          siteAddress: editingBooking.siteLocation.address,
+          scheduledDate: editScheduledDate,
+          scheduledTime: editScheduledTime,
+          notes: editNotes || undefined,
+          assignedStaff: editStaff.map((staff) => staff.name),
+          attendees: attendeeEmails,
+        });
+        const calendarResult = await syncCalendarEvent(
+          calendarPayload,
+          editingBooking.calendarEventId
+        );
+        if (!editingBooking.calendarEventId && calendarResult?.eventId) {
+          await updateBooking(editingBooking.id, {
+            calendarEventId: calendarResult.eventId,
+          });
+        }
+      } catch (calendarError: any) {
+        toast({
+          title: "Calendar sync skipped",
+          description: calendarError?.message || "Booking saved without calendar sync.",
+        });
       }
 
       toast({

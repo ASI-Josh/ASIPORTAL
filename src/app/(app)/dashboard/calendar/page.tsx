@@ -258,7 +258,7 @@ export default function CalendarPage() {
                   ) : null}
                   <div className="text-xs text-muted-foreground mt-2">
                     {formatEventDate(start)}
-                    {end ? ` → ${formatEventDate(end)}` : ""}
+                    {end ? ` to ${formatEventDate(end)}` : ""}
                   </div>
                   {isSelected ? (
                     <div className="mt-3 space-y-2 text-sm">

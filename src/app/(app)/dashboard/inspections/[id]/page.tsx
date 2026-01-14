@@ -780,8 +780,22 @@ export default function InspectionDetailPage() {
 
       await setDoc(jobRef, job);
 
-      const existingEntry = worksRegister.find((entry) => entry.jobId === jobRef.id);
-      if (!existingEntry) {
+      const existingEntry =
+        (inspection.worksRegisterId
+          ? worksRegister.find((entry) => entry.id === inspection.worksRegisterId)
+          : null) || worksRegister.find((entry) => entry.jobId === jobRef.id);
+      if (existingEntry) {
+        await updateDoc(doc(db, COLLECTIONS.WORKS_REGISTER, existingEntry.id), {
+          jobId: jobRef.id,
+          jobNumber: job.jobNumber,
+          recordType: "job",
+          organizationId: job.organizationId || job.clientId,
+          clientName: job.clientName,
+          technicianId: selectedStaff[0]?.id || "unassigned",
+          technicianName: selectedStaff[0]?.name || "Unassigned",
+          startDate: job.scheduledDate || now,
+        });
+      } else {
         const entryRef = doc(collection(db, COLLECTIONS.WORKS_REGISTER));
         const entry = createWorksRegisterEntry({
           job: job as any,
@@ -863,8 +877,22 @@ ASI Australia`;
     });
     await updateJobStatus(jobId, "scheduled", changedBy, "RFQ approved");
 
-    const existingEntry = worksRegister.find((entry) => entry.jobId === jobId);
-    if (!existingEntry) {
+    const existingEntry =
+      (inspection.worksRegisterId
+        ? worksRegister.find((entry) => entry.id === inspection.worksRegisterId)
+        : null) || worksRegister.find((entry) => entry.jobId === jobId);
+    if (existingEntry) {
+      await updateDoc(doc(db, COLLECTIONS.WORKS_REGISTER, existingEntry.id), {
+        jobId,
+        jobNumber: getJobById(jobId)?.jobNumber || existingEntry.jobNumber,
+        recordType: "job",
+        organizationId: inspection.organizationId || inspection.clientId || existingEntry.organizationId,
+        clientName: inspection.clientName || existingEntry.clientName,
+        technicianId: selectedStaff[0]?.id || "unassigned",
+        technicianName: selectedStaff[0]?.name || "Unassigned",
+        startDate: scheduledDate ? Timestamp.fromDate(scheduledDate) : existingEntry.startDate,
+      });
+    } else {
       const job = getJobById(jobId) || (await getDoc(doc(db, COLLECTIONS.JOBS, jobId))).data();
       if (job) {
         const entryRef = doc(collection(db, COLLECTIONS.WORKS_REGISTER));

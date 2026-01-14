@@ -2,6 +2,7 @@ import { Timestamp } from "firebase/firestore";
 import type {
   Job,
   Booking,
+  Inspection,
   WorksRegisterEntry,
   JobLifecycleStage,
   JobStatus,
@@ -200,6 +201,7 @@ export function createWorksRegisterEntry(params: CreateWorksRegisterEntryParams)
     organizationId: job.organizationId || job.clientId,
     clientName: job.clientName,
     serviceType,
+    recordType: "job",
     technicianId: primaryTech?.technicianId || "unassigned",
     technicianName,
     startDate: job.scheduledDate || now,
@@ -209,6 +211,36 @@ export function createWorksRegisterEntry(params: CreateWorksRegisterEntryParams)
   };
 
   return entry;
+}
+
+export interface CreateInspectionWorksRegisterEntryParams {
+  inspection: Inspection;
+  serviceType?: string;
+  technicianName?: string;
+  entryId?: string;
+}
+
+export function createInspectionWorksRegisterEntry(
+  params: CreateInspectionWorksRegisterEntryParams
+): WorksRegisterEntry {
+  const { inspection, serviceType, technicianName, entryId } = params;
+  const now = Timestamp.now();
+
+  return {
+    id: entryId || `wr-${Date.now()}`,
+    jobId: inspection.id,
+    jobNumber: inspection.inspectionNumber,
+    organizationId: inspection.organizationId || inspection.clientId || "unknown",
+    clientName: inspection.clientName || inspection.organizationName || "Unknown",
+    serviceType: serviceType || "Inspection RFQ",
+    recordType: "inspection",
+    technicianId: "unassigned",
+    technicianName: technicianName || "Unassigned",
+    startDate: inspection.scheduledDate || now,
+    qualityChecks: [],
+    complianceStandards: ["ISO9001"],
+    createdAt: now,
+  };
 }
 
 // ============================================

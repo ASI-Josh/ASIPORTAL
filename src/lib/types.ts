@@ -237,6 +237,7 @@ export interface Booking {
   notes?: string;
   status: "pending" | "confirmed" | "converted_to_job" | "cancelled";
   convertedJobId?: string;
+  calendarEventId?: string;
   createdAt: Timestamp;
   createdBy: string;
   updatedAt: Timestamp;
@@ -354,6 +355,7 @@ export interface Inspection {
   submittedAt?: Timestamp;
   approvedAt?: Timestamp;
   convertedToJobId?: string;
+  worksRegisterId?: string;
   createdAt: Timestamp;
   createdBy: string;
   updatedAt: Timestamp;
@@ -599,6 +601,7 @@ export interface WorksRegisterEntry {
   organizationId: string;
   clientName: string;
   serviceType: string;
+  recordType?: "job" | "inspection";
   technicianId: string;
   technicianName: string;
   startDate: Timestamp;

@@ -59,10 +59,12 @@ export default function WorksRegisterPage() {
   const worksData = worksRegister.map((entry) => {
     const display = worksEntryToDisplay(entry);
     const isDeleted =
-      deletedJobIds.has(entry.jobId) || deletedJobNumbers.has(entry.jobNumber);
+      entry.recordType !== "inspection" &&
+      (deletedJobIds.has(entry.jobId) || deletedJobNumbers.has(entry.jobNumber));
     return {
       ...display,
       jobId: entry.jobId,
+      recordType: entry.recordType || "job",
       isDeleted,
       status: isDeleted ? "Deleted" : display.status,
     };
@@ -229,6 +231,10 @@ export default function WorksRegisterPage() {
                           deletedJobs.find((j) => j.jobNumber === work.jobNumber);
                         if (job) {
                           router.push(`/dashboard/jobs/${job.id}`);
+                          return;
+                        }
+                        if (work.recordType === "inspection") {
+                          router.push(`/dashboard/inspections/${work.jobId}`);
                         }
                         }}
                       >

@@ -113,6 +113,7 @@ export async function fetchCalendarEvents(accessToken: string, timeMin: string, 
   url.searchParams.set("singleEvents", "true");
   url.searchParams.set("orderBy", "startTime");
   url.searchParams.set("maxResults", "100");
+  url.searchParams.set("conferenceDataVersion", "1");
 
   const response = await fetch(url.toString(), {
     headers: {
@@ -126,6 +127,96 @@ export async function fetchCalendarEvents(accessToken: string, timeMin: string, 
   }
 
   return response.json() as Promise<{ items?: Record<string, unknown>[] }>;
+}
+
+export async function createCalendarEvent(
+  accessToken: string,
+  event: Record<string, unknown>
+) {
+  const url = new URL(`${CALENDAR_API}/calendars/primary/events`);
+  url.searchParams.set("conferenceDataVersion", "1");
+  const response = await fetch(url.toString(), {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(event),
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Calendar create failed: ${text}`);
+  }
+
+  return response.json() as Promise<Record<string, unknown>>;
+}
+
+export async function updateCalendarEvent(
+  accessToken: string,
+  eventId: string,
+  event: Record<string, unknown>
+) {
+  const url = new URL(`${CALENDAR_API}/calendars/primary/events/${eventId}`);
+  url.searchParams.set("conferenceDataVersion", "1");
+  const response = await fetch(url.toString(), {
+    method: "PATCH",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(event),
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Calendar update failed: ${text}`);
+  }
+
+  return response.json() as Promise<Record<string, unknown>>;
+}
+
+export async function getAccessTokenForUser(userId: string) {
+  const tokenSnap = await admin
+    .firestore()
+    .collection(COLLECTIONS.CALENDAR_TOKENS)
+    .doc(userId)
+    .get();
+
+  if (!tokenSnap.exists) {
+    throw new Error("No calendar connection found.");
+  }
+
+  const tokenData = tokenSnap.data() as {
+    accessToken?: string;
+    refreshToken?: string;
+    expiresAt?: { toMillis?: () => number };
+  };
+
+  let accessToken = tokenData.accessToken;
+  const refreshToken = tokenData.refreshToken;
+  const expiresAt = tokenData.expiresAt?.toMillis?.() || 0;
+  const now = Date.now();
+
+  if (!accessToken || (expiresAt && now > expiresAt - 60000)) {
+    if (!refreshToken) {
+      throw new Error("Missing refresh token.");
+    }
+    const refreshed = await refreshAccessToken(refreshToken);
+    accessToken = refreshed.access_token;
+    await upsertCalendarToken(userId, {
+      accessToken,
+      refreshToken,
+      expiresIn: refreshed.expires_in,
+      scope: refreshed.scope,
+    });
+  }
+
+  if (!accessToken) {
+    throw new Error("Missing access token.");
+  }
+
+  return accessToken;
 }
 
 export async function upsertCalendarToken(userId: string, data: {

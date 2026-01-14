@@ -6,14 +6,16 @@ import {
   Timestamp,
   addDoc,
   collection,
+  deleteDoc,
   doc,
+  getDocs,
   onSnapshot,
   orderBy,
   query,
   setDoc,
   where,
 } from "firebase/firestore";
-import { ClipboardCheck, Plus } from "lucide-react";
+import { ClipboardCheck, Plus, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -40,6 +42,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { db } from "@/lib/firebaseClient";
 import { COLLECTIONS, generateInspectionNumber } from "@/lib/firestore";
+import { createInspectionWorksRegisterEntry } from "@/lib/jobs-data";
 import type {
   ContactCategory,
   ContactOrganization,
@@ -78,6 +81,8 @@ export default function InspectionsPage() {
   const [selectedContactId, setSelectedContactId] = useState("");
   const [isCreatingNewOrg, setIsCreatingNewOrg] = useState(false);
   const [isCreatingNewContact, setIsCreatingNewContact] = useState(false);
+  const [inspectionToDelete, setInspectionToDelete] = useState<Inspection | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [newOrgData, setNewOrgData] = useState({
     name: "",
     category: "trade_client" as ContactCategory,
@@ -319,6 +324,7 @@ export default function InspectionsPage() {
 
       const inspectionNumber = await generateInspectionNumber();
       const inspectionRef = doc(collection(db, COLLECTIONS.INSPECTIONS));
+      const worksRef = doc(collection(db, COLLECTIONS.WORKS_REGISTER));
       const now = Timestamp.now();
       const inspection: Inspection = {
         id: inspectionRef.id,
@@ -336,11 +342,17 @@ export default function InspectionsPage() {
           : undefined,
         status: "draft",
         vehicleReports: [],
+        worksRegisterId: worksRef.id,
         createdAt: now,
         createdBy: user.uid,
         updatedAt: now,
       };
       await setDoc(inspectionRef, inspection);
+      const worksEntry = createInspectionWorksRegisterEntry({
+        inspection,
+        entryId: worksRef.id,
+      });
+      await setDoc(worksRef, worksEntry);
       setShowNewInspectionDialog(false);
       resetNewInspectionForm();
       router.push(`/dashboard/inspections/${inspectionRef.id}`);
@@ -352,6 +364,46 @@ export default function InspectionsPage() {
       });
     } finally {
       setCreating(false);
+    }
+  };
+
+  const handleDeleteInspection = async () => {
+    if (!inspectionToDelete) return;
+    if (inspectionToDelete.convertedToJobId) {
+      toast({
+        title: "Inspection linked to a job",
+        description: "Delete or recycle the RFQ job first before deleting this inspection.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setDeleting(true);
+    try {
+      await deleteDoc(doc(db, COLLECTIONS.INSPECTIONS, inspectionToDelete.id));
+      if (inspectionToDelete.worksRegisterId) {
+        await deleteDoc(doc(db, COLLECTIONS.WORKS_REGISTER, inspectionToDelete.worksRegisterId));
+      } else {
+        const worksQuery = query(
+          collection(db, COLLECTIONS.WORKS_REGISTER),
+          where("jobId", "==", inspectionToDelete.id)
+        );
+        const snapshot = await getDocs(worksQuery);
+        await Promise.all(snapshot.docs.map((docSnap) => deleteDoc(docSnap.ref)));
+      }
+      toast({
+        title: "Inspection deleted",
+        description: "The inspection has been removed from the system.",
+      });
+      setInspectionToDelete(null);
+    } catch (error: any) {
+      toast({
+        title: "Unable to delete inspection",
+        description: error.message || "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -668,16 +720,29 @@ export default function InspectionsPage() {
                         : "-"}
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          router.push(`/dashboard/inspections/${inspection.id}`);
-                        }}
-                      >
-                        View
-                      </Button>
+                      <div className="flex items-center justify-end gap-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            router.push(`/dashboard/inspections/${inspection.id}`);
+                          }}
+                        >
+                          View
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setInspectionToDelete(inspection);
+                          }}
+                          aria-label="Delete inspection"
+                        >
+                          <Trash2 className="h-4 w-4 text-muted-foreground" />
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -686,6 +751,30 @@ export default function InspectionsPage() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog
+        open={Boolean(inspectionToDelete)}
+        onOpenChange={(open) => {
+          if (!open) setInspectionToDelete(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete inspection</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            This will permanently remove the inspection and its works register entry.
+          </p>
+          <div className="flex justify-end gap-2 pt-4">
+            <Button variant="ghost" onClick={() => setInspectionToDelete(null)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleDeleteInspection} disabled={deleting}>
+              {deleting ? "Deleting..." : "Delete"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
