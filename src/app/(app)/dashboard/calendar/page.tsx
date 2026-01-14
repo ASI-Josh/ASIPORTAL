@@ -10,6 +10,20 @@ type GoogleCalendarEvent = {
   id: string;
   summary?: string;
   description?: string;
+  location?: string;
+  htmlLink?: string;
+  hangoutLink?: string;
+  organizer?: { email?: string; displayName?: string };
+  attendees?: {
+    email?: string;
+    displayName?: string;
+    responseStatus?: string;
+    organizer?: boolean;
+    self?: boolean;
+  }[];
+  conferenceData?: {
+    entryPoints?: { entryPointType?: string; uri?: string; label?: string }[];
+  };
   start?: { dateTime?: string; date?: string };
   end?: { dateTime?: string; date?: string };
 };
@@ -22,6 +36,7 @@ export default function CalendarPage() {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [events, setEvents] = useState<GoogleCalendarEvent[]>([]);
+  const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const canUseCalendar = user?.role === "admin" || user?.role === "technician";
@@ -121,6 +136,20 @@ export default function CalendarPage() {
     }
   };
 
+  const formatEventDate = (value?: string) => {
+    if (!value) return "Unknown date";
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.valueOf())) return value;
+    return parsed.toLocaleString("en-AU");
+  };
+
+  const getVideoLink = (event: GoogleCalendarEvent) => {
+    if (event.hangoutLink) return event.hangoutLink;
+    const entryPoints = event.conferenceData?.entryPoints || [];
+    const video = entryPoints.find((entry) => entry.entryPointType === "video");
+    return video?.uri;
+  };
+
   useEffect(() => {
     loadStatus();
   }, [firebaseUser]);
@@ -209,10 +238,17 @@ export default function CalendarPage() {
             {events.map((event) => {
               const start = event.start?.dateTime || event.start?.date;
               const end = event.end?.dateTime || event.end?.date;
+              const isSelected = selectedEventId === event.id;
+              const attendeeList = event.attendees || [];
+              const otherInvitees = attendeeList.filter((attendee) => !attendee.organizer);
+              const videoLink = getVideoLink(event);
               return (
                 <div
                   key={event.id}
-                  className="rounded-lg border border-border/50 p-3"
+                  className="rounded-lg border border-border/50 p-3 cursor-pointer transition hover:border-primary/50"
+                  onClick={() =>
+                    setSelectedEventId((current) => (current === event.id ? null : event.id))
+                  }
                 >
                   <div className="font-medium">{event.summary || "Untitled event"}</div>
                   {event.description ? (
@@ -221,9 +257,64 @@ export default function CalendarPage() {
                     </div>
                   ) : null}
                   <div className="text-xs text-muted-foreground mt-2">
-                    {start ? new Date(start).toLocaleString("en-AU") : "Unknown start"}
-                    {end ? ` → ${new Date(end).toLocaleString("en-AU")}` : ""}
+                    {formatEventDate(start)}
+                    {end ? ` → ${formatEventDate(end)}` : ""}
                   </div>
+                  {isSelected ? (
+                    <div className="mt-3 space-y-2 text-sm">
+                      {event.location ? (
+                        <div>
+                          <span className="font-medium">Address:</span> {event.location}
+                        </div>
+                      ) : null}
+                      {videoLink ? (
+                        <div>
+                          <span className="font-medium">Video call:</span>{" "}
+                          <a
+                            className="text-primary underline"
+                            href={videoLink}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            Join meeting
+                          </a>
+                        </div>
+                      ) : null}
+                      {event.htmlLink ? (
+                        <div>
+                          <span className="font-medium">Calendar link:</span>{" "}
+                          <a
+                            className="text-primary underline"
+                            href={event.htmlLink}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            Open in Google Calendar
+                          </a>
+                        </div>
+                      ) : null}
+                      {event.organizer?.email ? (
+                        <div>
+                          <span className="font-medium">Organiser:</span>{" "}
+                          {event.organizer.displayName || event.organizer.email}
+                        </div>
+                      ) : null}
+                      {otherInvitees.length > 0 ? (
+                        <div>
+                          <span className="font-medium">Invitees:</span>{" "}
+                          {otherInvitees
+                            .map((attendee) => attendee.displayName || attendee.email)
+                            .filter(Boolean)
+                            .join(", ")}
+                        </div>
+                      ) : null}
+                      {event.description ? (
+                        <div>
+                          <span className="font-medium">Notes:</span> {event.description}
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </div>
               );
             })}
