@@ -1,0 +1,11 @@
+{
+  "projects": {},
+  "targets": {},
+  "etags": {
+    "studio-2665508380-b2b5f": {
+      "extensionInstances": {
+        "firestore-send-email-nt33": "8f64d6a46b2ecb5d1e096d6001ec6e7e6ceb2174621c8f7279da3480b7703fc5"
+      }
+    }
+  }
+}

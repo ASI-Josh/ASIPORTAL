@@ -5,5 +5,8 @@
   },
   "storage": {
     "rules": "storage.rules"
+  },
+  "extensions": {
+    "firestore-send-email-nt33": "firebase/firestore-send-email@0.2.4"
   }
 }

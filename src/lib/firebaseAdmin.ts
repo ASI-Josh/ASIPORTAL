@@ -5,7 +5,12 @@ function initAdmin() {
   if (admin.apps && admin.apps.length) return admin.app();
 
   const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
-  const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n");
+  const rawPrivateKey = process.env.FIREBASE_PRIVATE_KEY;
+  const privateKeyBase64 = process.env.FIREBASE_PRIVATE_KEY_B64;
+  const resolvedPrivateKey =
+    rawPrivateKey ||
+    (privateKeyBase64 ? Buffer.from(privateKeyBase64, "base64").toString("utf8") : undefined);
+  const privateKey = resolvedPrivateKey?.replace(/\\n/g, "\n");
   const projectId = process.env.FIREBASE_PROJECT_ID;
 
   if (!clientEmail || !privateKey || !projectId) {

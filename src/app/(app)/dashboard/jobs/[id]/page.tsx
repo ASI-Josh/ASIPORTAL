@@ -365,7 +365,13 @@ export default function JobCardPage() {
     }
   };
 
-  const notifyAdmins = async (title: string, message: string, subject: string) => {
+  const notifyAdmins = async (
+    title: string,
+    message: string,
+    subject?: string,
+    type: "job_started" | "job_on_hold" | "job_completed" = "job_completed",
+    sendEmail = true
+  ) => {
     try {
       const usersRef = collection(db, COLLECTIONS.USERS);
       const adminQuery = query(usersRef, where("role", "==", "admin"));
@@ -373,8 +379,8 @@ export default function JobCardPage() {
       await Promise.all(
         snapshot.docs.map(async (docSnap) => {
           const data = docSnap.data() as { email?: string };
-          await queueNotification(docSnap.id, title, message, "job_completed");
-          if (data.email) {
+          await queueNotification(docSnap.id, title, message, type);
+          if (sendEmail && subject && data.email) {
             await queueEmail(data.email, subject, message);
           }
         })
@@ -400,7 +406,9 @@ export default function JobCardPage() {
     await notifyAdmins(
       `Job ${job.jobNumber} completed`,
       `${job.jobNumber} for ${job.clientName} is complete and ready for review/invoicing.`,
-      `Job completed: ${job.jobNumber}`
+      `Job completed: ${job.jobNumber}`,
+      "job_completed",
+      true
     );
     await notifyClients(
       "job_completed",
@@ -720,6 +728,13 @@ export default function JobCardPage() {
             `Our technician has started work on job ${job.jobNumber}.`,
             `ASI Job Started: ${job.jobNumber}`
           );
+          await notifyAdmins(
+            `Job ${job.jobNumber} started`,
+            `${job.jobNumber} for ${job.clientName} has started.`,
+            undefined,
+            "job_started",
+            false
+          );
         }
       }
       if (action === "hold") {
@@ -728,6 +743,13 @@ export default function JobCardPage() {
           `Job ${job.jobNumber} on hold`,
           `Job ${job.jobNumber} is on hold. Reason: ${note || "Awaiting update"}.`,
           `ASI Job On Hold: ${job.jobNumber}`
+        );
+        await notifyAdmins(
+          `Job ${job.jobNumber} on hold`,
+          `${job.jobNumber} for ${job.clientName} is on hold. Reason: ${note || "Awaiting update"}.`,
+          undefined,
+          "job_on_hold",
+          false
         );
       }
     }
