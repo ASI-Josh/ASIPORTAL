@@ -8,6 +8,7 @@ import {
   collection,
   deleteDoc,
   doc,
+  getDoc,
   getDocs,
   onSnapshot,
   orderBy,
@@ -369,17 +370,27 @@ export default function InspectionsPage() {
 
   const handleDeleteInspection = async () => {
     if (!inspectionToDelete) return;
-    if (inspectionToDelete.convertedToJobId) {
-      toast({
-        title: "Inspection linked to a job",
-        description: "Delete or recycle the RFQ job first before deleting this inspection.",
-        variant: "destructive",
-      });
-      return;
-    }
 
     setDeleting(true);
     try {
+      if (inspectionToDelete.convertedToJobId) {
+        const jobSnap = await getDoc(
+          doc(db, COLLECTIONS.JOBS, inspectionToDelete.convertedToJobId)
+        );
+        const jobData = jobSnap.exists()
+          ? (jobSnap.data() as { isDeleted?: boolean })
+          : null;
+        if (jobSnap.exists() && !jobData?.isDeleted) {
+          toast({
+            title: "Inspection linked to a job",
+            description: "Delete or recycle the RFQ job first before deleting this inspection.",
+            variant: "destructive",
+          });
+          setDeleting(false);
+          return;
+        }
+      }
+
       await deleteDoc(doc(db, COLLECTIONS.INSPECTIONS, inspectionToDelete.id));
       if (inspectionToDelete.worksRegisterId) {
         await deleteDoc(doc(db, COLLECTIONS.WORKS_REGISTER, inspectionToDelete.worksRegisterId));

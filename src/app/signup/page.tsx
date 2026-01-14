@@ -189,6 +189,7 @@ export default function SignupPage() {
                 placeholder="0400 123 456"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
+                required={isAsiEmail}
                 disabled={loading}
                 className="bg-background/50 border-white/10 focus:border-primary/50 transition-colors"
               />
@@ -332,7 +333,8 @@ export default function SignupPage() {
               </div>
             ) : (
               <p className="text-xs text-muted-foreground">
-                ASI staff accounts are automatically assigned the Technician role.
+                ASI staff accounts only need your contact details. You will be auto-assigned
+                to the ASI organisation.
               </p>
             )}
 

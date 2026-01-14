@@ -35,6 +35,7 @@ interface AuthContextType {
   loading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signInWithGoogle: () => Promise<void>;
+  updateUserProfile: (updates: { name?: string; phone?: string }) => Promise<void>;
   signUp: (data: SignUpData) => Promise<void>;
   signOut: () => Promise<void>;
 }
@@ -83,6 +84,10 @@ function splitName(fullName: string) {
   return { firstName, lastName: rest.join(" ") };
 }
 
+function isStaffRole(role: UserRole) {
+  return role === "admin" || role === "technician";
+}
+
 type OrgMatch = {
   id: string;
   name: string;
@@ -120,6 +125,82 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return { id: createdId, name: "ASI Australia" };
   };
 
+  const ensureStaffContact = async (params: {
+    userId: string;
+    email: string;
+    name: string;
+    phone?: string;
+    role: UserRole;
+    contactId?: string;
+    organizationId?: string;
+  }) => {
+    const {
+      userId,
+      email,
+      name,
+      phone,
+      role,
+      contactId,
+      organizationId,
+    } = params;
+    const asiOrg = organizationId
+      ? { id: organizationId, name: "ASI Australia" }
+      : await ensureAsiOrganization();
+
+    const resolvedName = name || email.split("@")[0] || "User";
+    const { firstName, lastName } = splitName(resolvedName);
+    const contactRole = role === "admin" ? "management" : "technical";
+
+    const phoneUpdates = phone ? { phone, mobile: phone } : {};
+
+    if (contactId) {
+      await updateDoc(doc(db, COLLECTIONS.ORGANIZATION_CONTACTS, contactId), {
+        firstName,
+        lastName,
+        email,
+        role: contactRole,
+        updatedAt: Timestamp.now(),
+        ...phoneUpdates,
+      });
+      return contactId;
+    }
+
+    const existingByUser = await getDocs(
+      query(
+        collection(db, COLLECTIONS.ORGANIZATION_CONTACTS),
+        where("portalUserId", "==", userId),
+        limit(1)
+      )
+    );
+    if (!existingByUser.empty) {
+      const existingId = existingByUser.docs[0].id;
+      await updateDoc(doc(db, COLLECTIONS.ORGANIZATION_CONTACTS, existingId), {
+        firstName,
+        lastName,
+        email,
+        role: contactRole,
+        updatedAt: Timestamp.now(),
+        ...phoneUpdates,
+      });
+      return existingId;
+    }
+
+    const newContactId = await addDocument(COLLECTIONS.ORGANIZATION_CONTACTS, {
+      organizationId: asiOrg.id,
+      firstName,
+      lastName,
+      email,
+      phone: phone || "",
+      mobile: phone || "",
+      role: contactRole,
+      status: "active",
+      isPrimary: false,
+      hasPortalAccess: true,
+      portalUserId: userId,
+    });
+    return newContactId;
+  };
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
@@ -136,13 +217,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               updates.role = resolvedRole;
             }
 
-            if (resolvedRole === "admin" || resolvedRole === "technician") {
+            if (isStaffRole(resolvedRole)) {
               const asiOrg = await ensureAsiOrganization();
               if (storedUser.organizationId !== asiOrg.id) {
                 updates.organizationId = asiOrg.id;
               }
               if (storedUser.organizationName !== asiOrg.name) {
                 updates.organizationName = asiOrg.name;
+              }
+              const contactId = await ensureStaffContact({
+                userId: firebaseUser.uid,
+                email: email || storedUser.email,
+                name: storedUser.name || firebaseUser.displayName || "User",
+                phone: storedUser.phone,
+                role: resolvedRole,
+                contactId: storedUser.contactId,
+                organizationId: asiOrg.id,
+              });
+              if (contactId && contactId !== storedUser.contactId) {
+                updates.contactId = contactId;
               }
             } else if (!storedUser.organizationId) {
               const emailDomain = getEmailDomain(email || storedUser.email);
@@ -178,11 +271,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             const resolvedRole = determineUserRole(email, "client");
             let organizationId: string | undefined;
             let organizationName: string | undefined;
+            let contactId: string | undefined;
 
-            if (resolvedRole === "admin" || resolvedRole === "technician") {
+            if (isStaffRole(resolvedRole)) {
               const asiOrg = await ensureAsiOrganization();
               organizationId = asiOrg.id;
               organizationName = asiOrg.name;
+              contactId = await ensureStaffContact({
+                userId: firebaseUser.uid,
+                email,
+                name: firebaseUser.displayName || "User",
+                phone: undefined,
+                role: resolvedRole,
+                organizationId: asiOrg.id,
+              });
             } else {
               const emailDomain = getEmailDomain(email);
               const isPublicDomain = PUBLIC_EMAIL_DOMAINS.has(emailDomain);
@@ -202,6 +304,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               role: resolvedRole,
               organizationId,
               organizationName,
+              contactId,
               createdAt: Timestamp.now(),
               updatedAt: Timestamp.now(),
             };
@@ -254,6 +357,51 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return;
       }
       throw error;
+    }
+  };
+
+  const updateUserProfile = async (updates: { name?: string; phone?: string }) => {
+    if (!firebaseUser) {
+      throw new Error("Not signed in.");
+    }
+    const nextUpdates: Partial<User> = {};
+    if (updates.name) {
+      nextUpdates.name = updates.name;
+    }
+    if (updates.phone) {
+      nextUpdates.phone = updates.phone;
+    }
+    if (Object.keys(nextUpdates).length === 0) return;
+
+    await updateDoc(doc(db, COLLECTIONS.USERS, firebaseUser.uid), {
+      ...nextUpdates,
+      updatedAt: Timestamp.now(),
+    });
+
+    if (updates.name && firebaseUser.displayName !== updates.name) {
+      await updateProfile(firebaseUser, { displayName: updates.name });
+    }
+
+    setUser((current) => (current ? { ...current, ...nextUpdates } : current));
+
+    if (user && isStaffRole(user.role)) {
+      const resolvedRole = user.role;
+      const contactId = await ensureStaffContact({
+        userId: firebaseUser.uid,
+        email: firebaseUser.email || user?.email || "",
+        name: updates.name || user?.name || "User",
+        phone: updates.phone || user?.phone,
+        role: resolvedRole,
+        contactId: user?.contactId,
+        organizationId: user?.organizationId,
+      });
+      if (contactId && contactId !== user?.contactId) {
+        await updateDoc(doc(db, COLLECTIONS.USERS, firebaseUser.uid), {
+          contactId,
+          updatedAt: Timestamp.now(),
+        });
+        setUser((current) => (current ? { ...current, contactId } : current));
+      }
     }
   };
 
@@ -379,7 +527,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, firebaseUser, loading, signIn, signInWithGoogle, signUp, signOut }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        firebaseUser,
+        loading,
+        signIn,
+        signInWithGoogle,
+        updateUserProfile,
+        signUp,
+        signOut,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );
