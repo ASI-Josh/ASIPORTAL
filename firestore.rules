@@ -126,6 +126,16 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    match /analyticsDaily/{docId} {
+      allow read: if isStaff();
+      allow write: if false;
+    }
+
+    match /aiInsights/{docId} {
+      allow read: if isStaff();
+      allow write: if false;
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }
