@@ -19,30 +19,9 @@ import {
 } from "firebase/firestore";
 import { db } from "./firebaseClient";
 import type { ContactOrganization } from "./types";
+import { COLLECTIONS } from "./collections";
 
-// ============================================
-// COLLECTION NAMES
-// ============================================
-
-export const COLLECTIONS = {
-  USERS: "users",
-  BOOKINGS: "bookings",
-  JOBS: "jobs",
-  INSPECTIONS: "inspections",
-  LEADS: "leads",
-  SALES_ACTIVITIES: "salesActivities",
-  SALES_TASKS: "salesTasks",
-  CONTACT_ORGANIZATIONS: "contactOrganizations",
-  ORGANIZATION_CONTACTS: "organizationContacts",
-  FILMS: "films",
-  FILM_CLAIMS: "filmClaims",
-  QUOTES: "quotes",
-  CALENDAR_EVENTS: "calendarEvents",
-  CALENDAR_TOKENS: "calendarTokens",
-  WORKS_REGISTER: "worksRegister",
-  NOTIFICATIONS: "notifications",
-  MAIL: "mail",
-} as const;
+export { COLLECTIONS };
 
 // ============================================
 // GENERIC FIRESTORE OPERATIONS

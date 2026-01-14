@@ -1,0 +1,151 @@
+import { randomBytes } from "crypto";
+import { admin } from "@/lib/firebaseAdmin";
+import { COLLECTIONS } from "@/lib/collections";
+
+const AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
+const TOKEN_URL = "https://oauth2.googleapis.com/token";
+const CALENDAR_API = "https://www.googleapis.com/calendar/v3";
+
+const SCOPES = [
+  "https://www.googleapis.com/auth/calendar",
+];
+
+export function getRedirectUri() {
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:9002";
+  return process.env.GOOGLE_REDIRECT_URI || `${baseUrl}/api/google/calendar/callback`;
+}
+
+export function getOAuthConfig() {
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  const redirectUri = getRedirectUri();
+
+  if (!clientId || !clientSecret) {
+    throw new Error("Missing Google OAuth configuration.");
+  }
+
+  return { clientId, clientSecret, redirectUri };
+}
+
+export function buildAuthUrl(state: string) {
+  const { clientId, redirectUri } = getOAuthConfig();
+  const url = new URL(AUTH_URL);
+  url.searchParams.set("client_id", clientId);
+  url.searchParams.set("redirect_uri", redirectUri);
+  url.searchParams.set("response_type", "code");
+  url.searchParams.set("scope", SCOPES.join(" "));
+  url.searchParams.set("access_type", "offline");
+  url.searchParams.set("prompt", "consent");
+  url.searchParams.set("include_granted_scopes", "true");
+  url.searchParams.set("state", state);
+  return url.toString();
+}
+
+export async function createAuthState(userId: string) {
+  const state = randomBytes(16).toString("hex");
+  await admin.firestore().collection("calendarAuthStates").doc(state).set({
+    userId,
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+  return state;
+}
+
+export async function exchangeCodeForTokens(code: string) {
+  const { clientId, clientSecret, redirectUri } = getOAuthConfig();
+  const body = new URLSearchParams({
+    code,
+    client_id: clientId,
+    client_secret: clientSecret,
+    redirect_uri: redirectUri,
+    grant_type: "authorization_code",
+  });
+
+  const response = await fetch(TOKEN_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body,
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Token exchange failed: ${text}`);
+  }
+
+  return response.json() as Promise<{
+    access_token: string;
+    refresh_token?: string;
+    expires_in: number;
+    scope?: string;
+  }>;
+}
+
+export async function refreshAccessToken(refreshToken: string) {
+  const { clientId, clientSecret } = getOAuthConfig();
+  const body = new URLSearchParams({
+    client_id: clientId,
+    client_secret: clientSecret,
+    refresh_token: refreshToken,
+    grant_type: "refresh_token",
+  });
+
+  const response = await fetch(TOKEN_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body,
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Token refresh failed: ${text}`);
+  }
+
+  return response.json() as Promise<{
+    access_token: string;
+    expires_in: number;
+    scope?: string;
+  }>;
+}
+
+export async function fetchCalendarEvents(accessToken: string, timeMin: string, timeMax: string) {
+  const url = new URL(`${CALENDAR_API}/calendars/primary/events`);
+  url.searchParams.set("timeMin", timeMin);
+  url.searchParams.set("timeMax", timeMax);
+  url.searchParams.set("singleEvents", "true");
+  url.searchParams.set("orderBy", "startTime");
+  url.searchParams.set("maxResults", "100");
+
+  const response = await fetch(url.toString(), {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Calendar fetch failed: ${text}`);
+  }
+
+  return response.json() as Promise<{ items?: Record<string, unknown>[] }>;
+}
+
+export async function upsertCalendarToken(userId: string, data: {
+  accessToken: string;
+  refreshToken?: string;
+  expiresIn: number;
+  scope?: string;
+}) {
+  const expiresAt = admin.firestore.Timestamp.fromMillis(Date.now() + data.expiresIn * 1000);
+  const tokenRef = admin.firestore().collection(COLLECTIONS.CALENDAR_TOKENS).doc(userId);
+
+  await tokenRef.set(
+    {
+      userId,
+      accessToken: data.accessToken,
+      refreshToken: data.refreshToken,
+      expiresAt,
+      scope: data.scope || "",
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    },
+    { merge: true }
+  );
+}
