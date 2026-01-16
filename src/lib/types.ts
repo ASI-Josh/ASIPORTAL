@@ -69,6 +69,18 @@ export interface Vehicle {
   poWorksOrderNumber?: string;
 }
 
+export interface FleetVehicle {
+  id: string;
+  organizationId: string;
+  registration: string;
+  vin?: string;
+  fleetAssetNumber?: string;
+  bodyManufacturer?: string;
+  year?: number;
+  createdAt?: Timestamp;
+  updatedAt?: Timestamp;
+}
+
 export interface JobVehicle {
   id: string;
   // Required: Registration OR VIN (at least one)

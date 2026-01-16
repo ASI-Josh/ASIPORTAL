@@ -18,4 +18,5 @@ export const COLLECTIONS = {
   MAIL: "mail",
   ANALYTICS_DAILY: "analyticsDaily",
   AI_INSIGHTS: "aiInsights",
+  FLEET_VEHICLES: "fleetVehicles",
 } as const;

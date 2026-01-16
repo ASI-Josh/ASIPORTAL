@@ -1,17 +1,29 @@
 "use client";
 
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useState, useMemo } from "react";
-import { Timestamp, addDoc, collection, getDocs, query, where } from "firebase/firestore";
+import { useEffect, useMemo, useState } from "react";
+import {
+  Timestamp,
+  addDoc,
+  collection,
+  doc,
+  getDocs,
+  onSnapshot,
+  query,
+  setDoc,
+  where,
+} from "firebase/firestore";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { useJobs } from "@/contexts/JobsContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { asiStaff } from "@/lib/contacts-data";
+import { buildFleetDocId, getFleetSeedForOrgName, normalizeVehicleKey } from "@/lib/fleet-data";
 import { generateJobDescriptionAction } from "@/app/actions/ai";
 import { useToast } from "@/hooks/use-toast";
 import { db, storage } from "@/lib/firebaseClient";
 import { COLLECTIONS } from "@/lib/firestore";
 import type {
+  FleetVehicle,
   JobStatus,
   JobVehicle,
   RepairSite,
@@ -144,6 +156,8 @@ export default function JobCardPage() {
     year: "",
     poWorksOrderNumber: "",
   });
+  const [fleetVehicles, setFleetVehicles] = useState<FleetVehicle[]>([]);
+  const [fleetSeeded, setFleetSeeded] = useState(false);
 
   // New repair site form state
   const [newRepair, setNewRepair] = useState({
@@ -245,6 +259,75 @@ export default function JobCardPage() {
     setInvoiceSentDate(formatDateInput(job.invoiceSentAt));
   }, [job]);
 
+  useEffect(() => {
+    setFleetSeeded(false);
+  }, [job?.organizationId]);
+
+  useEffect(() => {
+    if (!job?.organizationId) {
+      setFleetVehicles([]);
+      return;
+    }
+    const fleetQuery = query(
+      collection(db, COLLECTIONS.FLEET_VEHICLES),
+      where("organizationId", "==", job.organizationId)
+    );
+    const unsubscribe = onSnapshot(fleetQuery, (snapshot) => {
+      const loaded = snapshot.docs.map((docSnap) => ({
+        id: docSnap.id,
+        ...(docSnap.data() as Omit<FleetVehicle, "id">),
+      }));
+      setFleetVehicles(loaded);
+    });
+    return () => unsubscribe();
+  }, [job?.organizationId]);
+
+  useEffect(() => {
+    const clientName = job?.clientName ?? "";
+    const organizationId = job?.organizationId ?? "";
+    if (!organizationId || !clientName) return;
+    if (fleetVehicles.length > 0 || fleetSeeded) return;
+    const seeds = getFleetSeedForOrgName(clientName);
+    if (seeds.length === 0) {
+      setFleetSeeded(true);
+      return;
+    }
+    let cancelled = false;
+    const seedFleet = async () => {
+      try {
+        const now = Timestamp.now();
+        await Promise.all(
+          seeds.map((vehicle) => {
+            const docId = buildFleetDocId(organizationId, vehicle.registration);
+            const docRef = doc(db, COLLECTIONS.FLEET_VEHICLES, docId);
+            return setDoc(
+              docRef,
+              {
+                organizationId,
+                registration: vehicle.registration.toUpperCase(),
+                vin: vehicle.vin?.toUpperCase(),
+                fleetAssetNumber: vehicle.fleetAssetNumber,
+                bodyManufacturer: vehicle.bodyManufacturer,
+                year: vehicle.year,
+                createdAt: now,
+                updatedAt: now,
+              },
+              { merge: true }
+            );
+          })
+        );
+      } catch (error) {
+        console.warn("Failed to seed fleet vehicles:", error);
+      } finally {
+        if (!cancelled) setFleetSeeded(true);
+      }
+    };
+    void seedFleet();
+    return () => {
+      cancelled = true;
+    };
+  }, [job?.organizationId, job?.clientName, fleetSeeded, fleetVehicles.length]);
+
   // Calculate totals
   const jobTotals = useMemo(() => {
     let totalCost = 0;
@@ -261,6 +344,57 @@ export default function JobCardPage() {
 
     return { totalCost, totalLabour, totalMaterials };
   }, [jobVehicles]);
+
+  const fleetByRegistration = useMemo(() => {
+    const map = new Map<string, FleetVehicle>();
+    fleetVehicles.forEach((vehicle) => {
+      map.set(normalizeVehicleKey(vehicle.registration), vehicle);
+    });
+    return map;
+  }, [fleetVehicles]);
+
+  const fleetByAssetNumber = useMemo(() => {
+    const map = new Map<string, FleetVehicle>();
+    fleetVehicles.forEach((vehicle) => {
+      if (vehicle.fleetAssetNumber) {
+        map.set(normalizeVehicleKey(vehicle.fleetAssetNumber), vehicle);
+      }
+    });
+    return map;
+  }, [fleetVehicles]);
+
+  useEffect(() => {
+    if (!fleetVehicles.length) return;
+    const regoKey = normalizeVehicleKey(newVehicle.registration);
+    const fleetKey = normalizeVehicleKey(newVehicle.fleetAssetNumber);
+    const match =
+      (regoKey && fleetByRegistration.get(regoKey)) ||
+      (fleetKey && fleetByAssetNumber.get(fleetKey));
+    if (!match) return;
+    setNewVehicle((prev) => {
+      const next = {
+        ...prev,
+        registration: match.registration || prev.registration,
+        vin: match.vin ?? prev.vin,
+        fleetAssetNumber: match.fleetAssetNumber ?? prev.fleetAssetNumber,
+        bodyManufacturer: match.bodyManufacturer ?? prev.bodyManufacturer,
+        year: match.year ? String(match.year) : prev.year,
+      };
+      const unchanged =
+        next.registration === prev.registration &&
+        next.vin === prev.vin &&
+        next.fleetAssetNumber === prev.fleetAssetNumber &&
+        next.bodyManufacturer === prev.bodyManufacturer &&
+        next.year === prev.year;
+      return unchanged ? prev : next;
+    });
+  }, [
+    fleetByAssetNumber,
+    fleetByRegistration,
+    fleetVehicles.length,
+    newVehicle.fleetAssetNumber,
+    newVehicle.registration,
+  ]);
 
   if (!job) {
     return (
@@ -505,18 +639,18 @@ export default function JobCardPage() {
 
   // Add new vehicle
   const handleAddVehicle = () => {
-    if (!newVehicle.registration && !newVehicle.vin) {
-      return; // Need at least registration or VIN
+    if (!newVehicle.registration.trim()) {
+      return;
     }
 
     const vehicle: JobVehicle = {
       id: `vehicle-${Date.now()}`,
-      registration: newVehicle.registration || undefined,
-      vin: newVehicle.vin || undefined,
-      fleetAssetNumber: newVehicle.fleetAssetNumber || undefined,
-      bodyManufacturer: newVehicle.bodyManufacturer || undefined,
-      year: newVehicle.year ? parseInt(newVehicle.year) : undefined,
-      poWorksOrderNumber: newVehicle.poWorksOrderNumber || undefined,
+      registration: newVehicle.registration.trim().toUpperCase(),
+      vin: newVehicle.vin.trim().toUpperCase() || undefined,
+      fleetAssetNumber: newVehicle.fleetAssetNumber.trim() || undefined,
+      bodyManufacturer: newVehicle.bodyManufacturer.trim() || undefined,
+      year: newVehicle.year ? parseInt(newVehicle.year, 10) : undefined,
+      poWorksOrderNumber: newVehicle.poWorksOrderNumber.trim() || undefined,
       repairSites: [],
       microfiberDisksUsed: [],
       status: "pending",
@@ -2077,7 +2211,7 @@ export default function JobCardPage() {
           <DialogHeader>
             <DialogTitle>Add Vehicle</DialogTitle>
             <DialogDescription>
-              Enter vehicle details. Registration or VIN is required.
+              Enter vehicle details. Registration is required.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
@@ -2157,7 +2291,7 @@ export default function JobCardPage() {
             </Button>
             <Button
               onClick={handleAddVehicle}
-              disabled={!newVehicle.registration && !newVehicle.vin}
+              disabled={!newVehicle.registration.trim()}
             >
               Add Vehicle
             </Button>

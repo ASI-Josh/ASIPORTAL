@@ -51,6 +51,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useJobs } from "@/contexts/JobsContext";
 import { generateInspectionSummaryAction } from "@/app/actions/ai";
 import { db, storage } from "@/lib/firebaseClient";
+import { buildFleetDocId, getFleetSeedForOrgName, normalizeVehicleKey } from "@/lib/fleet-data";
 import { COLLECTIONS, generateJobNumber } from "@/lib/firestore";
 import {
   BOOKING_TYPE_LABELS,
@@ -60,6 +61,7 @@ import {
   ContactOrganization,
   DamageItem,
   DamageReportItem,
+  FleetVehicle,
   Inspection,
   InspectionStatus,
   OrganizationContact,
@@ -122,6 +124,9 @@ export default function InspectionDetailPage() {
   const [staffList, setStaffList] = useState<StaffMember[]>([]);
   const [selectedOrganization, setSelectedOrganization] = useState<ContactOrganization | null>(null);
   const [selectedContact, setSelectedContact] = useState<OrganizationContact | null>(null);
+  const selectedOrgId = selectedOrganization?.id ?? inspection?.organizationId ?? "";
+  const selectedOrgName =
+    selectedOrganization?.name ?? inspection?.organizationName ?? inspection?.clientName ?? "";
   const [selectedSite, setSelectedSite] = useState<SiteLocation | null>(null);
   const [scheduledDate, setScheduledDate] = useState<Date | undefined>();
   const [scheduledTime, setScheduledTime] = useState("");
@@ -166,6 +171,8 @@ export default function InspectionDetailPage() {
     year: "",
     poWorksOrderNumber: "",
   });
+  const [fleetVehicles, setFleetVehicles] = useState<FleetVehicle[]>([]);
+  const [fleetSeeded, setFleetSeeded] = useState(false);
   const [newDamage, setNewDamage] = useState({
     repairType: "" as RepairType | "",
     location: "",
@@ -387,6 +394,124 @@ export default function InspectionDetailPage() {
       null;
     setSelectedContact(matchedContact);
   }, [inspection, contacts]);
+
+  useEffect(() => {
+    setFleetSeeded(false);
+  }, [selectedOrgId]);
+
+  useEffect(() => {
+    if (!selectedOrgId) {
+      setFleetVehicles([]);
+      return;
+    }
+    const fleetQuery = query(
+      collection(db, COLLECTIONS.FLEET_VEHICLES),
+      where("organizationId", "==", selectedOrgId)
+    );
+    const unsubscribe = onSnapshot(fleetQuery, (snapshot) => {
+      const loaded = snapshot.docs.map((docSnap) => ({
+        id: docSnap.id,
+        ...(docSnap.data() as Omit<FleetVehicle, "id">),
+      }));
+      setFleetVehicles(loaded);
+    });
+    return () => unsubscribe();
+  }, [selectedOrgId]);
+
+  useEffect(() => {
+    if (!selectedOrgId || !selectedOrgName) return;
+    if (fleetVehicles.length > 0 || fleetSeeded) return;
+    const seeds = getFleetSeedForOrgName(selectedOrgName);
+    if (seeds.length === 0) {
+      setFleetSeeded(true);
+      return;
+    }
+    let cancelled = false;
+    const seedFleet = async () => {
+      try {
+        const now = Timestamp.now();
+        await Promise.all(
+          seeds.map((vehicle) => {
+            const docId = buildFleetDocId(selectedOrgId, vehicle.registration);
+            const docRef = doc(db, COLLECTIONS.FLEET_VEHICLES, docId);
+            return setDoc(
+              docRef,
+              {
+                organizationId: selectedOrgId,
+                registration: vehicle.registration.toUpperCase(),
+                vin: vehicle.vin?.toUpperCase(),
+                fleetAssetNumber: vehicle.fleetAssetNumber,
+                bodyManufacturer: vehicle.bodyManufacturer,
+                year: vehicle.year,
+                createdAt: now,
+                updatedAt: now,
+              },
+              { merge: true }
+            );
+          })
+        );
+      } catch (error) {
+        console.warn("Failed to seed fleet vehicles:", error);
+      } finally {
+        if (!cancelled) setFleetSeeded(true);
+      }
+    };
+    void seedFleet();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedOrgId, selectedOrgName, fleetSeeded, fleetVehicles.length]);
+
+  const fleetByRegistration = useMemo(() => {
+    const map = new Map<string, FleetVehicle>();
+    fleetVehicles.forEach((vehicle) => {
+      map.set(normalizeVehicleKey(vehicle.registration), vehicle);
+    });
+    return map;
+  }, [fleetVehicles]);
+
+  const fleetByAssetNumber = useMemo(() => {
+    const map = new Map<string, FleetVehicle>();
+    fleetVehicles.forEach((vehicle) => {
+      if (vehicle.fleetAssetNumber) {
+        map.set(normalizeVehicleKey(vehicle.fleetAssetNumber), vehicle);
+      }
+    });
+    return map;
+  }, [fleetVehicles]);
+
+  useEffect(() => {
+    if (!fleetVehicles.length) return;
+    const regoKey = normalizeVehicleKey(newVehicle.registration);
+    const fleetKey = normalizeVehicleKey(newVehicle.fleetAssetNumber);
+    const match =
+      (regoKey && fleetByRegistration.get(regoKey)) ||
+      (fleetKey && fleetByAssetNumber.get(fleetKey));
+    if (!match) return;
+    setNewVehicle((prev) => {
+      const next = {
+        ...prev,
+        registration: match.registration || prev.registration,
+        vin: match.vin ?? prev.vin,
+        fleetAssetNumber: match.fleetAssetNumber ?? prev.fleetAssetNumber,
+        bodyManufacturer: match.bodyManufacturer ?? prev.bodyManufacturer,
+        year: match.year ? String(match.year) : prev.year,
+      };
+      const unchanged =
+        next.registration === prev.registration &&
+        next.vin === prev.vin &&
+        next.fleetAssetNumber === prev.fleetAssetNumber &&
+        next.bodyManufacturer === prev.bodyManufacturer &&
+        next.year === prev.year;
+      return unchanged ? prev : next;
+    });
+  }, [
+    fleetByAssetNumber,
+    fleetByRegistration,
+    fleetVehicles.length,
+    newVehicle.fleetAssetNumber,
+    newVehicle.registration,
+  ]);
 
   const totals = useMemo(() => {
     let totalCost = 0;
