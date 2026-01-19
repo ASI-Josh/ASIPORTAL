@@ -1015,11 +1015,12 @@ export default function ContactsPage() {
               <div className="grid gap-2">
                 <Label htmlFor="org-portal-role">Portal Role</Label>
                 <Select
-                  value={orgForm.portalRole}
+                  value={orgForm.portalRole || "none"}
                   onValueChange={(v) =>
                     setOrgForm({
                       ...orgForm,
-                      portalRole: v as OrganizationFormData["portalRole"],
+                      portalRole:
+                        v === "none" ? "" : (v as OrganizationFormData["portalRole"]),
                     })
                   }
                 >
@@ -1027,7 +1028,7 @@ export default function ContactsPage() {
                     <SelectValue placeholder="Select portal role" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">Not set</SelectItem>
+                    <SelectItem value="none">Not set</SelectItem>
                     <SelectItem value="client">Client</SelectItem>
                     <SelectItem value="contractor">Contractor</SelectItem>
                   </SelectContent>
