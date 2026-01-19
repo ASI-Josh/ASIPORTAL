@@ -36,6 +36,18 @@ export interface UserInvite {
   userId?: string;
 }
 
+export interface FileAttachment {
+  id: string;
+  name: string;
+  url: string;
+  uploadedAt?: Timestamp;
+  uploadedBy?: {
+    id: string;
+    name: string;
+    email?: string;
+  };
+}
+
 // ============================================
 // JOB LIFECYCLE MANAGEMENT (JLM)
 // ============================================
@@ -439,6 +451,10 @@ export interface GoodsReceivedInspection {
   nonConformanceNotes?: string;
   correctiveAction?: CorrectiveAction;
   items: GoodsReceivedItem[];
+  attachments?: {
+    shippingDocs?: FileAttachment[];
+    packingList?: FileAttachment[];
+  };
   createdAt: Timestamp;
   createdBy: string;
   updatedAt: Timestamp;

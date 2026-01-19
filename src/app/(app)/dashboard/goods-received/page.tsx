@@ -18,8 +18,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -67,6 +67,7 @@ export default function GoodsReceivedPage() {
   const [inspections, setInspections] = useState<GoodsReceivedInspection[]>([]);
   const [showNewDialog, setShowNewDialog] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const [inspectionToDelete, setInspectionToDelete] = useState<GoodsReceivedInspection | null>(
     null
   );
@@ -179,6 +180,16 @@ export default function GoodsReceivedPage() {
     [inspections]
   );
 
+  const filteredInspections = useMemo(() => {
+    const queryText = searchQuery.trim().toLowerCase();
+    if (!queryText) return inspections;
+    return inspections.filter(
+      (inspection) =>
+        inspection.poNumber.toLowerCase().includes(queryText) ||
+        inspection.supplierName.toLowerCase().includes(queryText)
+    );
+  }, [inspections, searchQuery]);
+
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
@@ -198,13 +209,27 @@ export default function GoodsReceivedPage() {
 
       <Card className="bg-card/50 backdrop-blur-lg border-border/20">
         <CardHeader>
-          <CardTitle>Inspection Register</CardTitle>
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <CardTitle>Inspection Register</CardTitle>
+              <p className="text-sm text-muted-foreground">
+                {totals.total} inspection{totals.total !== 1 && "s"} logged • {totals.open} open
+              </p>
+            </div>
+            <div className="w-full md:max-w-xs">
+              <Input
+                placeholder="Search by supplier or PO number..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+            </div>
+          </div>
           <p className="text-sm text-muted-foreground">
-            {totals.total} inspection{totals.total !== 1 && "s"} logged • {totals.open} open
+            {filteredInspections.length} result{filteredInspections.length !== 1 && "s"}
           </p>
         </CardHeader>
         <CardContent>
-          {inspections.length === 0 ? (
+          {filteredInspections.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground">
               <ClipboardCheck className="mx-auto h-12 w-12 mb-4 opacity-50" />
               <p>No goods inspections yet. Create the first one to get started.</p>
@@ -222,7 +247,7 @@ export default function GoodsReceivedPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {inspections.map((inspection) => (
+                {filteredInspections.map((inspection) => (
                   <TableRow key={inspection.id}>
                     <TableCell className="font-medium">{inspection.poNumber}</TableCell>
                     <TableCell>{inspection.supplierName}</TableCell>

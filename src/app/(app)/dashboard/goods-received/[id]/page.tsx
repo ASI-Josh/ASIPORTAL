@@ -8,6 +8,7 @@ import {
   onSnapshot,
   updateDoc,
 } from "firebase/firestore";
+import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { ArrowLeft, CheckCircle, ClipboardCheck, Plus, Save } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -25,10 +26,11 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
-import { db } from "@/lib/firebaseClient";
+import { db, storage } from "@/lib/firebaseClient";
 import { COLLECTIONS } from "@/lib/collections";
 import type {
   CorrectiveAction,
+  FileAttachment,
   GoodsConformance,
   GoodsDecision,
   GoodsInspectionStatus,
@@ -75,10 +77,13 @@ export default function GoodsReceivedDetailPage() {
   const [decision, setDecision] = useState<GoodsDecision | "">("");
   const [nonConformanceNotes, setNonConformanceNotes] = useState("");
   const [items, setItems] = useState<GoodsReceivedItem[]>([]);
+  const [shippingDocs, setShippingDocs] = useState<FileAttachment[]>([]);
+  const [packingListDocs, setPackingListDocs] = useState<FileAttachment[]>([]);
   const [correctiveAction, setCorrectiveAction] = useState<CorrectiveAction>({
     required: false,
     status: "open",
   });
+  const [uploading, setUploading] = useState<Record<string, boolean>>({});
   const [newItem, setNewItem] = useState({
     description: "",
     quantity: "",
@@ -121,6 +126,8 @@ export default function GoodsReceivedDetailPage() {
     setDecision(inspection.decision || "");
     setNonConformanceNotes(inspection.nonConformanceNotes || "");
     setItems(inspection.items || []);
+    setShippingDocs(inspection.attachments?.shippingDocs || []);
+    setPackingListDocs(inspection.attachments?.packingList || []);
     setCorrectiveAction(
       inspection.correctiveAction || {
         required: false,
@@ -139,6 +146,92 @@ export default function GoodsReceivedDetailPage() {
 
   const removeItem = (id: string) => {
     setItems((prev) => prev.filter((item) => item.id !== id));
+  };
+
+  const handleUploadAttachments = async (
+    kind: "shipping" | "packing",
+    files: FileList | null
+  ) => {
+    if (!inspection || !files || files.length === 0) return;
+    const currentList = kind === "shipping" ? shippingDocs : packingListDocs;
+    setUploading((prev) => ({ ...prev, [kind]: true }));
+    try {
+      const uploaded = await Promise.all(
+        Array.from(files).map(async (file) => {
+          const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+          const path = `goods-received/${inspection.id}/${kind}/${Date.now()}-${safeName}`;
+          const storageRef = ref(storage, path);
+          await uploadBytes(storageRef, file);
+          const url = await getDownloadURL(storageRef);
+          return {
+            id: `${kind}-${Date.now()}-${safeName}`,
+            name: file.name,
+            url,
+            uploadedAt: Timestamp.now(),
+            uploadedBy: {
+              id: user?.uid || "",
+              name: user?.name || "User",
+              email: user?.email,
+            },
+          };
+        })
+      );
+
+      const updated = [...currentList, ...uploaded];
+      const nextShippingDocs = kind === "shipping" ? updated : shippingDocs;
+      const nextPackingDocs = kind === "packing" ? updated : packingListDocs;
+      if (kind === "shipping") {
+        setShippingDocs(updated);
+      } else {
+        setPackingListDocs(updated);
+      }
+
+      await updateDoc(doc(db, COLLECTIONS.GOODS_RECEIVED, inspection.id), {
+        attachments: {
+          shippingDocs: nextShippingDocs,
+          packingList: nextPackingDocs,
+        },
+        updatedAt: Timestamp.now(),
+      });
+    } catch (error) {
+      toast({
+        title: "Upload failed",
+        description: "Unable to upload attachments.",
+        variant: "destructive",
+      });
+    } finally {
+      setUploading((prev) => ({ ...prev, [kind]: false }));
+    }
+  };
+
+  const handleRemoveAttachment = async (kind: "shipping" | "packing", id: string) => {
+    if (!inspection) return;
+    const updated =
+      kind === "shipping"
+        ? shippingDocs.filter((doc) => doc.id !== id)
+        : packingListDocs.filter((doc) => doc.id !== id);
+    const nextShippingDocs = kind === "shipping" ? updated : shippingDocs;
+    const nextPackingDocs = kind === "packing" ? updated : packingListDocs;
+    if (kind === "shipping") {
+      setShippingDocs(updated);
+    } else {
+      setPackingListDocs(updated);
+    }
+    try {
+      await updateDoc(doc(db, COLLECTIONS.GOODS_RECEIVED, inspection.id), {
+        attachments: {
+          shippingDocs: nextShippingDocs,
+          packingList: nextPackingDocs,
+        },
+        updatedAt: Timestamp.now(),
+      });
+    } catch (error) {
+      toast({
+        title: "Update failed",
+        description: "Unable to update attachments.",
+        variant: "destructive",
+      });
+    }
   };
 
   const handleAddItem = () => {
@@ -271,6 +364,10 @@ export default function GoodsReceivedDetailPage() {
         nonConformanceNotes: nonConformanceNotes.trim() || undefined,
         correctiveAction: nextCorrectiveAction,
         items,
+        attachments: {
+          shippingDocs,
+          packingList: packingListDocs,
+        },
         updatedAt: now,
         closedAt: updatedStatus === "closed" ? now : inspection.closedAt || undefined,
         closedBy:
@@ -544,6 +641,85 @@ export default function GoodsReceivedDetailPage() {
               ))}
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      <Card className="bg-card/50 backdrop-blur-lg border-border/20">
+        <CardHeader>
+          <CardTitle>Attachments</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="space-y-3">
+            <Label>Shipping Documents (optional)</Label>
+            <Input
+              type="file"
+              multiple
+              onChange={(e) => handleUploadAttachments("shipping", e.target.files)}
+              disabled={uploading.shipping}
+            />
+            {shippingDocs.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No shipping documents uploaded.</p>
+            ) : (
+              <div className="space-y-2">
+                {shippingDocs.map((doc) => (
+                  <div key={doc.id} className="flex items-center justify-between">
+                    <a
+                      href={doc.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-sm text-primary hover:underline"
+                    >
+                      {doc.name}
+                    </a>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleRemoveAttachment("shipping", doc.id)}
+                    >
+                      Remove
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-3">
+            <Label>Packing List (optional)</Label>
+            <Input
+              type="file"
+              multiple
+              onChange={(e) => handleUploadAttachments("packing", e.target.files)}
+              disabled={uploading.packing}
+            />
+            {packingListDocs.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No packing list uploaded.</p>
+            ) : (
+              <div className="space-y-2">
+                {packingListDocs.map((doc) => (
+                  <div key={doc.id} className="flex items-center justify-between">
+                    <a
+                      href={doc.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-sm text-primary hover:underline"
+                    >
+                      {doc.name}
+                    </a>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleRemoveAttachment("packing", doc.id)}
+                    >
+                      Remove
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </CardContent>
       </Card>
 

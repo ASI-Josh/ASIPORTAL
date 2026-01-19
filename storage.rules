@@ -41,5 +41,9 @@ service firebase.storage {
     match /inspections/{allPaths=**} {
       allow read, write: if isStaff();
     }
+
+    match /goods-received/{allPaths=**} {
+      allow read, write: if isStaff();
+    }
   }
 }
