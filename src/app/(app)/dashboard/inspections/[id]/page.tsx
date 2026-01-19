@@ -480,38 +480,29 @@ export default function InspectionDetailPage() {
     return map;
   }, [fleetVehicles]);
 
-  useEffect(() => {
-    if (!fleetVehicles.length) return;
+  const handleFleetLookup = () => {
     const regoKey = normalizeVehicleKey(newVehicle.registration);
     const fleetKey = normalizeVehicleKey(newVehicle.fleetAssetNumber);
     const match =
-      (regoKey && fleetByRegistration.get(regoKey)) ||
-      (fleetKey && fleetByAssetNumber.get(fleetKey));
-    if (!match) return;
-    setNewVehicle((prev) => {
-      const next = {
-        ...prev,
-        registration: match.registration || prev.registration,
-        vin: match.vin ?? prev.vin,
-        fleetAssetNumber: match.fleetAssetNumber ?? prev.fleetAssetNumber,
-        bodyManufacturer: match.bodyManufacturer ?? prev.bodyManufacturer,
-        year: match.year ? String(match.year) : prev.year,
-      };
-      const unchanged =
-        next.registration === prev.registration &&
-        next.vin === prev.vin &&
-        next.fleetAssetNumber === prev.fleetAssetNumber &&
-        next.bodyManufacturer === prev.bodyManufacturer &&
-        next.year === prev.year;
-      return unchanged ? prev : next;
-    });
-  }, [
-    fleetByAssetNumber,
-    fleetByRegistration,
-    fleetVehicles.length,
-    newVehicle.fleetAssetNumber,
-    newVehicle.registration,
-  ]);
+      (fleetKey && fleetByAssetNumber.get(fleetKey)) ||
+      (regoKey && fleetByRegistration.get(regoKey));
+    if (!match) {
+      toast({
+        title: "Vehicle not found",
+        description: "No fleet vehicle matched the registration or fleet number.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setNewVehicle((prev) => ({
+      ...prev,
+      registration: match.registration || prev.registration,
+      vin: match.vin ?? prev.vin,
+      fleetAssetNumber: match.fleetAssetNumber ?? prev.fleetAssetNumber,
+      bodyManufacturer: match.bodyManufacturer ?? prev.bodyManufacturer,
+      year: match.year ? String(match.year) : prev.year,
+    }));
+  };
 
   const totals = useMemo(() => {
     let totalCost = 0;
@@ -1639,6 +1630,15 @@ ASI Australia`;
                             setNewVehicle({ ...newVehicle, fleetAssetNumber: e.target.value })
                           }
                         />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={handleFleetLookup}
+                          disabled={!newVehicle.fleetAssetNumber && !newVehicle.registration}
+                        >
+                          Lookup fleet
+                        </Button>
                       </div>
                       <div className="space-y-2">
                         <Label>Body Manufacturer</Label>
