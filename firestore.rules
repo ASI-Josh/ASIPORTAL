@@ -126,6 +126,18 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    match /userInvites/{inviteId} {
+      allow read: if isAdmin();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /goodsReceivedInspections/{inspectionId} {
+      allow read: if isStaff();
+      allow create: if isStaff();
+      allow update: if isStaff();
+      allow delete: if isAdmin();
+    }
+
     match /analyticsDaily/{docId} {
       allow read: if isStaff();
       allow write: if false;

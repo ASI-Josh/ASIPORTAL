@@ -235,6 +235,15 @@ function collectContacts(row) {
     }
   }
 
+  if (row.Person4Email) {
+    contacts.push({
+      firstName: row.Person4FirstName || "Contact",
+      lastName: row.Person4LastName || "",
+      email: row.Person4Email.toLowerCase().trim(),
+      role: "primary",
+    });
+  }
+
   return contacts.filter((contact) => contact.email);
 }
 

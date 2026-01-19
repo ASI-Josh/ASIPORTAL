@@ -17,6 +17,7 @@ export const COLLECTIONS = {
   NOTIFICATIONS: "notifications",
   MAIL: "mail",
   USER_INVITES: "userInvites",
+  GOODS_RECEIVED: "goodsReceivedInspections",
   ANALYTICS_DAILY: "analyticsDaily",
   AI_INSIGHTS: "aiInsights",
   FLEET_VEHICLES: "fleetVehicles",

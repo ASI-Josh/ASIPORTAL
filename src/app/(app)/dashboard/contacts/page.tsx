@@ -71,6 +71,7 @@ import {
   CONTACT_CATEGORY_LABELS,
   MarketStream,
   OrganizationStatus,
+  UserInvite,
   UserRole,
 } from "@/lib/types";
 import { initialOrganizations, initialContacts } from "@/lib/contacts-data";
@@ -136,6 +137,7 @@ export default function ContactsPage() {
   const [activeTab, setActiveTab] = useState<ContactCategory>("trade_client");
   const [organizations, setOrganizations] = useState<ContactOrganization[]>([]);
   const [contacts, setContacts] = useState<OrganizationContact[]>([]);
+  const [invites, setInvites] = useState<UserInvite[]>([]);
   const [hasLoaded, setHasLoaded] = useState(false);
   const [hasLoadedContacts, setHasLoadedContacts] = useState(false);
   const [hasSeeded, setHasSeeded] = useState(false);
@@ -147,6 +149,11 @@ export default function ContactsPage() {
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
   const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
   const [inviteLoading, setInviteLoading] = useState(false);
+  const [bulkDialogOpen, setBulkDialogOpen] = useState(false);
+  const [bulkFile, setBulkFile] = useState<File | null>(null);
+  const [bulkPreview, setBulkPreview] = useState<string[]>([]);
+  const [bulkImporting, setBulkImporting] = useState(false);
+  const [bulkSendEmails, setBulkSendEmails] = useState(true);
 
   const [orgForm, setOrgForm] = useState<OrganizationFormData>(initialOrgForm);
   const [contactForm, setContactForm] = useState<ContactFormData>(initialContactForm);
@@ -170,6 +177,14 @@ export default function ContactsPage() {
         })),
     [organizations]
   );
+
+  const formatDate = (value?: Timestamp) => {
+    if (!value) return "-";
+    const date = value.toDate ? value.toDate() : new Date(value as unknown as string);
+    return Number.isNaN(date.getTime())
+      ? "-"
+      : date.toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" });
+  };
 
   useEffect(() => {
     const orgQuery = query(collection(db, COLLECTIONS.CONTACT_ORGANIZATIONS), orderBy("name"));
@@ -201,6 +216,25 @@ export default function ContactsPage() {
       unsubscribeContacts();
     };
   }, []);
+
+  useEffect(() => {
+    if (!isAdmin) {
+      setInvites([]);
+      return;
+    }
+    const invitesQuery = query(
+      collection(db, COLLECTIONS.USER_INVITES),
+      orderBy("createdAt", "desc")
+    );
+    const unsubscribe = onSnapshot(invitesQuery, (snapshot) => {
+      const loaded = snapshot.docs.map((docSnap) => ({
+        id: docSnap.id,
+        ...(docSnap.data() as Omit<UserInvite, "id">),
+      }));
+      setInvites(loaded);
+    });
+    return () => unsubscribe();
+  }, [isAdmin]);
 
   useEffect(() => {
     if (!hasLoaded || !hasLoadedContacts || hasSeeded) return;
@@ -507,6 +541,91 @@ export default function ContactsPage() {
     }
   };
 
+  const parsePreviewLines = async (file: File) => {
+    const content = await file.text();
+    const lines = content.split(/\r?\n/).filter(Boolean);
+    if (lines.length <= 1) return [];
+    const delimiter = content.includes("\t") ? "\t" : ",";
+    const headers = lines[0].split(delimiter).map((header) => header.trim());
+    const previewLines = lines.slice(1, 6).map((line) => {
+      const cells = line.split(delimiter);
+      const row: Record<string, string> = {};
+      headers.forEach((header, index) => {
+        row[header] = (cells[index] || "").trim();
+      });
+      const name = row.ContactName || row.contactname || "Unknown org";
+      const email =
+        row.EmailAddress ||
+        row.Person1Email ||
+        row.Person2Email ||
+        row.Person3Email ||
+        row.Person4Email ||
+        "No email";
+      return `${name} - ${email}`;
+    });
+    return previewLines;
+  };
+
+  const handleBulkFileSelect = async (file: File | null) => {
+    setBulkFile(file);
+    setBulkPreview([]);
+    if (!file) return;
+    try {
+      const preview = await parsePreviewLines(file);
+      setBulkPreview(preview);
+    } catch (error) {
+      console.warn("Failed to parse bulk preview:", error);
+    }
+  };
+
+  const handleBulkImport = async () => {
+    if (!firebaseUser || !bulkFile) {
+      toast({
+        title: "Missing file",
+        description: "Choose a CSV or TSV file to import.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setBulkImporting(true);
+    try {
+      const token = await firebaseUser.getIdToken();
+      const formData = new FormData();
+      formData.append("file", bulkFile);
+      formData.append("sendEmails", bulkSendEmails ? "true" : "false");
+
+      const response = await fetch("/api/admin/import-invites", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const payload = (await response.json()) as { error?: string };
+        throw new Error(payload.error || "Bulk import failed.");
+      }
+
+      toast({
+        title: "Import complete",
+        description: "Bulk invites have been queued successfully.",
+      });
+      setBulkDialogOpen(false);
+      setBulkFile(null);
+      setBulkPreview([]);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Bulk import failed.";
+      toast({
+        title: "Import failed",
+        description: message,
+        variant: "destructive",
+      });
+    } finally {
+      setBulkImporting(false);
+    }
+  };
+
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
@@ -520,10 +639,16 @@ export default function ContactsPage() {
         </div>
         <div className="flex items-center gap-3">
           {isAdmin && (
-            <Button variant="outline" onClick={() => setInviteDialogOpen(true)}>
-              <Mail className="mr-2 h-4 w-4" />
-              Invite User
-            </Button>
+            <>
+              <Button variant="outline" onClick={() => setInviteDialogOpen(true)}>
+                <Mail className="mr-2 h-4 w-4" />
+                Invite User
+              </Button>
+              <Button variant="outline" onClick={() => setBulkDialogOpen(true)}>
+                <Plus className="mr-2 h-4 w-4" />
+                Bulk Import
+              </Button>
+            </>
           )}
           <Button onClick={() => handleOpenOrgDialog()}>
             <Plus className="mr-2 h-4 w-4" />
@@ -531,6 +656,50 @@ export default function ContactsPage() {
           </Button>
         </div>
       </div>
+
+      {isAdmin && (
+        <Card className="bg-card/50 backdrop-blur-lg border-border/20">
+          <CardHeader>
+            <CardTitle className="text-lg">User Invites</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {invites.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No invites yet. Use Invite User or Bulk Import to add users.
+              </p>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Email</TableHead>
+                    <TableHead>Role</TableHead>
+                    <TableHead>Organisation</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Invited</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {invites.map((invite) => (
+                    <TableRow key={invite.id}>
+                      <TableCell className="font-medium">{invite.email}</TableCell>
+                      <TableCell className="capitalize">{invite.role}</TableCell>
+                      <TableCell>{invite.organizationName || "-"}</TableCell>
+                      <TableCell>
+                        <Badge
+                          variant={invite.status === "accepted" ? "default" : "secondary"}
+                        >
+                          {invite.status.replace("_", " ")}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>{formatDate(invite.createdAt)}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <Card className="bg-card/50 backdrop-blur-lg border-border/20">
         <CardHeader className="pb-4">
@@ -1142,6 +1311,57 @@ export default function ContactsPage() {
             </Button>
             <Button onClick={handleSendInvite} disabled={inviteLoading}>
               {inviteLoading ? "Sending..." : "Send Invite"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk Import Dialog */}
+      <Dialog open={bulkDialogOpen} onOpenChange={setBulkDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Bulk Import Invites</DialogTitle>
+            <DialogDescription>
+              Upload a CSV or TSV to create organisations, contacts, and invites.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="bulk-file">CSV/TSV File</Label>
+              <Input
+                id="bulk-file"
+                type="file"
+                accept=".csv,.tsv,text/csv,text/tab-separated-values"
+                onChange={(e) => handleBulkFileSelect(e.target.files?.[0] || null)}
+              />
+              {bulkPreview.length > 0 && (
+                <div className="text-xs text-muted-foreground">
+                  <p className="font-medium text-foreground">Preview</p>
+                  <ul className="mt-1 list-disc pl-4">
+                    {bulkPreview.map((line) => (
+                      <li key={line}>{line}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="bulk-send"
+                checked={bulkSendEmails}
+                onCheckedChange={(checked) => setBulkSendEmails(checked === true)}
+              />
+              <Label htmlFor="bulk-send" className="text-sm font-normal">
+                Send invite emails after import
+              </Label>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBulkDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleBulkImport} disabled={bulkImporting || !bulkFile}>
+              {bulkImporting ? "Importing..." : "Start Import"}
             </Button>
           </DialogFooter>
         </DialogContent>

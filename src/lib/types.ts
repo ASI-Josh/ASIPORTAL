@@ -20,6 +20,22 @@ export interface User {
   updatedAt: Timestamp;
 }
 
+export interface UserInvite {
+  id: string;
+  email: string;
+  name?: string;
+  role: UserRole;
+  organizationId?: string;
+  organizationName?: string;
+  contactId?: string;
+  invitedBy?: string;
+  status: "pending" | "accepted" | "revoked";
+  createdAt?: Timestamp;
+  updatedAt?: Timestamp;
+  acceptedAt?: Timestamp;
+  userId?: string;
+}
+
 // ============================================
 // JOB LIFECYCLE MANAGEMENT (JLM)
 // ============================================
@@ -374,6 +390,60 @@ export interface Inspection {
   findings?: string;
   reportSummary?: string;
   reportSummaryUpdatedAt?: Timestamp;
+}
+
+// ============================================
+// GOODS RECEIVED (ISO 9001 QA)
+// ============================================
+
+export type GoodsInspectionStatus = "draft" | "submitted" | "closed";
+export type GoodsDecision = "accepted" | "rejected" | "conditional";
+export type GoodsConformance = "conforming" | "non_conforming";
+export type CorrectiveActionStatus = "open" | "in_progress" | "closed";
+
+export interface GoodsReceivedItem {
+  id: string;
+  description: string;
+  quantity: number;
+  unit?: string;
+  batchNumber?: string;
+  conformance: GoodsConformance;
+  notes?: string;
+}
+
+export interface CorrectiveAction {
+  required: boolean;
+  description?: string;
+  assignedTo?: string;
+  dueDate?: Timestamp;
+  status?: CorrectiveActionStatus;
+  closureNotes?: string;
+  closedAt?: Timestamp;
+  closedBy?: string;
+}
+
+export interface GoodsReceivedInspection {
+  id: string;
+  poNumber: string;
+  supplierName: string;
+  supplierId?: string;
+  category?: string;
+  receivedDate?: Timestamp;
+  receivedBy?: {
+    id: string;
+    name: string;
+    email?: string;
+  };
+  status: GoodsInspectionStatus;
+  decision?: GoodsDecision;
+  nonConformanceNotes?: string;
+  correctiveAction?: CorrectiveAction;
+  items: GoodsReceivedItem[];
+  createdAt: Timestamp;
+  createdBy: string;
+  updatedAt: Timestamp;
+  closedAt?: Timestamp;
+  closedBy?: string;
 }
 
 // ============================================
