@@ -58,6 +58,19 @@ const CA_STATUS_OPTIONS: Array<NonNullable<CorrectiveAction["status"]>> = [
   "closed",
 ];
 
+const pruneUndefined = (value: unknown): unknown => {
+  if (Array.isArray(value)) {
+    return value.map(pruneUndefined);
+  }
+  if (!value || typeof value !== "object") return value;
+  const record = value as Record<string, unknown>;
+  return Object.fromEntries(
+    Object.entries(record)
+      .filter(([, val]) => val !== undefined)
+      .map(([key, val]) => [key, pruneUndefined(val)])
+  );
+};
+
 export default function GoodsReceivedDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -354,7 +367,7 @@ export default function GoodsReceivedDetailPage() {
 
     setSaving(true);
     try {
-      await updateDoc(doc(db, COLLECTIONS.GOODS_RECEIVED, inspection.id), {
+      const payload = pruneUndefined({
         poNumber: poNumber.trim(),
         supplierName: supplierName.trim(),
         category: category || undefined,
@@ -379,16 +392,22 @@ export default function GoodsReceivedDetailPage() {
           name: user?.name || "User",
           email: user?.email,
         },
-      });
+      }) as Record<string, unknown>;
+
+      await updateDoc(
+        doc(db, COLLECTIONS.GOODS_RECEIVED, inspection.id),
+        payload as Record<string, any>
+      );
       setStatus(updatedStatus);
       toast({
         title: "Inspection saved",
         description: updatedStatus === "closed" ? "Inspection closed." : "Changes saved.",
       });
     } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to save this inspection.";
       toast({
         title: "Save failed",
-        description: "Unable to save this inspection.",
+        description: message,
         variant: "destructive",
       });
     } finally {
