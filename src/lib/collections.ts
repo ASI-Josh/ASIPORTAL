@@ -16,6 +16,7 @@ export const COLLECTIONS = {
   WORKS_REGISTER: "worksRegister",
   NOTIFICATIONS: "notifications",
   MAIL: "mail",
+  USER_INVITES: "userInvites",
   ANALYTICS_DAILY: "analyticsDaily",
   AI_INSIGHTS: "aiInsights",
   FLEET_VEHICLES: "fleetVehicles",

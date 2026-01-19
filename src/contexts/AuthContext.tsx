@@ -5,7 +5,6 @@ import {
   User as FirebaseUser,
   onAuthStateChanged,
   signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
   signOut as firebaseSignOut,
   updateProfile,
   GoogleAuthProvider,
@@ -26,7 +25,7 @@ import {
 import { auth, db } from "@/lib/firebaseClient";
 import { User, UserRole } from "@/lib/types";
 import { determineUserRole } from "@/lib/auth";
-import { COLLECTIONS, addDocument, createDocument, getOrganizationByDomain } from "@/lib/firestore";
+import { COLLECTIONS, addDocument, getOrganizationByDomain } from "@/lib/firestore";
 import { Timestamp } from "firebase/firestore";
 
 interface AuthContextType {
@@ -71,6 +70,8 @@ const PUBLIC_EMAIL_DOMAINS = new Set([
 ]);
 
 const ASI_DOMAIN = "asi-australia.com.au";
+const REQUEST_ACCESS_MESSAGE =
+  "Access is by invitation only. Email support@asi-australia.com.au to request access.";
 
 function getEmailDomain(email: string) {
   const parts = email.toLowerCase().trim().split("@");
@@ -268,52 +269,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               }
             }
           } else {
-            const resolvedRole = determineUserRole(email, "client");
-            let organizationId: string | undefined;
-            let organizationName: string | undefined;
-            let contactId: string | undefined;
-
-            if (isStaffRole(resolvedRole)) {
-              const asiOrg = await ensureAsiOrganization();
-              organizationId = asiOrg.id;
-              organizationName = asiOrg.name;
-              contactId = await ensureStaffContact({
-                userId: firebaseUser.uid,
-                email,
-                name: firebaseUser.displayName || "User",
-                phone: undefined,
-                role: resolvedRole,
-                organizationId: asiOrg.id,
-              });
-            } else {
-              const emailDomain = getEmailDomain(email);
-              const isPublicDomain = PUBLIC_EMAIL_DOMAINS.has(emailDomain);
-              if (emailDomain && !isPublicDomain) {
-                const existingOrg = await getOrganizationByDomain(emailDomain);
-                if (existingOrg) {
-                  organizationId = existingOrg.id;
-                  organizationName = existingOrg.name;
-                }
-              }
-            }
-
-            const basicUser: User = {
-              uid: firebaseUser.uid,
-              email: firebaseUser.email!,
-              name: firebaseUser.displayName || "User",
-              role: resolvedRole,
-              organizationId,
-              organizationName,
-              contactId,
-              createdAt: Timestamp.now(),
-              updatedAt: Timestamp.now(),
-            };
-            setUser(basicUser);
             try {
-              await createDocument(COLLECTIONS.USERS, firebaseUser.uid, basicUser);
-            } catch (createError) {
-              console.warn("Failed to create user in Firestore:", createError);
+              const token = await firebaseUser.getIdToken();
+              const response = await fetch("/api/auth/accept-invite", {
+                method: "POST",
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                },
+              });
+              if (response.ok) {
+                const data = (await response.json()) as { user: User };
+                setUser(data.user);
+                setFirebaseUser(firebaseUser);
+                setLoading(false);
+                return;
+              }
+            } catch (inviteError) {
+              console.warn("Invite acceptance failed:", inviteError);
             }
+
+            if (typeof window !== "undefined") {
+              sessionStorage.setItem("authError", REQUEST_ACCESS_MESSAGE);
+            }
+            try {
+              await firebaseUser.delete();
+            } catch (deleteError) {
+              console.warn("Failed to delete unapproved account:", deleteError);
+            }
+            await firebaseSignOut(auth);
+            setUser(null);
+            setFirebaseUser(null);
+            setLoading(false);
+            return;
           }
         } catch (error) {
           console.warn("Failed to fetch user doc, using basic user info:", error);
@@ -406,118 +393,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signUp = async (data: SignUpData) => {
-    const { email, password, name, phone, role, organization } = data;
-    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-    const firebaseUser = userCredential.user;
-
-    await updateProfile(firebaseUser, { displayName: name });
-
-    const emailDomain = getEmailDomain(email);
-    const isPublicDomain = PUBLIC_EMAIL_DOMAINS.has(emailDomain);
-    const resolvedRole = determineUserRole(email, role);
-
-    let organizationId: string | undefined;
-    let organizationName: string | undefined;
-    let contactId: string | undefined;
-    let finalRole: UserRole = resolvedRole;
-
-    if (resolvedRole === "admin" || resolvedRole === "technician") {
-      const asiOrg = await ensureAsiOrganization();
-      organizationId = asiOrg.id;
-      organizationName = asiOrg.name;
-    } else if (emailDomain && !isPublicDomain) {
-      const existingOrg = await getOrganizationByDomain(emailDomain);
-      if (existingOrg) {
-        organizationId = existingOrg.id as string;
-        organizationName = existingOrg.name as string;
-        if (existingOrg.portalRole) {
-          finalRole = existingOrg.portalRole as UserRole;
-        }
-      }
-    }
-
-    if (!organizationId) {
-      const createdOrgId = await addDocument(COLLECTIONS.CONTACT_ORGANIZATIONS, {
-        name: organization.name,
-        category: role === "contractor" ? "supplier_vendor" : "trade_client",
-        type: role === "contractor" ? "supplier" : "customer",
-        status: "active",
-        abn: organization.abn || "",
-        phone: organization.phone || "",
-        email,
-        domains: emailDomain && !isPublicDomain ? [emailDomain] : [],
-        portalRole: role,
-        address: organization.street
-          ? {
-              street: organization.street,
-              suburb: organization.suburb || "",
-              state: organization.state || "NSW",
-              postcode: organization.postcode || "",
-              country: "Australia",
-            }
-          : undefined,
-        sites: organization.street
-          ? [
-              {
-                id: `site-${Date.now()}`,
-                name: "Main Location",
-                address: {
-                  street: organization.street,
-                  suburb: organization.suburb || "",
-                  state: organization.state || "NSW",
-                  postcode: organization.postcode || "",
-                  country: "Australia",
-                },
-                isDefault: true,
-              },
-            ]
-          : [],
-      });
-      organizationId = createdOrgId;
-      organizationName = organization.name;
-    }
-
-    const { firstName, lastName } = splitName(name);
-    const existingContactsSnapshot = await getDocs(
-      query(
-        collection(db, COLLECTIONS.ORGANIZATION_CONTACTS),
-        where("organizationId", "==", organizationId),
-        limit(1)
-      )
-    );
-    const isPrimary = existingContactsSnapshot.empty;
-
-    contactId = await addDocument(COLLECTIONS.ORGANIZATION_CONTACTS, {
-      organizationId,
-      firstName,
-      lastName,
-      email,
-      phone: phone || organization.phone || "",
-      mobile: phone || organization.phone || "",
-      role: "primary",
-      jobTitle: "",
-      status: "active",
-      isPrimary,
-      hasPortalAccess: true,
-      portalUserId: firebaseUser.uid,
-    });
-
-    const newUser: User = {
-      uid: firebaseUser.uid,
-      email: firebaseUser.email!,
-      role: finalRole,
-      name,
-      phone,
-      organizationId,
-      organizationName,
-      contactId,
-      createdAt: Timestamp.now(),
-      updatedAt: Timestamp.now(),
-    };
-
-    await createDocument(COLLECTIONS.USERS, firebaseUser.uid, newUser);
-
-    setUser(newUser);
+    throw new Error(REQUEST_ACCESS_MESSAGE);
   };
 
   const signOut = async () => {

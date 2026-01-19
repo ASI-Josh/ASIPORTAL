@@ -49,6 +49,18 @@ export default function HomePage() {
     }
   }, []);
 
+  useEffect(() => {
+    const message = sessionStorage.getItem("authError");
+    if (message) {
+      toast({
+        title: "Access required",
+        description: message,
+        variant: "destructive",
+      });
+      sessionStorage.removeItem("authError");
+    }
+  }, [toast]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -290,13 +302,17 @@ export default function HomePage() {
 
           <div className="mt-6 text-center">
             <p className="text-sm text-muted-foreground">
-              Don&apos;t have an account?{" "}
+              Need access? Email{" "}
               <Link
-                href="/signup"
+                href="mailto:support@asi-australia.com.au"
                 className="text-primary hover:text-primary/80 transition-colors font-medium"
               >
-                Sign up
+                support@asi-australia.com.au
               </Link>
+              .
+            </p>
+            <p className="text-xs text-muted-foreground mt-2">
+              Accounts are provisioned by ASI administrators.
             </p>
           </div>
         </div>

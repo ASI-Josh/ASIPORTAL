@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Timestamp,
   collection,
@@ -62,6 +62,8 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
+import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   ContactOrganization,
   OrganizationContact,
@@ -69,6 +71,7 @@ import {
   CONTACT_CATEGORY_LABELS,
   MarketStream,
   OrganizationStatus,
+  UserRole,
 } from "@/lib/types";
 import { initialOrganizations, initialContacts } from "@/lib/contacts-data";
 import { COLLECTIONS, addDocument, createDocument } from "@/lib/firestore";
@@ -127,6 +130,8 @@ const initialContactForm: ContactFormData = {
 };
 
 export default function ContactsPage() {
+  const { user, firebaseUser } = useAuth();
+  const { toast } = useToast();
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState<ContactCategory>("trade_client");
   const [organizations, setOrganizations] = useState<ContactOrganization[]>([]);
@@ -140,9 +145,31 @@ export default function ContactsPage() {
   const [editingOrg, setEditingOrg] = useState<ContactOrganization | null>(null);
   const [editingContact, setEditingContact] = useState<OrganizationContact | null>(null);
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
+  const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
+  const [inviteLoading, setInviteLoading] = useState(false);
 
   const [orgForm, setOrgForm] = useState<OrganizationFormData>(initialOrgForm);
   const [contactForm, setContactForm] = useState<ContactFormData>(initialContactForm);
+  const [inviteForm, setInviteForm] = useState({
+    firstName: "",
+    lastName: "",
+    email: "",
+    role: "client" as UserRole,
+    organizationId: "",
+  });
+
+  const isAdmin = user?.role === "admin";
+  const organizationOptions = useMemo(
+    () =>
+      organizations
+        .slice()
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map((org) => ({
+          id: org.id,
+          name: org.name,
+        })),
+    [organizations]
+  );
 
   useEffect(() => {
     const orgQuery = query(collection(db, COLLECTIONS.CONTACT_ORGANIZATIONS), orderBy("name"));
@@ -401,6 +428,85 @@ export default function ContactsPage() {
     await deleteDoc(doc(db, COLLECTIONS.ORGANIZATION_CONTACTS, contactId));
   };
 
+  const handleSendInvite = async () => {
+    if (!firebaseUser) {
+      toast({
+        title: "Not signed in",
+        description: "Please sign in again and retry.",
+        variant: "destructive",
+      });
+      return;
+    }
+    const email = inviteForm.email.trim().toLowerCase();
+    if (!email) {
+      toast({
+        title: "Missing email",
+        description: "Enter an email address to send an invite.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (
+      (inviteForm.role === "client" || inviteForm.role === "contractor") &&
+      !inviteForm.organizationId
+    ) {
+      toast({
+        title: "Missing organisation",
+        description: "Select an organisation for this invite.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setInviteLoading(true);
+    try {
+      const token = await firebaseUser.getIdToken();
+      const response = await fetch("/api/admin/invite-user", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email,
+          firstName: inviteForm.firstName.trim() || undefined,
+          lastName: inviteForm.lastName.trim() || undefined,
+          role: inviteForm.role,
+          organizationId:
+            inviteForm.role === "client" || inviteForm.role === "contractor"
+              ? inviteForm.organizationId
+              : undefined,
+        }),
+      });
+
+      if (!response.ok) {
+        const payload = (await response.json()) as { error?: string };
+        throw new Error(payload.error || "Failed to send invite.");
+      }
+
+      toast({
+        title: "Invite sent",
+        description: `Invitation sent to ${email}.`,
+      });
+      setInviteDialogOpen(false);
+      setInviteForm({
+        firstName: "",
+        lastName: "",
+        email: "",
+        role: "client",
+        organizationId: "",
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to send invite.";
+      toast({
+        title: "Invite failed",
+        description: message,
+        variant: "destructive",
+      });
+    } finally {
+      setInviteLoading(false);
+    }
+  };
+
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
@@ -412,10 +518,18 @@ export default function ContactsPage() {
             Manage organisations and contacts by category.
           </p>
         </div>
-        <Button onClick={() => handleOpenOrgDialog()}>
-          <Plus className="mr-2 h-4 w-4" />
-          Add Organization
-        </Button>
+        <div className="flex items-center gap-3">
+          {isAdmin && (
+            <Button variant="outline" onClick={() => setInviteDialogOpen(true)}>
+              <Mail className="mr-2 h-4 w-4" />
+              Invite User
+            </Button>
+          )}
+          <Button onClick={() => handleOpenOrgDialog()}>
+            <Plus className="mr-2 h-4 w-4" />
+            Add Organization
+          </Button>
+        </div>
       </div>
 
       <Card className="bg-card/50 backdrop-blur-lg border-border/20">
@@ -929,6 +1043,105 @@ export default function ContactsPage() {
               disabled={!contactForm.firstName || !contactForm.lastName || !contactForm.email}
             >
               {editingContact ? "Save Changes" : "Add Contact"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Invite User Dialog */}
+      <Dialog open={inviteDialogOpen} onOpenChange={setInviteDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Create User & Send Invite</DialogTitle>
+            <DialogDescription>
+              Invite a user to sign in. Accounts are provisioned by admins only.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="grid gap-2">
+                <Label htmlFor="invite-first">First Name</Label>
+                <Input
+                  id="invite-first"
+                  value={inviteForm.firstName}
+                  onChange={(e) =>
+                    setInviteForm({ ...inviteForm, firstName: e.target.value })
+                  }
+                  placeholder="First name"
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="invite-last">Last Name</Label>
+                <Input
+                  id="invite-last"
+                  value={inviteForm.lastName}
+                  onChange={(e) =>
+                    setInviteForm({ ...inviteForm, lastName: e.target.value })
+                  }
+                  placeholder="Last name"
+                />
+              </div>
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="invite-email">Email</Label>
+              <Input
+                id="invite-email"
+                type="email"
+                value={inviteForm.email}
+                onChange={(e) =>
+                  setInviteForm({ ...inviteForm, email: e.target.value })
+                }
+                placeholder="user@company.com"
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="invite-role">Portal Role</Label>
+              <Select
+                value={inviteForm.role}
+                onValueChange={(value) =>
+                  setInviteForm({ ...inviteForm, role: value as UserRole })
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="client">Client</SelectItem>
+                  <SelectItem value="contractor">Contractor</SelectItem>
+                  <SelectItem value="technician">Technician</SelectItem>
+                  <SelectItem value="admin">Admin</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {(inviteForm.role === "client" || inviteForm.role === "contractor") && (
+              <div className="grid gap-2">
+                <Label htmlFor="invite-org">Organisation</Label>
+                <Select
+                  value={inviteForm.organizationId}
+                  onValueChange={(value) =>
+                    setInviteForm({ ...inviteForm, organizationId: value })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select organisation" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {organizationOptions.map((org) => (
+                      <SelectItem key={org.id} value={org.id}>
+                        {org.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setInviteDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleSendInvite} disabled={inviteLoading}>
+              {inviteLoading ? "Sending..." : "Send Invite"}
             </Button>
           </DialogFooter>
         </DialogContent>
