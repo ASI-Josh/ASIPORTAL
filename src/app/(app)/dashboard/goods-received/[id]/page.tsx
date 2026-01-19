@@ -333,29 +333,32 @@ export default function GoodsReceivedDetailPage() {
       });
       return;
     }
-    if (!poNumber.trim()) {
-      toast({
-        title: "Missing PO number",
-        description: "ASI Purchase Order Number is required.",
-        variant: "destructive",
-      });
-      return;
-    }
-    if (!supplierName.trim()) {
-      toast({
-        title: "Missing supplier",
-        description: "Supplier name is required.",
-        variant: "destructive",
-      });
-      return;
-    }
-    if (items.length === 0) {
-      toast({
-        title: "Add items",
-        description: "Log at least one received item before saving.",
-        variant: "destructive",
-      });
-      return;
+    const requireValidation = Boolean(overrideStatus);
+    if (requireValidation) {
+      if (!poNumber.trim()) {
+        toast({
+          title: "Missing PO number",
+          description: "ASI Purchase Order Number is required.",
+          variant: "destructive",
+        });
+        return;
+      }
+      if (!supplierName.trim()) {
+        toast({
+          title: "Missing supplier",
+          description: "Supplier name is required.",
+          variant: "destructive",
+        });
+        return;
+      }
+      if (items.length === 0) {
+        toast({
+          title: "Add items",
+          description: "Log at least one received item before saving.",
+          variant: "destructive",
+        });
+        return;
+      }
     }
 
     const updatedStatus = overrideStatus || status;
