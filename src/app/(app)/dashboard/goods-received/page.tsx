@@ -11,6 +11,7 @@ import {
   onSnapshot,
   orderBy,
   query,
+  where,
 } from "firebase/firestore";
 import { ClipboardCheck, Plus, Trash2 } from "lucide-react";
 
@@ -39,7 +40,11 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { db } from "@/lib/firebaseClient";
 import { COLLECTIONS } from "@/lib/collections";
-import type { GoodsReceivedInspection, GoodsInspectionStatus } from "@/lib/types";
+import type {
+  ContactOrganization,
+  GoodsReceivedInspection,
+  GoodsInspectionStatus,
+} from "@/lib/types";
 
 const STATUS_LABELS: Record<GoodsInspectionStatus, string> = {
   draft: "Draft",
@@ -65,6 +70,7 @@ export default function GoodsReceivedPage() {
   const { user } = useAuth();
   const { toast } = useToast();
   const [inspections, setInspections] = useState<GoodsReceivedInspection[]>([]);
+  const [suppliers, setSuppliers] = useState<ContactOrganization[]>([]);
   const [showNewDialog, setShowNewDialog] = useState(false);
   const [creating, setCreating] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -74,7 +80,7 @@ export default function GoodsReceivedPage() {
   const [deleting, setDeleting] = useState(false);
   const [newInspection, setNewInspection] = useState({
     poNumber: "",
-    supplierName: "",
+    supplierId: "",
     category: CATEGORY_OPTIONS[0],
   });
 
@@ -89,6 +95,23 @@ export default function GoodsReceivedPage() {
         ...(docSnap.data() as Omit<GoodsReceivedInspection, "id">),
       }));
       setInspections(loaded);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    const suppliersQuery = query(
+      collection(db, COLLECTIONS.CONTACT_ORGANIZATIONS),
+      where("category", "==", "supplier_vendor")
+    );
+    const unsubscribe = onSnapshot(suppliersQuery, (snapshot) => {
+      const loaded = snapshot.docs
+        .map((docSnap) => ({
+          id: docSnap.id,
+          ...(docSnap.data() as Omit<ContactOrganization, "id">),
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      setSuppliers(loaded);
     });
     return () => unsubscribe();
   }, []);
@@ -111,10 +134,10 @@ export default function GoodsReceivedPage() {
       });
       return;
     }
-    if (!newInspection.supplierName.trim()) {
+    if (!newInspection.supplierId) {
       toast({
         title: "Missing supplier",
-        description: "Enter the supplier name to continue.",
+        description: "Select a supplier to continue.",
         variant: "destructive",
       });
       return;
@@ -122,9 +145,19 @@ export default function GoodsReceivedPage() {
     setCreating(true);
     try {
       const now = Timestamp.now();
+      const supplier = suppliers.find((item) => item.id === newInspection.supplierId);
+      if (!supplier) {
+        toast({
+          title: "Supplier not found",
+          description: "Select a valid supplier before saving.",
+          variant: "destructive",
+        });
+        return;
+      }
       const docRef = await addDoc(collection(db, COLLECTIONS.GOODS_RECEIVED), {
         poNumber: newInspection.poNumber.trim(),
-        supplierName: newInspection.supplierName.trim(),
+        supplierId: newInspection.supplierId,
+        supplierName: supplier.name,
         category: newInspection.category,
         status: "draft",
         items: [],
@@ -140,7 +173,7 @@ export default function GoodsReceivedPage() {
       setShowNewDialog(false);
       setNewInspection({
         poNumber: "",
-        supplierName: "",
+        supplierId: "",
         category: CATEGORY_OPTIONS[0],
       });
       router.push(`/dashboard/goods-received/${docRef.id}`);
@@ -299,16 +332,34 @@ export default function GoodsReceivedPage() {
                 placeholder="PO-12345"
               />
             </div>
-            <div className="grid gap-2">
-              <Label htmlFor="supplier-name">Supplier</Label>
-              <Input
-                id="supplier-name"
-                value={newInspection.supplierName}
-                onChange={(e) =>
-                  setNewInspection({ ...newInspection, supplierName: e.target.value })
+          <div className="grid gap-2">
+              <Label>Supplier</Label>
+              <Select
+                value={newInspection.supplierId}
+                onValueChange={(value) =>
+                  setNewInspection({ ...newInspection, supplierId: value })
                 }
-                placeholder="Apeax Film"
-              />
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select supplier" />
+                </SelectTrigger>
+                <SelectContent>
+                  {suppliers.length === 0 ? (
+                    <SelectItem value="none" disabled>
+                      No suppliers available
+                    </SelectItem>
+                  ) : (
+                    suppliers.map((supplier) => (
+                      <SelectItem key={supplier.id} value={supplier.id}>
+                        {supplier.name}
+                      </SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Add suppliers in Contacts (Supplier/Vendor category).
+              </p>
             </div>
             <div className="grid gap-2">
               <Label>Procurement Category</Label>

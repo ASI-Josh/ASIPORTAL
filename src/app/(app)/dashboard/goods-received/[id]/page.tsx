@@ -4,9 +4,12 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   Timestamp,
+  collection,
   doc,
   onSnapshot,
+  query,
   updateDoc,
+  where,
 } from "firebase/firestore";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { ArrowLeft, CheckCircle, ClipboardCheck, Plus, Save } from "lucide-react";
@@ -29,6 +32,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { db, storage } from "@/lib/firebaseClient";
 import { COLLECTIONS } from "@/lib/collections";
 import type {
+  ContactOrganization,
   CorrectiveAction,
   FileAttachment,
   GoodsConformance,
@@ -79,11 +83,13 @@ export default function GoodsReceivedDetailPage() {
   const inspectionId = params.id as string;
 
   const [inspection, setInspection] = useState<GoodsReceivedInspection | null>(null);
+  const [suppliers, setSuppliers] = useState<ContactOrganization[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
   const [poNumber, setPoNumber] = useState("");
   const [supplierName, setSupplierName] = useState("");
+  const [supplierId, setSupplierId] = useState("");
   const [category, setCategory] = useState("");
   const [receivedDate, setReceivedDate] = useState("");
   const [status, setStatus] = useState<GoodsInspectionStatus>("draft");
@@ -131,9 +137,27 @@ export default function GoodsReceivedDetailPage() {
   }, [inspectionId]);
 
   useEffect(() => {
+    const suppliersQuery = query(
+      collection(db, COLLECTIONS.CONTACT_ORGANIZATIONS),
+      where("category", "==", "supplier_vendor")
+    );
+    const unsubscribe = onSnapshot(suppliersQuery, (snapshot) => {
+      const loaded = snapshot.docs
+        .map((docSnap) => ({
+          id: docSnap.id,
+          ...(docSnap.data() as Omit<ContactOrganization, "id">),
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      setSuppliers(loaded);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
     if (!inspection) return;
     setPoNumber(inspection.poNumber || "");
     setSupplierName(inspection.supplierName || "");
+    setSupplierId(inspection.supplierId || "");
     setCategory(inspection.category || "");
     setStatus(inspection.status);
     setDecision(inspection.decision || "");
@@ -150,6 +174,26 @@ export default function GoodsReceivedDetailPage() {
     const date = inspection.receivedDate?.toDate?.();
     setReceivedDate(date ? date.toISOString().split("T")[0] : "");
   }, [inspection]);
+
+  useEffect(() => {
+    if (!inspection || suppliers.length === 0) return;
+    if (!supplierId && supplierName) {
+      const match = suppliers.find(
+        (supplier) => supplier.name.toLowerCase() === supplierName.toLowerCase()
+      );
+      if (match) {
+        setSupplierId(match.id);
+      }
+    }
+  }, [inspection, supplierId, supplierName, suppliers]);
+
+  useEffect(() => {
+    if (!supplierId) return;
+    const supplier = suppliers.find((item) => item.id === supplierId);
+    if (supplier) {
+      setSupplierName(supplier.name);
+    }
+  }, [supplierId, suppliers]);
 
   const updateItem = (id: string, updates: Partial<GoodsReceivedItem>) => {
     setItems((prev) =>
@@ -343,10 +387,10 @@ export default function GoodsReceivedDetailPage() {
         });
         return;
       }
-      if (!supplierName.trim()) {
+      if (!supplierId) {
         toast({
           title: "Missing supplier",
-          description: "Supplier name is required.",
+          description: "Select a supplier before submitting.",
           variant: "destructive",
         });
         return;
@@ -378,9 +422,14 @@ export default function GoodsReceivedDetailPage() {
 
     setSaving(true);
     try {
+      const supplier = supplierId
+        ? suppliers.find((item) => item.id === supplierId)
+        : undefined;
+      const resolvedSupplierName = supplier?.name || supplierName || inspection.supplierName;
       const payload = pruneUndefined({
         poNumber: poNumber.trim(),
-        supplierName: supplierName.trim(),
+        supplierId: supplierId || inspection.supplierId,
+        supplierName: resolvedSupplierName?.trim(),
         category: category || undefined,
         receivedDate: receivedTimestamp || undefined,
         status: updatedStatus,
@@ -479,7 +528,27 @@ export default function GoodsReceivedDetailPage() {
           </div>
           <div className="grid gap-2">
             <Label>Supplier *</Label>
-            <Input value={supplierName} onChange={(e) => setSupplierName(e.target.value)} />
+            <Select value={supplierId} onValueChange={(val) => setSupplierId(val)}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select supplier" />
+              </SelectTrigger>
+              <SelectContent>
+                {suppliers.length === 0 ? (
+                  <SelectItem value="none" disabled>
+                    No suppliers available
+                  </SelectItem>
+                ) : (
+                  suppliers.map((supplier) => (
+                    <SelectItem key={supplier.id} value={supplier.id}>
+                      {supplier.name}
+                    </SelectItem>
+                  ))
+                )}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              Add suppliers in Contacts (Supplier/Vendor category).
+            </p>
           </div>
           <div className="grid gap-2">
             <Label>Procurement Category</Label>
