@@ -325,6 +325,14 @@ export default function GoodsReceivedDetailPage() {
 
   const handleSave = async (overrideStatus?: GoodsInspectionStatus) => {
     if (!inspection) return;
+    if (!user) {
+      toast({
+        title: "Not signed in",
+        description: "Please sign in again and retry.",
+        variant: "destructive",
+      });
+      return;
+    }
     if (!poNumber.trim()) {
       toast({
         title: "Missing PO number",
@@ -404,7 +412,13 @@ export default function GoodsReceivedDetailPage() {
         description: updatedStatus === "closed" ? "Inspection closed." : "Changes saved.",
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to save this inspection.";
+      console.error("Failed to save goods received inspection:", error);
+      const err = error as { message?: string; code?: string };
+      const message = err?.message
+        ? err.code
+          ? `${err.code}: ${err.message}`
+          : err.message
+        : "Unable to save this inspection.";
       toast({
         title: "Save failed",
         description: message,
