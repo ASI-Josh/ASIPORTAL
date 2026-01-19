@@ -149,6 +149,7 @@ export default function ContactsPage() {
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
   const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
   const [inviteLoading, setInviteLoading] = useState(false);
+  const [inviteResendId, setInviteResendId] = useState<string | null>(null);
   const [bulkDialogOpen, setBulkDialogOpen] = useState(false);
   const [bulkFile, setBulkFile] = useState<File | null>(null);
   const [bulkPreview, setBulkPreview] = useState<string[]>([]);
@@ -541,6 +542,48 @@ export default function ContactsPage() {
     }
   };
 
+  const handleResendInvite = async (invite: UserInvite) => {
+    if (!firebaseUser) {
+      toast({
+        title: "Not signed in",
+        description: "Please sign in again and retry.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setInviteResendId(invite.id);
+    try {
+      const token = await firebaseUser.getIdToken();
+      const response = await fetch("/api/admin/resend-invite", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ inviteId: invite.id }),
+      });
+
+      if (!response.ok) {
+        const payload = (await response.json()) as { error?: string };
+        throw new Error(payload.error || "Failed to resend invite.");
+      }
+
+      toast({
+        title: "Invite sent",
+        description: `Invitation emailed to ${invite.email}.`,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to resend invite.";
+      toast({
+        title: "Invite failed",
+        description: message,
+        variant: "destructive",
+      });
+    } finally {
+      setInviteResendId(null);
+    }
+  };
+
   const parsePreviewLines = async (file: File) => {
     const content = await file.text();
     const lines = content.split(/\r?\n/).filter(Boolean);
@@ -676,6 +719,7 @@ export default function ContactsPage() {
                     <TableHead>Organisation</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Invited</TableHead>
+                    <TableHead>Action</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -692,6 +736,20 @@ export default function ContactsPage() {
                         </Badge>
                       </TableCell>
                       <TableCell>{formatDate(invite.createdAt)}</TableCell>
+                      <TableCell>
+                        {invite.status === "pending" ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleResendInvite(invite)}
+                            disabled={inviteResendId === invite.id}
+                          >
+                            {inviteResendId === invite.id ? "Sending..." : "Send invite"}
+                          </Button>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">-</span>
+                        )}
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

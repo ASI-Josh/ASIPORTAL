@@ -10,7 +10,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useJobs } from "@/contexts/JobsContext";
 import { db } from "@/lib/firebaseClient";
 import { COLLECTIONS } from "@/lib/collections";
-import type { ContactOrganization, Inspection, Job } from "@/lib/types";
+import type { ContactOrganization, GoodsReceivedInspection, Inspection, Job } from "@/lib/types";
 import { calculateDashboardMetrics } from "@/lib/dashboard-analytics";
 
 type InsightPayload = {
@@ -49,6 +49,15 @@ function toLocalDateString(value?: string) {
   return date.toLocaleString("en-AU");
 }
 
+function formatShortDate(date?: Date | null) {
+  if (!date) return "-";
+  return date.toLocaleDateString("en-AU");
+}
+
+function toDateValue(value?: { toDate?: () => Date }) {
+  return value?.toDate?.() ?? null;
+}
+
 function isSameDay(a: Date, b: Date) {
   return (
     a.getFullYear() === b.getFullYear() &&
@@ -62,6 +71,7 @@ export default function DashboardPage() {
   const { jobs, worksRegister } = useJobs();
   const [inspections, setInspections] = useState<Inspection[]>([]);
   const [organizations, setOrganizations] = useState<ContactOrganization[]>([]);
+  const [goodsReceived, setGoodsReceived] = useState<GoodsReceivedInspection[]>([]);
   const [insightDoc, setInsightDoc] = useState<InsightPayload | null>(null);
   const [insightLoading, setInsightLoading] = useState(false);
   const [insightError, setInsightError] = useState<string | null>(null);
@@ -77,6 +87,10 @@ export default function DashboardPage() {
     const orgsQuery = query(
       collection(db, COLLECTIONS.CONTACT_ORGANIZATIONS),
       orderBy("name")
+    );
+    const goodsQuery = query(
+      collection(db, COLLECTIONS.GOODS_RECEIVED),
+      orderBy("createdAt", "desc")
     );
 
     const unsubscribeInspections = onSnapshot(
@@ -105,9 +119,23 @@ export default function DashboardPage() {
       () => setOrganizations([])
     );
 
+    const unsubscribeGoods = onSnapshot(
+      goodsQuery,
+      (snapshot) => {
+        setGoodsReceived(
+          snapshot.docs.map((docSnap) => ({
+            id: docSnap.id,
+            ...(docSnap.data() as Omit<GoodsReceivedInspection, "id">),
+          }))
+        );
+      },
+      () => setGoodsReceived([])
+    );
+
     return () => {
       unsubscribeInspections();
       unsubscribeOrgs();
+      unsubscribeGoods();
     };
   }, []);
 
@@ -132,6 +160,33 @@ export default function DashboardPage() {
         time: job.booking?.preferredTime || job.booking?.preferredTime || "Scheduled",
       }));
   }, [jobs]);
+
+  const goodsMetrics = useMemo(() => {
+    const now = new Date();
+    const pendingCount = goodsReceived.filter((item) => item.status === "submitted").length;
+    const draftCount = goodsReceived.filter((item) => item.status === "draft").length;
+
+    const upcoming = goodsReceived
+      .filter((item) => item.status !== "closed")
+      .map((item) => ({
+        item,
+        date: toDateValue(item.receivedDate) ?? toDateValue(item.updatedAt) ?? null,
+      }))
+      .filter((entry) => entry.date && entry.date >= now)
+      .sort((a, b) => (a.date?.valueOf() || 0) - (b.date?.valueOf() || 0))[0]?.item;
+
+    const latestClosed = goodsReceived
+      .filter((item) => item.status === "closed")
+      .map((item) => ({
+        item,
+        date: toDateValue(item.closedAt) ?? toDateValue(item.updatedAt) ?? null,
+      }))
+      .sort((a, b) => (b.date?.valueOf() || 0) - (a.date?.valueOf() || 0))
+      .slice(0, 3)
+      .map((entry) => entry.item);
+
+    return { pendingCount, draftCount, upcoming, latestClosed };
+  }, [goodsReceived]);
 
   useEffect(() => {
     const loadCalendarStatus = async () => {
@@ -360,7 +415,7 @@ export default function DashboardPage() {
         </Card>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-3">
+      <div className="grid gap-6 lg:grid-cols-4">
         <Card className="bg-card/50 backdrop-blur-lg border-border/20">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
@@ -391,6 +446,76 @@ export default function DashboardPage() {
                 ))}
               </div>
             ) : null}
+          </CardContent>
+        </Card>
+
+        <Card className="bg-card/50 backdrop-blur-lg border-border/20">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Wrench className="h-4 w-4 text-emerald-400" />
+              Goods Inwards
+            </CardTitle>
+            <CardDescription>Incoming procurement and QA outcomes.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4 text-sm">
+            <div>
+              <p className="text-sm font-medium mb-2">Next incoming procurement</p>
+              {goodsMetrics.upcoming ? (
+                <div className="space-y-1">
+                  <p className="font-medium">
+                    {goodsMetrics.upcoming.supplierName || "Supplier"}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    PO {goodsMetrics.upcoming.poNumber || "TBC"} •{" "}
+                    {formatShortDate(
+                      toDateValue(goodsMetrics.upcoming.receivedDate) ??
+                        toDateValue(goodsMetrics.upcoming.updatedAt)
+                    )}{" "}
+                    • {goodsMetrics.upcoming.status.replace("_", " ")}
+                  </p>
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  No incoming procurement scheduled.
+                </p>
+              )}
+            </div>
+            <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+              <div className="flex items-center justify-between">
+                <span>Submitted</span>
+                <span className="font-medium text-foreground">
+                  {goodsMetrics.pendingCount}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span>Drafts</span>
+                <span className="font-medium text-foreground">
+                  {goodsMetrics.draftCount}
+                </span>
+              </div>
+            </div>
+            <div>
+              <p className="text-sm font-medium mb-2">Latest closed</p>
+              {goodsMetrics.latestClosed.length === 0 ? (
+                <p className="text-xs text-muted-foreground">No closed inspections yet.</p>
+              ) : (
+                <div className="space-y-2">
+                  {goodsMetrics.latestClosed.map((entry) => (
+                    <div key={entry.id} className="text-xs">
+                      <p className="font-medium text-foreground">
+                        {entry.supplierName || "Supplier"} • PO {entry.poNumber || "N/A"}
+                      </p>
+                      <p className="text-muted-foreground">
+                        {entry.decision ? entry.decision.replace("_", " ") : "Decision pending"} •{" "}
+                        {formatShortDate(
+                          toDateValue(entry.closedAt) ?? toDateValue(entry.updatedAt)
+                        )}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </CardContent>
         </Card>
 

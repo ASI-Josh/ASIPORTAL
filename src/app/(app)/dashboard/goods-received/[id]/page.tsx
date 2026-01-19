@@ -378,10 +378,10 @@ export default function GoodsReceivedDetailPage() {
       return;
     }
     const requireValidation = Boolean(overrideStatus);
-    if (!poNumber.trim()) {
+    if (requireValidation && !poNumber.trim()) {
       toast({
         title: "Missing PO number",
-        description: "ASI Purchase Order Number is required.",
+        description: "ASI Purchase Order Number is required to submit.",
         variant: "destructive",
       });
       return;
