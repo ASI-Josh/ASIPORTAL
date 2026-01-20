@@ -19,6 +19,10 @@ function getEmailDomain(email: string) {
   return parts.length === 2 ? parts[1] : "";
 }
 
+function normalizeAppUrl(value: string) {
+  return value.trim().replace(/\.+$/, "").replace(/\/+$/, "");
+}
+
 function parseDelimited(content: string, delimiter: string) {
   const rows = content.split(/\r?\n/).filter(Boolean);
   if (rows.length === 0) return [];
@@ -214,7 +218,7 @@ async function ensureInvite(params: {
   );
 
   if (sendEmails) {
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || DEFAULT_APP_URL;
+    const appUrl = normalizeAppUrl(process.env.NEXT_PUBLIC_APP_URL || DEFAULT_APP_URL);
     await admin.firestore().collection(COLLECTIONS.MAIL).add({
       to: [email],
       message: {

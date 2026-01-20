@@ -5,6 +5,10 @@ import { COLLECTIONS } from "@/lib/collections";
 
 const DEFAULT_APP_URL = "https://asiportal.online";
 
+function normalizeAppUrl(value: string) {
+  return value.trim().replace(/\.+$/, "").replace(/\/+$/, "");
+}
+
 export async function POST(req: NextRequest) {
   try {
     const userId = await requireUserId(req);
@@ -41,7 +45,7 @@ export async function POST(req: NextRequest) {
     const displayName =
       invite.name?.trim() || invite.email.split("@")[0] || invite.organizationName || "User";
     const firstName = displayName.split(" ")[0] || "User";
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || DEFAULT_APP_URL;
+    const appUrl = normalizeAppUrl(process.env.NEXT_PUBLIC_APP_URL || DEFAULT_APP_URL);
 
     await admin.firestore().collection(COLLECTIONS.MAIL).add({
       to: [invite.email],

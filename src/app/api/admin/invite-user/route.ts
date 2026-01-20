@@ -15,6 +15,10 @@ type InvitePayload = {
 
 const ASI_DOMAIN = "asi-australia.com.au";
 
+function normalizeAppUrl(value: string) {
+  return value.trim().replace(/\.+$/, "").replace(/\/+$/, "");
+}
+
 const PUBLIC_EMAIL_DOMAINS = new Set([
   "gmail.com",
   "outlook.com",
@@ -186,7 +190,7 @@ export async function POST(req: NextRequest) {
       { merge: true }
     );
 
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || DEFAULT_APP_URL;
+    const appUrl = normalizeAppUrl(process.env.NEXT_PUBLIC_APP_URL || DEFAULT_APP_URL);
     await admin.firestore().collection(COLLECTIONS.MAIL).add({
       to: [email],
       message: {
