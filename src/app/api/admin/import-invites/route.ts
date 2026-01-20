@@ -12,7 +12,7 @@ const PUBLIC_EMAIL_DOMAINS = new Set([
   "bigpond.com",
 ]);
 
-const DEFAULT_APP_URL = "https://asiportal.live";
+const DEFAULT_APP_URL = "https://asiportal.online";
 
 function getEmailDomain(email: string) {
   const parts = email.toLowerCase().trim().split("@");
