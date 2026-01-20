@@ -3,7 +3,7 @@ import { admin } from "@/lib/firebaseAdmin";
 import { requireUserId } from "@/lib/server/firebaseAuth";
 import { COLLECTIONS } from "@/lib/collections";
 
-const DEFAULT_APP_URL = "https://asiportal.online";
+const DEFAULT_APP_URL = "https://asiportal.live";
 
 type InvitePayload = {
   email: string;
