@@ -94,10 +94,7 @@ service cloud.firestore {
 
     match /bookings/{bookingId} {
       allow read: if isStaff() || hasOrg(resource.data.organizationId);
-      allow create: if isStaff()
-        || (signedIn()
-          && request.resource.data.createdBy == request.auth.uid
-          && hasOrg(request.resource.data.organizationId));
+      allow create: if isStaff();
       allow update: if isStaff();
       allow delete: if isAdmin();
     }
@@ -119,18 +116,14 @@ service cloud.firestore {
 
     match /jobs/{jobId} {
       allow read: if isStaff() || hasOrg(resource.data.organizationId);
-      allow create: if isStaff()
-        || (signedIn()
-          && request.resource.data.createdBy == request.auth.uid
-          && hasOrg(request.resource.data.organizationId));
+      allow create: if isStaff();
       allow update: if isStaff();
       allow delete: if isAdmin();
     }
 
     match /worksRegister/{entryId} {
       allow read: if isStaff() || hasOrg(resource.data.organizationId);
-      allow create: if isStaff()
-        || (signedIn() && hasOrg(request.resource.data.organizationId));
+      allow create: if isStaff();
       allow update: if isStaff();
       allow delete: if isAdmin();
     }

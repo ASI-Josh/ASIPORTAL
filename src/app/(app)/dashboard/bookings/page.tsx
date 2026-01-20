@@ -142,7 +142,7 @@ type BookingCalendarPayloadInput = {
   createMeet?: boolean;
 };
 
-const DEFAULT_EVENT_DURATION_MINUTES = 120;
+const DEFAULT_EVENT_DURATION_MINUTES = 60;
 
 const padTime = (value: number) => String(value).padStart(2, "0");
 
@@ -218,15 +218,20 @@ const buildBookingCalendarPayload = (input: BookingCalendarPayloadInput): Calend
 
   const { start, end } = buildEventTimes(input.scheduledDate, input.scheduledTime);
 
-  return {
+  const payload: CalendarEventPayload = {
     summary: `Booking ${input.bookingNumber} - ${input.organizationName} - ${input.bookingTypeLabel}`,
     description: lines.join("\n"),
     location,
     start,
     end,
     attendees: input.attendees,
-    createMeet: input.createMeet,
   };
+
+  if (input.createMeet) {
+    payload.createMeet = true;
+  }
+
+  return payload;
 };
 
 export default function BookingsPage() {
@@ -971,7 +976,6 @@ export default function BookingsPage() {
           notes: bookingNotes || undefined,
           assignedStaff: selectedStaff.map((staff) => staff.name),
           attendees: attendeeEmails,
-          createMeet: true,
         });
         const calendarResult = await syncCalendarEvent(calendarPayload);
         if (calendarResult?.eventId) {
