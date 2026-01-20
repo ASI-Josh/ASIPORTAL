@@ -379,7 +379,7 @@ export function JobsProvider({ children }: { children: ReactNode }) {
         contactEmail: input.contact.email,
         contactPhone: input.contact.mobile || input.contact.phone,
         siteLocation: {
-          id: input.siteLocation.id,
+          ...(input.siteLocation.id ? { id: input.siteLocation.id } : {}),
           name: input.siteLocation.name,
           address: input.siteLocation.address,
         },
