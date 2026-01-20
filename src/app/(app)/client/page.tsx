@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Leaf, LineChart } from "lucide-react";
+import Link from "next/link";
+import { format, startOfDay } from "date-fns";
+import { AlertTriangle, Leaf, LineChart, CalendarClock, CheckCircle2 } from "lucide-react";
 import { collection, doc, onSnapshot, orderBy, query, where } from "firebase/firestore";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -10,7 +12,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useJobs } from "@/contexts/JobsContext";
 import { db } from "@/lib/firebaseClient";
 import { COLLECTIONS } from "@/lib/collections";
-import type { ContactOrganization, Inspection } from "@/lib/types";
+import type { Booking, ContactOrganization, Inspection } from "@/lib/types";
 import { calculateDashboardMetrics } from "@/lib/dashboard-analytics";
 
 type InsightPayload = {
@@ -36,7 +38,7 @@ function formatHours(value: number) {
 
 export default function ClientPage() {
   const { user, firebaseUser } = useAuth();
-  const { jobs, worksRegister } = useJobs();
+  const { jobs, worksRegister, bookings } = useJobs();
   const [inspections, setInspections] = useState<Inspection[]>([]);
   const [organization, setOrganization] = useState<ContactOrganization | null>(null);
   const [insightDoc, setInsightDoc] = useState<InsightPayload | null>(null);
@@ -147,6 +149,34 @@ export default function ClientPage() {
 
   const lastInsightAt = insightDoc?.generatedAt?.toDate?.().toLocaleString("en-AU");
   const orgName = organization?.name || user?.organizationName || "your organisation";
+  const today = startOfDay(new Date());
+
+  const getBookingDateTime = (booking: Booking) => {
+    const date = booking.scheduledDate.toDate();
+    const [hours, minutes] = booking.scheduledTime.split(":").map((part) => Number(part));
+    if (Number.isFinite(hours)) date.setHours(hours);
+    if (Number.isFinite(minutes)) date.setMinutes(minutes);
+    date.setSeconds(0, 0);
+    return date;
+  };
+
+  const upcomingBookings = useMemo(() => {
+    return bookings
+      .filter((booking) => booking.status !== "cancelled")
+      .map((booking) => ({ booking, dateTime: getBookingDateTime(booking) }))
+      .filter(({ dateTime }) => dateTime >= today)
+      .sort((a, b) => a.dateTime.getTime() - b.dateTime.getTime())
+      .slice(0, 3);
+  }, [bookings, today]);
+
+  const completedBookings = useMemo(() => {
+    return bookings
+      .filter((booking) => booking.status !== "cancelled")
+      .map((booking) => ({ booking, dateTime: getBookingDateTime(booking) }))
+      .filter(({ dateTime }) => dateTime < today)
+      .sort((a, b) => b.dateTime.getTime() - a.dateTime.getTime())
+      .slice(0, 3);
+  }, [bookings, today]);
 
   return (
     <div className="space-y-8">
@@ -271,6 +301,74 @@ export default function ClientPage() {
             ) : null}
             <Button onClick={handleGenerateInsights} disabled={insightLoading}>
               {insightLoading ? "Generating..." : "Refresh AI insights"}
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Card className="bg-card/50 backdrop-blur-lg border-border/20">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <CalendarClock className="h-4 w-4 text-primary" />
+              Upcoming bookings
+            </CardTitle>
+            <CardDescription>Next 3 scheduled visits.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {upcomingBookings.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No upcoming bookings.</p>
+            ) : (
+              upcomingBookings.map(({ booking, dateTime }) => (
+                <div key={booking.id} className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-medium">{booking.bookingNumber}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {booking.organizationName} • {booking.contactName}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {format(dateTime, "PPP")} at {booking.scheduledTime}
+                    </div>
+                  </div>
+                  <Badge variant="secondary">{booking.status.replace("_", " ")}</Badge>
+                </div>
+              ))
+            )}
+            <Button variant="ghost" size="sm" className="self-start" asChild>
+              <Link href="/client/bookings">View all bookings</Link>
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-card/50 backdrop-blur-lg border-border/20">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+              Completed bookings
+            </CardTitle>
+            <CardDescription>Past 3 bookings on record.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {completedBookings.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No completed bookings yet.</p>
+            ) : (
+              completedBookings.map(({ booking, dateTime }) => (
+                <div key={booking.id} className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-medium">{booking.bookingNumber}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {booking.organizationName} • {booking.contactName}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {format(dateTime, "PPP")} at {booking.scheduledTime}
+                    </div>
+                  </div>
+                  <Badge variant="secondary">{booking.status.replace("_", " ")}</Badge>
+                </div>
+              ))
+            )}
+            <Button variant="ghost" size="sm" className="self-start" asChild>
+              <Link href="/client/bookings">View all bookings</Link>
             </Button>
           </CardContent>
         </Card>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { collection, onSnapshot, query, where } from "firebase/firestore";
+import { collection, getDocs, query, where } from "firebase/firestore";
 import { Building2, Mail, Phone } from "lucide-react";
 import { db } from "@/lib/firebaseClient";
 import { COLLECTIONS } from "@/lib/collections";
@@ -13,23 +13,35 @@ export default function ClientContactsPage() {
   const [contacts, setContacts] = useState<OrganizationContact[]>([]);
 
   useEffect(() => {
-    const orgQuery = query(
-      collection(db, COLLECTIONS.CONTACT_ORGANIZATIONS),
-      where("category", "==", "asi_staff")
-    );
-    const unsubscribe = onSnapshot(
-      orgQuery,
-      (snapshot) => {
-        setAsiOrganizations(
-          snapshot.docs.map((docSnap) => ({
+    const loadAsiOrgs = async () => {
+      try {
+        const orgsRef = collection(db, COLLECTIONS.CONTACT_ORGANIZATIONS);
+        const [categorySnap, domainSnap] = await Promise.all([
+          getDocs(query(orgsRef, where("category", "==", "asi_staff"))),
+          getDocs(query(orgsRef, where("domains", "array-contains", "asi-australia.com.au"))),
+        ]);
+        const byId = new Map<string, ContactOrganization>();
+        categorySnap.docs.forEach((docSnap) => {
+          byId.set(docSnap.id, {
             id: docSnap.id,
             ...(docSnap.data() as Omit<ContactOrganization, "id">),
-          }))
-        );
-      },
-      () => setAsiOrganizations([])
-    );
-    return () => unsubscribe();
+          });
+        });
+        domainSnap.docs.forEach((docSnap) => {
+          if (!byId.has(docSnap.id)) {
+            byId.set(docSnap.id, {
+              id: docSnap.id,
+              ...(docSnap.data() as Omit<ContactOrganization, "id">),
+            });
+          }
+        });
+        setAsiOrganizations(Array.from(byId.values()));
+      } catch (error) {
+        console.warn("Failed to load ASI contacts:", error);
+        setAsiOrganizations([]);
+      }
+    };
+    loadAsiOrgs();
   }, []);
 
   useEffect(() => {

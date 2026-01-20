@@ -55,7 +55,9 @@ service cloud.firestore {
     }
 
     function isAsiOrg(orgId) {
-      return get(/databases/$(database)/documents/contactOrganizations/$(orgId)).data.category == "asi_staff";
+      let org = get(/databases/$(database)/documents/contactOrganizations/$(orgId)).data;
+      return org.category == "asi_staff"
+        || (org.domains != null && org.domains.hasAny(["asi-australia.com.au"]));
     }
 
     match /users/{userId} {
