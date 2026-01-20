@@ -277,6 +277,12 @@ export default function BookingsPage() {
     postcode: "",
     country: "Australia",
   });
+  const [isRetailBooking, setIsRetailBooking] = useState(false);
+  const [retailContact, setRetailContact] = useState({
+    firstName: "",
+    lastName: "",
+    mobile: "",
+  });
   const [scheduledDate, setScheduledDate] = useState<Date | undefined>();
   const [scheduledTime, setScheduledTime] = useState("");
   const [selectedStaff, setSelectedStaff] = useState<StaffMember[]>([]);
@@ -630,6 +636,8 @@ export default function BookingsPage() {
   const asiStaff = staffList.filter((s) => s.type === "asi_staff");
   const subcontractors = staffList.filter((s) => s.type === "subcontractor");
   const canSyncCalendar = user?.role === "admin" || user?.role === "technician";
+  const RETAIL_ORG_NAME = "Retail End Users";
+  const RETAIL_ORG_CATEGORY: ContactCategory = "retail_client";
 
   const staffEmailById = useMemo(
     () => new Map(staffList.map((staff) => [staff.id, staff.email])),
@@ -708,6 +716,14 @@ export default function BookingsPage() {
       setSelectedContact(primaryContact);
     }
   }, [selectedOrganization, selectedContact, contacts]);
+
+  useEffect(() => {
+    if (!isRetailBooking) return;
+    setSelectedOrganization(null);
+    setSelectedContact(null);
+    setSelectedSite(null);
+    setUseCustomSite(true);
+  }, [isRetailBooking]);
 
   const handleCreateContact = async () => {
     let targetOrgId = newContactData.organisationId;
@@ -869,7 +885,7 @@ export default function BookingsPage() {
   };
 
   const handleCreateBooking = async () => {
-    if (!bookingType || !selectedOrganization || !selectedContact || !scheduledDate || !scheduledTime) {
+    if (!bookingType || !scheduledDate || !scheduledTime) {
       toast({
         title: "Missing Information",
         description: "Please complete all required fields.",
@@ -878,18 +894,49 @@ export default function BookingsPage() {
       return;
     }
 
-    const siteAddress = useCustomSite
-      ? customSite
-      : selectedSite?.address || customSite;
+    if (
+      isRetailBooking &&
+      (!retailContact.firstName.trim() ||
+        !retailContact.mobile.trim() ||
+        !customSite.street.trim() ||
+        !customSite.suburb.trim() ||
+        !customSite.postcode.trim())
+    ) {
+      toast({
+        title: "Missing retail details",
+        description: "First name, mobile, and address are required for retail bookings.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!isRetailBooking && (!selectedOrganization || !selectedContact)) {
+      toast({
+        title: "Missing Information",
+        description: "Please select an organisation and contact.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const isCustomSite = isRetailBooking || useCustomSite;
+    const siteAddress = isCustomSite ? customSite : selectedSite?.address || customSite;
 
     try {
+      const bookingOrganization = isRetailBooking
+        ? await ensureRetailOrganization()
+        : selectedOrganization!;
+      const bookingContact = isRetailBooking
+        ? await createRetailContact(bookingOrganization.id)
+        : selectedContact!;
+
       const created = await createBooking({
         bookingType: bookingType as BookingType,
-        organization: selectedOrganization,
-        contact: selectedContact,
+        organization: bookingOrganization,
+        contact: bookingContact,
         siteLocation: {
-          id: useCustomSite ? undefined : selectedSite?.id,
-          name: useCustomSite ? "Custom Location" : selectedSite?.name || "Custom Location",
+          id: isCustomSite ? undefined : selectedSite?.id,
+          name: isCustomSite ? "Retail Address" : selectedSite?.name || "Custom Location",
           address: siteAddress,
           isDefault: false,
         },
@@ -905,17 +952,17 @@ export default function BookingsPage() {
 
       try {
         const attendeeEmails = buildAttendeeEmails([
-          selectedContact.email,
+          bookingContact.email,
           ...resolveStaffEmails(selectedStaff),
         ]);
         const calendarPayload = buildBookingCalendarPayload({
           bookingNumber: createdBooking.bookingNumber,
           jobNumber: job.jobNumber,
           bookingTypeLabel: BOOKING_TYPE_LABELS[bookingType as BookingType],
-          organizationName: selectedOrganization.name,
-          contactName: `${selectedContact.firstName} ${selectedContact.lastName}`.trim(),
-          contactEmail: selectedContact.email,
-          contactPhone: selectedContact.mobile || selectedContact.phone,
+          organizationName: bookingOrganization.name,
+          contactName: `${bookingContact.firstName} ${bookingContact.lastName}`.trim(),
+          contactEmail: bookingContact.email,
+          contactPhone: bookingContact.mobile || bookingContact.phone,
           siteName: createdBooking.siteLocation.name,
           siteAddress: createdBooking.siteLocation.address,
           scheduledDate,
@@ -975,12 +1022,66 @@ export default function BookingsPage() {
     setSelectedSite(null);
     setUseCustomSite(false);
     setCustomSite({ street: "", suburb: "", state: "NSW", postcode: "", country: "Australia" });
+    setIsRetailBooking(false);
+    setRetailContact({ firstName: "", lastName: "", mobile: "" });
     setScheduledDate(undefined);
     setScheduledTime("");
     setSelectedStaff([]);
     setBookingNotes("");
     setOrgSearchQuery("");
     resetNewContactForm();
+  };
+
+  const ensureRetailOrganization = async (): Promise<ContactOrganization> => {
+    const existing = organizations.find(
+      (org) => org.name === RETAIL_ORG_NAME && org.category === RETAIL_ORG_CATEGORY
+    );
+    if (existing) return existing;
+
+    const now = Timestamp.now();
+    const retailOrg: ContactOrganization = {
+      id: `org-${Date.now()}`,
+      name: RETAIL_ORG_NAME,
+      category: RETAIL_ORG_CATEGORY,
+      type: "customer",
+      status: "active",
+      jobCode: "RET",
+      sites: [],
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    const createdOrgId = await addDocument(COLLECTIONS.CONTACT_ORGANIZATIONS, {
+      ...retailOrg,
+    });
+    return { ...retailOrg, id: createdOrgId };
+  };
+
+  const createRetailContact = async (
+    organizationId: string
+  ): Promise<OrganizationContact> => {
+    const now = Timestamp.now();
+    const contact: OrganizationContact = {
+      id: `contact-${Date.now()}`,
+      organizationId,
+      firstName: retailContact.firstName.trim(),
+      lastName: retailContact.lastName.trim(),
+      email: "",
+      phone: "",
+      mobile: retailContact.mobile.trim(),
+      role: "primary",
+      jobTitle: "",
+      status: "active",
+      isPrimary: true,
+      hasPortalAccess: false,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    const createdContactId = await addDocument(COLLECTIONS.ORGANIZATION_CONTACTS, {
+      ...contact,
+    });
+    return { ...contact, id: createdContactId };
   };
 
   const handleOpenEditBooking = (booking: Booking) => {
@@ -1159,9 +1260,27 @@ export default function BookingsPage() {
   };
 
   const canProceedToStep2 = bookingType !== "";
-  const canProceedToStep3 = selectedOrganization !== null && selectedContact !== null;
-  const canProceedToStep4 = scheduledDate !== undefined && scheduledTime !== "" && (selectedSite !== null || useCustomSite);
+  const retailContactValid =
+    retailContact.firstName.trim() &&
+    retailContact.mobile.trim() &&
+    customSite.street.trim() &&
+    customSite.suburb.trim() &&
+    customSite.postcode.trim();
+  const canProceedToStep3 = isRetailBooking
+    ? Boolean(retailContactValid)
+    : selectedOrganization !== null && selectedContact !== null;
+  const showCustomSite = isRetailBooking || useCustomSite;
+  const canProceedToStep4 =
+    scheduledDate !== undefined &&
+    scheduledTime !== "" &&
+    (selectedSite !== null || showCustomSite);
   const canSubmit = selectedStaff.length > 0;
+  const summaryOrganizationName = isRetailBooking
+    ? RETAIL_ORG_NAME
+    : selectedOrganization?.name;
+  const summaryContactName = isRetailBooking
+    ? `${retailContact.firstName} ${retailContact.lastName}`.trim()
+    : `${selectedContact?.firstName || ""} ${selectedContact?.lastName || ""}`.trim();
 
   const editStaffOptions = (() => {
     const merged = new Map<string, StaffMember>();
@@ -1336,6 +1455,119 @@ export default function BookingsPage() {
                 {/* Step 2: Customer Selection */}
                 {bookingStep === 2 && (
                   <div className="space-y-6">
+                    <div className="flex items-center space-x-2">
+                      <Checkbox
+                        id="retail-booking"
+                        checked={isRetailBooking}
+                        onCheckedChange={(checked) => setIsRetailBooking(checked as boolean)}
+                      />
+                      <Label htmlFor="retail-booking" className="cursor-pointer">
+                        Retail end-user booking (no organisation)
+                      </Label>
+                    </div>
+
+                    {isRetailBooking && (
+                      <Card className="border-dashed">
+                        <CardHeader className="pb-3">
+                          <CardTitle className="text-sm">Retail customer details</CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                              <Label>First Name *</Label>
+                              <Input
+                                value={retailContact.firstName}
+                                onChange={(e) =>
+                                  setRetailContact({ ...retailContact, firstName: e.target.value })
+                                }
+                                placeholder="First name"
+                              />
+                            </div>
+                            <div>
+                              <Label>Last Name</Label>
+                              <Input
+                                value={retailContact.lastName}
+                                onChange={(e) =>
+                                  setRetailContact({ ...retailContact, lastName: e.target.value })
+                                }
+                                placeholder="Last name (optional)"
+                              />
+                            </div>
+                            <div className="md:col-span-2">
+                              <Label>Mobile *</Label>
+                              <Input
+                                value={retailContact.mobile}
+                                onChange={(e) =>
+                                  setRetailContact({ ...retailContact, mobile: e.target.value })
+                                }
+                                placeholder="0412 345 678"
+                              />
+                            </div>
+                          </div>
+                          <div className="space-y-3">
+                            <Label className="text-sm font-semibold">Address</Label>
+                            <div>
+                              <Label>Street Address *</Label>
+                              <Input
+                                value={customSite.street}
+                                onChange={(e) =>
+                                  setCustomSite({ ...customSite, street: e.target.value })
+                                }
+                                placeholder="123 Work Site Road"
+                              />
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                              <div>
+                                <Label>Suburb *</Label>
+                                <Input
+                                  value={customSite.suburb}
+                                  onChange={(e) =>
+                                    setCustomSite({ ...customSite, suburb: e.target.value })
+                                  }
+                                  placeholder="Suburb"
+                                />
+                              </div>
+                              <div>
+                                <Label>State</Label>
+                                <Select
+                                  value={customSite.state}
+                                  onValueChange={(value) =>
+                                    setCustomSite({ ...customSite, state: value })
+                                  }
+                                >
+                                  <SelectTrigger>
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="NSW">NSW</SelectItem>
+                                    <SelectItem value="VIC">VIC</SelectItem>
+                                    <SelectItem value="QLD">QLD</SelectItem>
+                                    <SelectItem value="WA">WA</SelectItem>
+                                    <SelectItem value="SA">SA</SelectItem>
+                                    <SelectItem value="TAS">TAS</SelectItem>
+                                    <SelectItem value="NT">NT</SelectItem>
+                                    <SelectItem value="ACT">ACT</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <div>
+                                <Label>Postcode *</Label>
+                                <Input
+                                  value={customSite.postcode}
+                                  onChange={(e) =>
+                                    setCustomSite({ ...customSite, postcode: e.target.value })
+                                  }
+                                  placeholder="2000"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    )}
+
+                    {!isRetailBooking && (
+                      <>
                     {/* Organisation Selection */}
                     <div className="space-y-4">
                       <div className="flex items-center justify-between">
@@ -1888,6 +2120,8 @@ export default function BookingsPage() {
                         </div>
                       </div>
                     )}
+                      </>
+                    )}
                   </div>
                 )}
 
@@ -1956,7 +2190,10 @@ export default function BookingsPage() {
                         </p>
                       </div>
 
-                      {selectedOrganization && selectedOrganization.sites.length > 0 && !useCustomSite && (
+                      {!isRetailBooking &&
+                        selectedOrganization &&
+                        selectedOrganization.sites.length > 0 &&
+                        !useCustomSite && (
                         <div className="space-y-3">
                           {selectedOrganization.sites.map((site) => (
                             <Card
@@ -2005,21 +2242,23 @@ export default function BookingsPage() {
                         </div>
                       )}
 
-                      <div className="flex items-center space-x-2 pt-2">
-                        <Checkbox
-                          id="customSite"
-                          checked={useCustomSite}
-                          onCheckedChange={(checked) => {
-                            setUseCustomSite(checked as boolean);
-                            if (checked) setSelectedSite(null);
-                          }}
-                        />
-                        <Label htmlFor="customSite" className="cursor-pointer">
-                          Use a different/custom location
-                        </Label>
-                      </div>
+                      {!isRetailBooking && (
+                        <div className="flex items-center space-x-2 pt-2">
+                          <Checkbox
+                            id="customSite"
+                            checked={useCustomSite}
+                            onCheckedChange={(checked) => {
+                              setUseCustomSite(checked as boolean);
+                              if (checked) setSelectedSite(null);
+                            }}
+                          />
+                          <Label htmlFor="customSite" className="cursor-pointer">
+                            Use a different/custom location
+                          </Label>
+                        </div>
+                      )}
 
-                      {useCustomSite && (
+                      {showCustomSite && (
                         <Card className="border-dashed">
                           <CardContent className="p-4 space-y-4">
                             <div>
@@ -2205,13 +2444,11 @@ export default function BookingsPage() {
                           </div>
                           <div className="flex justify-between">
                             <span className="text-muted-foreground">Customer:</span>
-                            <span className="font-medium">{selectedOrganization?.name}</span>
+                            <span className="font-medium">{summaryOrganizationName}</span>
                           </div>
                           <div className="flex justify-between">
                             <span className="text-muted-foreground">Contact:</span>
-                            <span className="font-medium">
-                              {selectedContact?.firstName} {selectedContact?.lastName}
-                            </span>
+                            <span className="font-medium">{summaryContactName}</span>
                           </div>
                           <div className="flex justify-between">
                             <span className="text-muted-foreground">Date & Time:</span>
