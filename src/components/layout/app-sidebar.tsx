@@ -13,6 +13,7 @@ import {
   Settings,
   LogOut,
   User as UserIcon,
+  Users,
   PanelLeftClose,
   PanelLeft,
   Building2,
@@ -70,7 +71,13 @@ export function AppSidebar() {
         technician: [
           { href: "/technician", label: "Technician Dashboard", icon: Wrench },
         ],
-        client: [{ href: "/client", label: "Client Portal", icon: UserIcon }],
+        client: [
+          { href: "/client", label: "Dashboard", icon: LayoutDashboard },
+          { href: "/client/bookings", label: "Bookings", icon: Briefcase },
+          { href: "/client/inspections", label: "Inspections", icon: ClipboardCheck },
+          { href: "/client/works-register", label: "Works Register", icon: ClipboardList },
+          { href: "/client/contacts", label: "ASI Contacts", icon: Users },
+        ],
         contractor: [
           { href: "/contractor", label: "Contractor Portal", icon: Building2 },
         ],

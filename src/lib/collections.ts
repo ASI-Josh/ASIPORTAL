@@ -20,5 +20,6 @@ export const COLLECTIONS = {
   GOODS_RECEIVED: "goodsReceivedInspections",
   ANALYTICS_DAILY: "analyticsDaily",
   AI_INSIGHTS: "aiInsights",
+  CLIENT_INSIGHTS: "clientInsights",
   FLEET_VEHICLES: "fleetVehicles",
 } as const;

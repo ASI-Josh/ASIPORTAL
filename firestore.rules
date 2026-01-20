@@ -54,6 +54,10 @@ service cloud.firestore {
       return signedIn() && userOrgId() != null && userOrgId() == orgId;
     }
 
+    function isAsiOrg(orgId) {
+      return get(/databases/$(database)/documents/contactOrganizations/$(orgId)).data.category == "asi_staff";
+    }
+
     match /users/{userId} {
       allow read: if signedIn() && request.auth.uid == userId;
       allow read: if signedIn() && (isAdminEmail() || isAsiEmail())
@@ -71,14 +75,17 @@ service cloud.firestore {
     }
 
     match /contactOrganizations/{orgId} {
-      allow read: if isStaff() || hasOrg(orgId) || !userExists();
+      allow read: if isStaff() || hasOrg(orgId) || isAsiOrg(orgId) || !userExists();
       allow create: if signedIn() && (!userExists() || isStaff());
       allow update: if isStaff();
       allow delete: if isAdmin();
     }
 
     match /organizationContacts/{contactId} {
-      allow read: if isStaff() || hasOrg(resource.data.organizationId) || !userExists();
+      allow read: if isStaff()
+        || hasOrg(resource.data.organizationId)
+        || isAsiOrg(resource.data.organizationId)
+        || !userExists();
       allow create: if signedIn()
         && (!userExists() || hasOrg(request.resource.data.organizationId) || isStaff());
       allow update: if isStaff();
@@ -87,7 +94,10 @@ service cloud.firestore {
 
     match /bookings/{bookingId} {
       allow read: if isStaff() || hasOrg(resource.data.organizationId);
-      allow create: if isStaff();
+      allow create: if isStaff()
+        || (signedIn()
+          && request.resource.data.createdBy == request.auth.uid
+          && hasOrg(request.resource.data.organizationId));
       allow update: if isStaff();
       allow delete: if isAdmin();
     }
@@ -95,20 +105,32 @@ service cloud.firestore {
     match /inspections/{inspectionId} {
       allow read: if isStaff() || hasOrg(resource.data.organizationId);
       allow create: if isStaff();
-      allow update: if isStaff();
+      allow update: if isStaff()
+        || (signedIn()
+          && hasOrg(resource.data.organizationId)
+          && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+            "vehicleReports",
+            "clientApprovalStatus",
+            "clientApprovalUpdatedAt",
+            "updatedAt"
+          ]));
       allow delete: if isAdmin();
     }
 
     match /jobs/{jobId} {
       allow read: if isStaff() || hasOrg(resource.data.organizationId);
-      allow create: if isStaff();
+      allow create: if isStaff()
+        || (signedIn()
+          && request.resource.data.createdBy == request.auth.uid
+          && hasOrg(request.resource.data.organizationId));
       allow update: if isStaff();
       allow delete: if isAdmin();
     }
 
     match /worksRegister/{entryId} {
       allow read: if isStaff() || hasOrg(resource.data.organizationId);
-      allow create: if isStaff();
+      allow create: if isStaff()
+        || (signedIn() && hasOrg(request.resource.data.organizationId));
       allow update: if isStaff();
       allow delete: if isAdmin();
     }
@@ -128,6 +150,11 @@ service cloud.firestore {
 
     match /userInvites/{inviteId} {
       allow read: if isAdmin();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /clientInsights/{insightId} {
+      allow read: if signedIn() && hasOrg(resource.data.organizationId);
       allow create, update, delete: if isAdmin();
     }
 

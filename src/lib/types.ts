@@ -355,6 +355,9 @@ export interface DamageReportItem {
   totalCost?: number;
   labourCost?: number;
   materialsCost?: number;
+  clientDecision?: "pending" | "approved" | "rejected";
+  clientDecisionNotes?: string;
+  clientDecisionAt?: Timestamp;
 }
 
 export interface VehicleReport {
@@ -394,6 +397,8 @@ export interface Inspection {
   status: InspectionStatus;
   submittedAt?: Timestamp;
   approvedAt?: Timestamp;
+  clientApprovalStatus?: "pending" | "approved" | "rejected" | "partial";
+  clientApprovalUpdatedAt?: Timestamp;
   convertedToJobId?: string;
   worksRegisterId?: string;
   createdAt: Timestamp;
