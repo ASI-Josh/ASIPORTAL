@@ -115,7 +115,7 @@ const initialOrgForm: OrganizationFormData = {
   domains: "",
   street: "",
   suburb: "",
-  state: "",
+  state: "VIC",
   postcode: "",
 };
 

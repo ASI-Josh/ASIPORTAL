@@ -10,7 +10,7 @@ import {
   query,
   where,
 } from "firebase/firestore";
-import { format } from "date-fns";
+import { format, startOfDay } from "date-fns";
 import {
   CalendarIcon,
   Clock,
@@ -273,7 +273,7 @@ export default function BookingsPage() {
   const [customSite, setCustomSite] = useState<Address>({
     street: "",
     suburb: "",
-    state: "NSW",
+    state: "VIC",
     postcode: "",
     country: "Australia",
   });
@@ -282,6 +282,7 @@ export default function BookingsPage() {
     firstName: "",
     lastName: "",
     mobile: "",
+    email: "",
   });
   const [scheduledDate, setScheduledDate] = useState<Date | undefined>();
   const [scheduledTime, setScheduledTime] = useState("");
@@ -308,7 +309,7 @@ export default function BookingsPage() {
     email: "",
     street: "",
     suburb: "",
-    state: "NSW",
+    state: "VIC",
     postcode: "",
   });
   const [newContactData, setNewContactData] = useState<NewContactFormData>({
@@ -868,7 +869,7 @@ export default function BookingsPage() {
       email: "",
       street: "",
       suburb: "",
-      state: "NSW",
+      state: "VIC",
       postcode: "",
     });
     setIsCreatingNewOrg(false);
@@ -1021,9 +1022,9 @@ export default function BookingsPage() {
     setSelectedContact(null);
     setSelectedSite(null);
     setUseCustomSite(false);
-    setCustomSite({ street: "", suburb: "", state: "NSW", postcode: "", country: "Australia" });
+    setCustomSite({ street: "", suburb: "", state: "VIC", postcode: "", country: "Australia" });
     setIsRetailBooking(false);
-    setRetailContact({ firstName: "", lastName: "", mobile: "" });
+    setRetailContact({ firstName: "", lastName: "", mobile: "", email: "" });
     setScheduledDate(undefined);
     setScheduledTime("");
     setSelectedStaff([]);
@@ -1066,7 +1067,7 @@ export default function BookingsPage() {
       organizationId,
       firstName: retailContact.firstName.trim(),
       lastName: retailContact.lastName.trim(),
-      email: "",
+      email: retailContact.email.trim(),
       phone: "",
       mobile: retailContact.mobile.trim(),
       role: "primary",
@@ -1501,6 +1502,17 @@ export default function BookingsPage() {
                                   setRetailContact({ ...retailContact, mobile: e.target.value })
                                 }
                                 placeholder="0412 345 678"
+                              />
+                            </div>
+                            <div className="md:col-span-2">
+                              <Label>Email (optional)</Label>
+                              <Input
+                                type="email"
+                                value={retailContact.email}
+                                onChange={(e) =>
+                                  setRetailContact({ ...retailContact, email: e.target.value })
+                                }
+                                placeholder="name@example.com"
                               />
                             </div>
                           </div>
@@ -2157,7 +2169,7 @@ export default function BookingsPage() {
                                 mode="single"
                                 selected={scheduledDate}
                                 onSelect={setScheduledDate}
-                                disabled={(date) => date < new Date()}
+                                disabled={(date) => date < startOfDay(new Date())}
                                 initialFocus
                               />
                             </PopoverContent>

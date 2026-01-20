@@ -92,7 +92,7 @@ export default function InspectionsPage() {
     email: "",
     street: "",
     suburb: "",
-    state: "NSW",
+    state: "VIC",
     postcode: "",
   });
   const [newContactData, setNewContactData] = useState({
@@ -194,7 +194,7 @@ export default function InspectionsPage() {
       email: "",
       street: "",
       suburb: "",
-      state: "NSW",
+      state: "VIC",
       postcode: "",
     });
     setNewContactData({

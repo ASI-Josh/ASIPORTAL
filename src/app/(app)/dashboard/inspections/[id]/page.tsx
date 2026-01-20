@@ -160,7 +160,7 @@ export default function InspectionDetailPage() {
     email: "",
     street: "",
     suburb: "",
-    state: "NSW",
+    state: "VIC",
     postcode: "",
   });
   const [newVehicle, setNewVehicle] = useState({
