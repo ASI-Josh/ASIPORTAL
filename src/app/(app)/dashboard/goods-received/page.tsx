@@ -18,7 +18,13 @@ import { AlertTriangle, Boxes, ClipboardCheck, PackageCheck, Plus, Trash2 } from
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -453,6 +459,9 @@ export default function GoodsReceivedPage() {
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>New Goods Inspection</DialogTitle>
+            <DialogDescription>
+              Create a draft inspection and log received items once goods arrive.
+            </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="grid gap-2">
@@ -531,10 +540,10 @@ export default function GoodsReceivedPage() {
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Delete Inspection</DialogTitle>
+            <DialogDescription>
+              This will permanently remove the inspection record.
+            </DialogDescription>
           </DialogHeader>
-          <p className="text-sm text-muted-foreground">
-            This will permanently remove the inspection record.
-          </p>
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={() => setInspectionToDelete(null)}>
               Cancel

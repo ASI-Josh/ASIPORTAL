@@ -445,6 +445,7 @@ export interface CorrectiveAction {
 export interface GoodsReceivedInspection {
   id: string;
   poNumber: string;
+  clientReference?: string;
   supplierName: string;
   supplierId?: string;
   category?: string;

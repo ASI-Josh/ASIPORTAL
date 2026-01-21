@@ -92,8 +92,10 @@ export default function GoodsReceivedDetailPage() {
   const [suppliers, setSuppliers] = useState<ContactOrganization[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [hasHydrated, setHasHydrated] = useState(false);
 
   const [poNumber, setPoNumber] = useState("");
+  const [clientReference, setClientReference] = useState("");
   const [supplierName, setSupplierName] = useState("");
   const [supplierId, setSupplierId] = useState("");
   const [category, setCategory] = useState("");
@@ -126,6 +128,10 @@ export default function GoodsReceivedDetailPage() {
 
   const buildInternalStockNumber = () =>
     `ASI-${Date.now().toString().slice(-6)}-${Math.floor(Math.random() * 900 + 100)}`;
+
+  useEffect(() => {
+    setHasHydrated(false);
+  }, [inspectionId]);
 
   useEffect(() => {
     const inspectionRef = doc(db, COLLECTIONS.GOODS_RECEIVED, inspectionId);
@@ -169,8 +175,9 @@ export default function GoodsReceivedDetailPage() {
   }, []);
 
   useEffect(() => {
-    if (!inspection) return;
+    if (!inspection || hasHydrated) return;
     setPoNumber(inspection.poNumber || "");
+    setClientReference(inspection.clientReference || "");
     setSupplierName(inspection.supplierName || "");
     setSupplierId(inspection.supplierId || "");
     setCategory(inspection.category || "");
@@ -188,7 +195,8 @@ export default function GoodsReceivedDetailPage() {
     );
     const date = inspection.receivedDate?.toDate?.();
     setReceivedDate(date ? date.toISOString().split("T")[0] : "");
-  }, [inspection]);
+    setHasHydrated(true);
+  }, [inspection, hasHydrated]);
 
   useEffect(() => {
     if (!inspection || suppliers.length === 0) return;
@@ -515,6 +523,7 @@ export default function GoodsReceivedDetailPage() {
       const payload = pruneUndefined({
         poNumber: poNumber.trim(),
         supplierId: supplierId || inspection.supplierId,
+        clientReference: clientReference.trim() || undefined,
         supplierName: resolvedSupplierName?.trim(),
         category: category || undefined,
         receivedDate: receivedTimestamp || undefined,
@@ -627,6 +636,14 @@ export default function GoodsReceivedDetailPage() {
           <div className="grid gap-2">
             <Label>ASI Purchase Order Number *</Label>
             <Input value={poNumber} onChange={(e) => setPoNumber(e.target.value)} />
+          </div>
+          <div className="grid gap-2">
+            <Label>Client Reference</Label>
+            <Input
+              value={clientReference}
+              onChange={(e) => setClientReference(e.target.value)}
+              placeholder="Optional"
+            />
           </div>
           <div className="grid gap-2">
             <Label>Supplier *</Label>
