@@ -219,13 +219,19 @@ export function getFleetSeedForOrgName(name: string): FleetVehicleSeed[] {
   if (normalized.includes("mckenziestouristservices")) {
     return MCKENZIES_FLEET;
   }
-  if (normalized.includes("mckenzies") && normalized.includes("tourist")) {
+  if (
+    (normalized.includes("mckenzies") || normalized.includes("mckenzie")) &&
+    normalized.includes("tourist")
+  ) {
     return MCKENZIES_FLEET;
   }
   if (normalized.includes("nulinecharter")) {
     return NULINE_FLEET;
   }
   if (normalized.includes("nuline") && normalized.includes("charter")) {
+    return NULINE_FLEET;
+  }
+  if (normalized.includes("nuline")) {
     return NULINE_FLEET;
   }
   return [];

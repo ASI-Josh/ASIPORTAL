@@ -486,7 +486,15 @@ export default function InspectionDetailPage() {
     const match =
       (fleetKey && fleetByAssetNumber.get(fleetKey)) ||
       (regoKey && fleetByRegistration.get(regoKey));
-    if (!match) {
+    const seedMatch = !match
+      ? getFleetSeedForOrgName(selectedOrgName).find((vehicle) => {
+          const seedRego = normalizeVehicleKey(vehicle.registration);
+          const seedFleet = normalizeVehicleKey(vehicle.fleetAssetNumber);
+          return (fleetKey && seedFleet === fleetKey) || (regoKey && seedRego === regoKey);
+        })
+      : null;
+    const resolvedMatch = match ?? seedMatch ?? null;
+    if (!resolvedMatch) {
       toast({
         title: "Vehicle not found",
         description: "No fleet vehicle matched the registration or fleet number.",
@@ -496,13 +504,17 @@ export default function InspectionDetailPage() {
     }
     setNewVehicle((prev) => ({
       ...prev,
-      registration: match.registration || prev.registration,
-      vin: match.vin ?? prev.vin,
-      fleetAssetNumber: match.fleetAssetNumber ?? prev.fleetAssetNumber,
-      bodyManufacturer: match.bodyManufacturer ?? prev.bodyManufacturer,
-      year: match.year ? String(match.year) : prev.year,
+      registration: resolvedMatch.registration || prev.registration,
+      vin: resolvedMatch.vin ?? prev.vin,
+      fleetAssetNumber: resolvedMatch.fleetAssetNumber ?? prev.fleetAssetNumber,
+      bodyManufacturer: resolvedMatch.bodyManufacturer ?? prev.bodyManufacturer,
+      year: resolvedMatch.year ? String(resolvedMatch.year) : prev.year,
     }));
   };
+
+  const lookupRegoKey = normalizeVehicleKey(newVehicle.registration);
+  const lookupFleetKey = normalizeVehicleKey(newVehicle.fleetAssetNumber);
+  const canLookupFleet = lookupRegoKey.length >= 5 || lookupFleetKey.length >= 1;
 
   const totals = useMemo(() => {
     let totalCost = 0;
@@ -1630,15 +1642,6 @@ ASI Australia`;
                             setNewVehicle({ ...newVehicle, fleetAssetNumber: e.target.value })
                           }
                         />
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={handleFleetLookup}
-                          disabled={!newVehicle.fleetAssetNumber && !newVehicle.registration}
-                        >
-                          Lookup fleet
-                        </Button>
                       </div>
                       <div className="space-y-2">
                         <Label>Body Manufacturer</Label>
@@ -1672,9 +1675,20 @@ ASI Australia`;
                         />
                       </div>
                     </div>
-                    <Button onClick={handleAddVehicle} className="w-full">
-                      Save vehicle
-                    </Button>
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <Button
+                        type="button"
+                        variant={canLookupFleet ? "default" : "outline"}
+                        className={canLookupFleet ? "bg-emerald-600 text-white hover:bg-emerald-700" : ""}
+                        onClick={handleFleetLookup}
+                        disabled={!canLookupFleet}
+                      >
+                        Lookup fleet
+                      </Button>
+                      <Button onClick={handleAddVehicle} className="w-full sm:w-auto">
+                        Save vehicle
+                      </Button>
+                    </div>
                   </div>
                 </DialogContent>
               </Dialog>

@@ -369,7 +369,15 @@ export default function JobCardPage() {
     const match =
       (fleetKey && fleetByAssetNumber.get(fleetKey)) ||
       (regoKey && fleetByRegistration.get(regoKey));
-    if (!match) {
+    const seedMatch = !match
+      ? getFleetSeedForOrgName(job?.clientName ?? "").find((vehicle) => {
+          const seedRego = normalizeVehicleKey(vehicle.registration);
+          const seedFleet = normalizeVehicleKey(vehicle.fleetAssetNumber);
+          return (fleetKey && seedFleet === fleetKey) || (regoKey && seedRego === regoKey);
+        })
+      : null;
+    const resolvedMatch = match ?? seedMatch ?? null;
+    if (!resolvedMatch) {
       toast({
         title: "Vehicle not found",
         description: "No fleet vehicle matched the registration or fleet number.",
@@ -379,13 +387,17 @@ export default function JobCardPage() {
     }
     setNewVehicle((prev) => ({
       ...prev,
-      registration: match.registration || prev.registration,
-      vin: match.vin ?? prev.vin,
-      fleetAssetNumber: match.fleetAssetNumber ?? prev.fleetAssetNumber,
-      bodyManufacturer: match.bodyManufacturer ?? prev.bodyManufacturer,
-      year: match.year ? String(match.year) : prev.year,
+      registration: resolvedMatch.registration || prev.registration,
+      vin: resolvedMatch.vin ?? prev.vin,
+      fleetAssetNumber: resolvedMatch.fleetAssetNumber ?? prev.fleetAssetNumber,
+      bodyManufacturer: resolvedMatch.bodyManufacturer ?? prev.bodyManufacturer,
+      year: resolvedMatch.year ? String(resolvedMatch.year) : prev.year,
     }));
   };
+
+  const lookupRegoKey = normalizeVehicleKey(newVehicle.registration);
+  const lookupFleetKey = normalizeVehicleKey(newVehicle.fleetAssetNumber);
+  const canLookupFleet = lookupRegoKey.length >= 5 || lookupFleetKey.length >= 1;
 
   if (!job) {
     return (
@@ -2239,15 +2251,6 @@ export default function JobCardPage() {
                     setNewVehicle({ ...newVehicle, fleetAssetNumber: e.target.value })
                   }
                 />
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={handleFleetLookup}
-                  disabled={!newVehicle.fleetAssetNumber && !newVehicle.registration}
-                >
-                  Lookup fleet
-                </Button>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="bodyManufacturer">Body Manufacturer</Label>
@@ -2286,6 +2289,15 @@ export default function JobCardPage() {
             </div>
           </div>
           <DialogFooter>
+            <Button
+              type="button"
+              variant={canLookupFleet ? "default" : "outline"}
+              className={canLookupFleet ? "bg-emerald-600 text-white hover:bg-emerald-700" : ""}
+              onClick={handleFleetLookup}
+              disabled={!canLookupFleet}
+            >
+              Lookup fleet
+            </Button>
             <Button variant="outline" onClick={() => setShowAddVehicleDialog(false)}>
               Cancel
             </Button>
