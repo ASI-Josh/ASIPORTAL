@@ -434,20 +434,17 @@ export default function InspectionDetailPage() {
           seeds.map((vehicle) => {
             const docId = buildFleetDocId(selectedOrgId, vehicle.registration);
             const docRef = doc(db, COLLECTIONS.FLEET_VEHICLES, docId);
-            return setDoc(
-              docRef,
-              {
-                organizationId: selectedOrgId,
-                registration: vehicle.registration.toUpperCase(),
-                vin: vehicle.vin?.toUpperCase(),
-                fleetAssetNumber: vehicle.fleetAssetNumber,
-                bodyManufacturer: vehicle.bodyManufacturer,
-                year: vehicle.year,
-                createdAt: now,
-                updatedAt: now,
-              },
-              { merge: true }
-            );
+            const payload: Record<string, unknown> = {
+              organizationId: selectedOrgId,
+              registration: vehicle.registration.toUpperCase(),
+              createdAt: now,
+              updatedAt: now,
+            };
+            if (vehicle.vin) payload.vin = vehicle.vin.toUpperCase();
+            if (vehicle.fleetAssetNumber) payload.fleetAssetNumber = vehicle.fleetAssetNumber;
+            if (vehicle.bodyManufacturer) payload.bodyManufacturer = vehicle.bodyManufacturer;
+            if (typeof vehicle.year === "number") payload.year = vehicle.year;
+            return setDoc(docRef, payload, { merge: true });
           })
         );
       } catch (error) {
