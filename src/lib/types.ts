@@ -421,6 +421,9 @@ export type CorrectiveActionStatus = "open" | "in_progress" | "closed";
 export interface GoodsReceivedItem {
   id: string;
   description: string;
+  itemType?: "consumable" | "stock" | "plant";
+  stockNumber?: string;
+  supplierPartNumber?: string;
   quantity: number;
   unit?: string;
   batchNumber?: string;
@@ -460,11 +463,32 @@ export interface GoodsReceivedInspection {
     shippingDocs?: FileAttachment[];
     packingList?: FileAttachment[];
   };
+  stockAppliedAt?: Timestamp;
+  stockAppliedBy?: string;
   createdAt: Timestamp;
   createdBy: string;
   updatedAt: Timestamp;
   closedAt?: Timestamp;
   closedBy?: string;
+}
+
+export type StockItemType = "consumable" | "stock" | "plant";
+
+export interface StockItem {
+  id: string;
+  supplierId?: string;
+  supplierName?: string;
+  description: string;
+  lookupKey: string;
+  internalStockNumber: string;
+  supplierPartNumber?: string;
+  category?: string;
+  itemType: StockItemType;
+  quantityOnHand: number;
+  unit?: string;
+  lastReceivedAt?: Timestamp;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
 }
 
 // ============================================

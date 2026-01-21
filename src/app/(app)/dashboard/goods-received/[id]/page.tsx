@@ -5,9 +5,12 @@ import { useParams, useRouter } from "next/navigation";
 import {
   Timestamp,
   collection,
+  getDocs,
   doc,
+  limit,
   onSnapshot,
   query,
+  setDoc,
   updateDoc,
   where,
 } from "firebase/firestore";
@@ -40,6 +43,8 @@ import type {
   GoodsInspectionStatus,
   GoodsReceivedInspection,
   GoodsReceivedItem,
+  StockItem,
+  StockItemType,
 } from "@/lib/types";
 
 const STATUS_LABELS: Record<GoodsInspectionStatus, string> = {
@@ -61,6 +66,7 @@ const CA_STATUS_OPTIONS: Array<NonNullable<CorrectiveAction["status"]>> = [
   "in_progress",
   "closed",
 ];
+const ITEM_TYPE_OPTIONS: StockItemType[] = ["consumable", "stock", "plant"];
 
 const pruneUndefined = (value: unknown): unknown => {
   if (Array.isArray(value)) {
@@ -107,10 +113,19 @@ export default function GoodsReceivedDetailPage() {
     description: "",
     quantity: "",
     unit: "",
+    itemType: "consumable" as StockItemType,
+    stockNumber: "",
+    supplierPartNumber: "",
     batchNumber: "",
     conformance: "conforming" as GoodsConformance,
     notes: "",
   });
+
+  const normalizeLookupKey = (value?: string) =>
+    value ? value.toUpperCase().replace(/[^A-Z0-9]/g, "") : "";
+
+  const buildInternalStockNumber = () =>
+    `ASI-${Date.now().toString().slice(-6)}-${Math.floor(Math.random() * 900 + 100)}`;
 
   useEffect(() => {
     const inspectionRef = doc(db, COLLECTIONS.GOODS_RECEIVED, inspectionId);
@@ -314,6 +329,9 @@ export default function GoodsReceivedDetailPage() {
       {
         id: `item-${Date.now()}`,
         description: newItem.description.trim(),
+        itemType: newItem.itemType,
+        stockNumber: newItem.stockNumber.trim() || undefined,
+        supplierPartNumber: newItem.supplierPartNumber.trim() || undefined,
         quantity,
         unit: newItem.unit.trim() || undefined,
         batchNumber: newItem.batchNumber.trim() || undefined,
@@ -325,6 +343,9 @@ export default function GoodsReceivedDetailPage() {
       description: "",
       quantity: "",
       unit: "",
+      itemType: "consumable",
+      stockNumber: "",
+      supplierPartNumber: "",
       batchNumber: "",
       conformance: "conforming",
       notes: "",
@@ -363,6 +384,66 @@ export default function GoodsReceivedDetailPage() {
         title: "Copy failed",
         description: "Unable to copy the report.",
         variant: "destructive",
+      });
+    }
+  };
+
+  const syncStockItems = async (params: {
+    supplierId: string;
+    supplierName: string;
+    category?: string;
+    receivedAt: Timestamp;
+    items: GoodsReceivedItem[];
+    now: Timestamp;
+  }) => {
+    const { supplierId, supplierName, category: categoryValue, receivedAt, items, now } = params;
+    const stockRef = collection(db, COLLECTIONS.STOCK_ITEMS);
+
+    for (const item of items) {
+      if (item.conformance !== "conforming") continue;
+      const lookupSeed = item.supplierPartNumber || item.stockNumber || item.description;
+      const lookupKey = normalizeLookupKey(lookupSeed);
+      if (!lookupKey) continue;
+
+      const existingQuery = query(
+        stockRef,
+        where("supplierId", "==", supplierId),
+        where("lookupKey", "==", lookupKey),
+        limit(1)
+      );
+      const existingSnap = await getDocs(existingQuery);
+      if (!existingSnap.empty) {
+        const docSnap = existingSnap.docs[0];
+        const existing = docSnap.data() as StockItem;
+        const nextQty = (existing.quantityOnHand || 0) + item.quantity;
+        await updateDoc(docSnap.ref, {
+          quantityOnHand: nextQty,
+          supplierName,
+          category: categoryValue || existing.category || undefined,
+          unit: item.unit || existing.unit || undefined,
+          itemType: item.itemType || existing.itemType || "stock",
+          supplierPartNumber: item.supplierPartNumber || existing.supplierPartNumber || undefined,
+          updatedAt: now,
+          lastReceivedAt: receivedAt,
+        });
+        continue;
+      }
+
+      const internalStockNumber = item.stockNumber?.trim() || buildInternalStockNumber();
+      await setDoc(doc(stockRef), {
+        supplierId,
+        supplierName,
+        description: item.description,
+        lookupKey,
+        internalStockNumber,
+        supplierPartNumber: item.supplierPartNumber?.trim() || undefined,
+        category: categoryValue || undefined,
+        itemType: item.itemType || "stock",
+        quantityOnHand: item.quantity,
+        unit: item.unit || undefined,
+        lastReceivedAt: receivedAt,
+        createdAt: now,
+        updatedAt: now,
       });
     }
   };
@@ -418,6 +499,13 @@ export default function GoodsReceivedDetailPage() {
       };
     }
 
+    const shouldApplyStock =
+      !inspection.stockAppliedAt &&
+      updatedStatus !== "draft" &&
+      Boolean(decision) &&
+      decision !== "rejected" &&
+      items.length > 0;
+
     setSaving(true);
     try {
       const supplier = supplierId
@@ -439,6 +527,10 @@ export default function GoodsReceivedDetailPage() {
           shippingDocs,
           packingList: packingListDocs,
         },
+        stockAppliedAt: shouldApplyStock ? now : inspection.stockAppliedAt || undefined,
+        stockAppliedBy: shouldApplyStock
+          ? user?.name || user?.email || user?.uid
+          : inspection.stockAppliedBy || undefined,
         updatedAt: now,
         closedAt: updatedStatus === "closed" ? now : inspection.closedAt || undefined,
         closedBy:
@@ -456,6 +548,18 @@ export default function GoodsReceivedDetailPage() {
         doc(db, COLLECTIONS.GOODS_RECEIVED, inspection.id),
         payload as Record<string, any>
       );
+
+      if (shouldApplyStock && supplierId && resolvedSupplierName) {
+        await syncStockItems({
+          supplierId,
+          supplierName: resolvedSupplierName,
+          category: category || undefined,
+          receivedAt: receivedTimestamp || now,
+          items,
+          now,
+        });
+      }
+
       setStatus(updatedStatus);
       toast({
         title: "Inspection saved",
@@ -598,7 +702,7 @@ export default function GoodsReceivedDetailPage() {
           <CardTitle>Received Items</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-3 md:grid-cols-6">
+          <div className="grid gap-3 md:grid-cols-8">
             <div className="md:col-span-2">
               <Label>Description *</Label>
               <Input
@@ -606,6 +710,26 @@ export default function GoodsReceivedDetailPage() {
                 onChange={(e) => setNewItem({ ...newItem, description: e.target.value })}
                 placeholder="Item description"
               />
+            </div>
+            <div>
+              <Label>Type</Label>
+              <Select
+                value={newItem.itemType}
+                onValueChange={(val) =>
+                  setNewItem({ ...newItem, itemType: val as StockItemType })
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {ITEM_TYPE_OPTIONS.map((value) => (
+                    <SelectItem key={value} value={value}>
+                      {value.replace("_", " ")}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div>
               <Label>Quantity *</Label>
@@ -620,6 +744,23 @@ export default function GoodsReceivedDetailPage() {
               <Input
                 value={newItem.unit}
                 onChange={(e) => setNewItem({ ...newItem, unit: e.target.value })}
+              />
+            </div>
+            <div className="md:col-span-2">
+              <Label>Supplier Part/Stock No.</Label>
+              <Input
+                value={newItem.supplierPartNumber}
+                onChange={(e) =>
+                  setNewItem({ ...newItem, supplierPartNumber: e.target.value })
+                }
+              />
+            </div>
+            <div>
+              <Label>ASI Stock No.</Label>
+              <Input
+                value={newItem.stockNumber}
+                onChange={(e) => setNewItem({ ...newItem, stockNumber: e.target.value })}
+                placeholder="Optional"
               />
             </div>
             <div>
@@ -649,7 +790,7 @@ export default function GoodsReceivedDetailPage() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="md:col-span-6">
+            <div className="md:col-span-8">
               <Label>Notes</Label>
               <Textarea
                 value={newItem.notes}
@@ -657,7 +798,7 @@ export default function GoodsReceivedDetailPage() {
                 placeholder="Inspection notes (optional)"
               />
             </div>
-            <div className="md:col-span-6">
+            <div className="md:col-span-8">
               <Button onClick={handleAddItem} variant="outline">
                 <Plus className="mr-2 h-4 w-4" />
                 Add Item
@@ -671,13 +812,33 @@ export default function GoodsReceivedDetailPage() {
             <div className="space-y-3">
               {items.map((item) => (
                 <Card key={item.id} className="bg-background/60 border-border/30">
-                  <CardContent className="grid gap-3 md:grid-cols-6 py-4">
+                  <CardContent className="grid gap-3 md:grid-cols-8 py-4">
                     <div className="md:col-span-2">
                       <Label>Description</Label>
                       <Input
                         value={item.description}
                         onChange={(e) => updateItem(item.id, { description: e.target.value })}
                       />
+                    </div>
+                    <div>
+                      <Label>Type</Label>
+                      <Select
+                        value={item.itemType || "consumable"}
+                        onValueChange={(val) =>
+                          updateItem(item.id, { itemType: val as StockItemType })
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {ITEM_TYPE_OPTIONS.map((value) => (
+                            <SelectItem key={value} value={value}>
+                              {value.replace("_", " ")}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
                     <div>
                       <Label>Qty</Label>
@@ -694,6 +855,22 @@ export default function GoodsReceivedDetailPage() {
                       <Input
                         value={item.unit || ""}
                         onChange={(e) => updateItem(item.id, { unit: e.target.value })}
+                      />
+                    </div>
+                    <div className="md:col-span-2">
+                      <Label>Supplier Part/Stock No.</Label>
+                      <Input
+                        value={item.supplierPartNumber || ""}
+                        onChange={(e) =>
+                          updateItem(item.id, { supplierPartNumber: e.target.value })
+                        }
+                      />
+                    </div>
+                    <div>
+                      <Label>ASI Stock No.</Label>
+                      <Input
+                        value={item.stockNumber || ""}
+                        onChange={(e) => updateItem(item.id, { stockNumber: e.target.value })}
                       />
                     </div>
                     <div>
@@ -723,7 +900,7 @@ export default function GoodsReceivedDetailPage() {
                         </SelectContent>
                       </Select>
                     </div>
-                    <div className="md:col-span-5">
+                    <div className="md:col-span-7">
                       <Label>Notes</Label>
                       <Textarea
                         value={item.notes || ""}
