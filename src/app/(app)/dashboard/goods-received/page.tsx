@@ -13,7 +13,7 @@ import {
   query,
   where,
 } from "firebase/firestore";
-import { ClipboardCheck, Plus, Trash2 } from "lucide-react";
+import { AlertTriangle, Boxes, ClipboardCheck, PackageCheck, Plus, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -21,6 +21,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select,
   SelectContent,
@@ -44,6 +45,7 @@ import type {
   ContactOrganization,
   GoodsReceivedInspection,
   GoodsInspectionStatus,
+  StockItem,
 } from "@/lib/types";
 
 const STATUS_LABELS: Record<GoodsInspectionStatus, string> = {
@@ -70,6 +72,7 @@ export default function GoodsReceivedPage() {
   const { user } = useAuth();
   const { toast } = useToast();
   const [inspections, setInspections] = useState<GoodsReceivedInspection[]>([]);
+  const [stockItems, setStockItems] = useState<StockItem[]>([]);
   const [suppliers, setSuppliers] = useState<ContactOrganization[]>([]);
   const [showNewDialog, setShowNewDialog] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -95,6 +98,22 @@ export default function GoodsReceivedPage() {
         ...(docSnap.data() as Omit<GoodsReceivedInspection, "id">),
       }));
       setInspections(loaded);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    const stockQuery = query(
+      collection(db, COLLECTIONS.STOCK_ITEMS),
+      orderBy("supplierName", "asc"),
+      orderBy("description", "asc")
+    );
+    const unsubscribe = onSnapshot(stockQuery, (snapshot) => {
+      const loaded = snapshot.docs.map((docSnap) => ({
+        id: docSnap.id,
+        ...(docSnap.data() as Omit<StockItem, "id">),
+      }));
+      setStockItems(loaded);
     });
     return () => unsubscribe();
   }, []);
@@ -223,6 +242,25 @@ export default function GoodsReceivedPage() {
     );
   }, [inspections, searchQuery]);
 
+  const lowStock = useMemo(
+    () =>
+      stockItems.filter(
+        (item) =>
+          item.itemType !== "plant" && (item.quantityOnHand ?? 0) <= 3
+      ),
+    [stockItems]
+  );
+
+  const stockSuppliers = useMemo(() => {
+    const grouped = new Map<string, StockItem[]>();
+    stockItems.forEach((item) => {
+      const key = item.supplierName || "Unknown supplier";
+      if (!grouped.has(key)) grouped.set(key, []);
+      grouped.get(key)!.push(item);
+    });
+    return Array.from(grouped.entries()).sort(([a], [b]) => a.localeCompare(b));
+  }, [stockItems]);
+
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
@@ -240,80 +278,176 @@ export default function GoodsReceivedPage() {
         </Button>
       </div>
 
-      <Card className="bg-card/50 backdrop-blur-lg border-border/20">
-        <CardHeader>
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div>
-              <CardTitle>Inspection Register</CardTitle>
-              <p className="text-sm text-muted-foreground">
-                {totals.total} inspection{totals.total !== 1 && "s"} logged • {totals.open} open
-              </p>
-            </div>
-            <div className="w-full md:max-w-xs">
-              <Input
-                placeholder="Search by supplier or PO number..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
-            </div>
+      <Tabs defaultValue="stock" className="space-y-6">
+        <TabsList>
+          <TabsTrigger value="stock">Stock dashboard</TabsTrigger>
+          <TabsTrigger value="inspections">Inspection register</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="stock" className="space-y-6">
+          <div className="grid gap-4 md:grid-cols-3">
+            <Card className="bg-card/50 backdrop-blur-lg border-border/20">
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-2 text-sm font-medium">
+                  <Boxes className="h-4 w-4 text-primary" />
+                  Items tracked
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{stockItems.length}</div>
+              </CardContent>
+            </Card>
+            <Card className="bg-card/50 backdrop-blur-lg border-border/20">
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-2 text-sm font-medium">
+                  <AlertTriangle className="h-4 w-4 text-amber-400" />
+                  Low stock alerts
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{lowStock.length}</div>
+              </CardContent>
+            </Card>
+            <Card className="bg-card/50 backdrop-blur-lg border-border/20">
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-2 text-sm font-medium">
+                  <PackageCheck className="h-4 w-4 text-emerald-400" />
+                  Suppliers
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{stockSuppliers.length}</div>
+              </CardContent>
+            </Card>
           </div>
-          <p className="text-sm text-muted-foreground">
-            {filteredInspections.length} result{filteredInspections.length !== 1 && "s"}
-          </p>
-        </CardHeader>
-        <CardContent>
-          {filteredInspections.length === 0 ? (
-            <div className="text-center py-12 text-muted-foreground">
-              <ClipboardCheck className="mx-auto h-12 w-12 mb-4 opacity-50" />
-              <p>No goods inspections yet. Create the first one to get started.</p>
-            </div>
+
+          {stockSuppliers.length === 0 ? (
+            <Card className="bg-card/50 backdrop-blur-lg border-border/20">
+              <CardContent className="p-10 text-center text-muted-foreground">
+                No stock items logged yet. Complete a goods inspection to populate the register.
+              </CardContent>
+            </Card>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>PO Number</TableHead>
-                  <TableHead>Supplier</TableHead>
-                  <TableHead>Category</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Updated</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredInspections.map((inspection) => (
-                  <TableRow key={inspection.id}>
-                    <TableCell className="font-medium">{inspection.poNumber}</TableCell>
-                    <TableCell>{inspection.supplierName}</TableCell>
-                    <TableCell>{inspection.category || "-"}</TableCell>
-                    <TableCell>
-                      <Badge className={STATUS_BADGE[inspection.status]}>
-                        {STATUS_LABELS[inspection.status]}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>{formatDate(inspection.updatedAt)}</TableCell>
-                    <TableCell className="text-right space-x-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => router.push(`/dashboard/goods-received/${inspection.id}`)}
-                      >
-                        Open
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => setInspectionToDelete(inspection)}
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+            <div className="space-y-6">
+              {stockSuppliers.map(([supplierName, supplierItems]) => (
+                <Card key={supplierName} className="bg-card/50 backdrop-blur-lg border-border/20">
+                  <CardHeader>
+                    <CardTitle className="text-base">{supplierName}</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {supplierItems.map((item) => {
+                      const isLow = item.itemType !== "plant" && item.quantityOnHand <= 3;
+                      return (
+                        <div
+                          key={item.id}
+                          className="flex flex-col gap-2 rounded-lg border border-border/40 bg-background/60 p-3 md:flex-row md:items-center md:justify-between"
+                        >
+                          <div>
+                            <div className="font-medium">{item.description}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {item.internalStockNumber}
+                              {item.supplierPartNumber ? ` - ${item.supplierPartNumber}` : ""}
+                              {item.category ? ` - ${item.category}` : ""}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-3 text-sm">
+                            <Badge variant="secondary">{item.itemType}</Badge>
+                            <span className={isLow ? "text-amber-400 font-semibold" : ""}>
+                              {item.quantityOnHand} {item.unit || ""}
+                            </span>
+                            {isLow ? (
+                              <Badge className="bg-amber-500/20 text-amber-400 border-amber-500/40">
+                                Low stock
+                              </Badge>
+                            ) : null}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
           )}
-        </CardContent>
-      </Card>
+        </TabsContent>
+
+        <TabsContent value="inspections">
+          <Card className="bg-card/50 backdrop-blur-lg border-border/20">
+            <CardHeader>
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <CardTitle>Inspection Register</CardTitle>
+                  <p className="text-sm text-muted-foreground">
+                    {totals.total} inspection{totals.total !== 1 && "s"} logged - {totals.open} open
+                  </p>
+                </div>
+                <div className="w-full md:max-w-xs">
+                  <Input
+                    placeholder="Search by supplier or PO number..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                  />
+                </div>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                {filteredInspections.length} result{filteredInspections.length !== 1 && "s"}
+              </p>
+            </CardHeader>
+            <CardContent>
+              {filteredInspections.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground">
+                  <ClipboardCheck className="mx-auto h-12 w-12 mb-4 opacity-50" />
+                  <p>No goods inspections yet. Create the first one to get started.</p>
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>PO Number</TableHead>
+                      <TableHead>Supplier</TableHead>
+                      <TableHead>Category</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Updated</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredInspections.map((inspection) => (
+                      <TableRow key={inspection.id}>
+                        <TableCell className="font-medium">{inspection.poNumber}</TableCell>
+                        <TableCell>{inspection.supplierName}</TableCell>
+                        <TableCell>{inspection.category || "-"}</TableCell>
+                        <TableCell>
+                          <Badge className={STATUS_BADGE[inspection.status]}>
+                            {STATUS_LABELS[inspection.status]}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>{formatDate(inspection.updatedAt)}</TableCell>
+                        <TableCell className="text-right space-x-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => router.push(`/dashboard/goods-received/${inspection.id}`)}
+                          >
+                            Open
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => setInspectionToDelete(inspection)}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
 
       <Dialog open={showNewDialog} onOpenChange={setShowNewDialog}>
         <DialogContent className="max-w-md">
