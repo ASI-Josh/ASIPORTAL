@@ -266,7 +266,7 @@ export default function GoodsReceivedPage() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-3xl font-headline font-bold tracking-tight">
-            Goods Received (ISO 9001)
+            Stock Control
           </h2>
           <p className="text-muted-foreground">
             Log and track goods inspections, non-conformance, and corrective actions.
