@@ -156,6 +156,13 @@ export default function ImsHubPage() {
                     <ClipboardCheck className="h-4 w-4 text-primary" />
                     Daily Prestart Checklist
                   </Link>
+                  <Link
+                    href="/dashboard/ims/doc-manager/chat"
+                    className="flex items-center gap-2"
+                  >
+                    <FileText className="h-4 w-4 text-primary" />
+                    Doc Manager Chat (Admin)
+                  </Link>
                   <Link href="/dashboard/ims/doc-manager" className="flex items-center gap-2">
                     <FileText className="h-4 w-4 text-primary" />
                     Doc Manager (Admin)
