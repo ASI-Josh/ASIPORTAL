@@ -24,4 +24,6 @@ export const COLLECTIONS = {
   FLEET_VEHICLES: "fleetVehicles",
   STOCK_ITEMS: "stockItems",
   PRESTART_CHECKS: "prestartChecks",
+  IMS_DOCUMENTS: "imsDocuments",
+  IMS_DOCUMENT_COUNTERS: "imsDocumentCounters",
 } as const;

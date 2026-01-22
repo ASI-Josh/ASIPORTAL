@@ -45,5 +45,15 @@ service firebase.storage {
     match /goods-received/{allPaths=**} {
       allow read, write: if isStaff();
     }
+
+    match /ims-documents/{docId}/{revisionId}/{fileName} {
+      allow read: if signedIn()
+        && (isAdminEmail()
+          || userRole() == "admin"
+          || (isStaff()
+            && firestore.get(/databases/(default)/documents/imsDocuments/$(docId)/revisions/$(revisionId))
+              .data.isCurrent == true));
+      allow write: if signedIn() && (isAdminEmail() || userRole() == "admin");
+    }
   }
 }

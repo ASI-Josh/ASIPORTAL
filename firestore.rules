@@ -167,6 +167,25 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    match /imsDocuments/{docId} {
+      allow read: if isStaff();
+      allow create: if isAdmin();
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+
+      match /revisions/{revisionId} {
+        allow read: if isAdmin() || (isStaff() && resource.data.isCurrent == true);
+        allow create: if isAdmin();
+        allow update: if isAdmin();
+        allow delete: if isAdmin();
+      }
+    }
+
+    match /imsDocumentCounters/{counterId} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+
     match /stockItems/{itemId} {
       allow read: if isStaff();
       allow create: if isStaff();

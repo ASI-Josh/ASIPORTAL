@@ -58,7 +58,9 @@ export function isAuthorizedForRoute(role: UserRole, path: string): boolean {
       path.startsWith("/technician") ||
       path.startsWith("/dashboard/jobs") ||
       path.startsWith("/dashboard/calendar") ||
-      path.startsWith("/dashboard/inspections")
+      path.startsWith("/dashboard/inspections") ||
+      path.startsWith("/dashboard/daily-prestart") ||
+      path.startsWith("/dashboard/ims")
     );
   }
 

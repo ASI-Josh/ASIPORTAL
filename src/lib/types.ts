@@ -558,6 +558,90 @@ export interface PrestartCheck {
 }
 
 // ============================================
+// IMS DOCUMENT CONTROL
+// ============================================
+
+export type IMSDocumentType =
+  | "policy"
+  | "manual"
+  | "ims_procedure"
+  | "technical_procedure"
+  | "work_instruction"
+  | "form"
+  | "register";
+
+export type IMSDocumentStatus = "draft" | "active" | "obsolete";
+export type IMSRevisionStatus = "draft" | "issued" | "obsolete";
+
+export interface IMSDocumentFile {
+  name: string;
+  path: string;
+  contentType?: string;
+  size?: number;
+}
+
+export interface IMSAgentDraftOutput {
+  metadata: {
+    docId: string;
+    title: string;
+    type: IMSDocumentType;
+    status: string;
+    revision: string;
+    issueDate: string;
+    processOwner: string;
+    isoClauses: string[];
+    relatedDocs: string[];
+  };
+  sections: Array<{
+    title: string;
+    content: string;
+  }>;
+  changeSummary: string[];
+  adminIssuanceChecklist: string[];
+  questions: string[];
+}
+
+export interface IMSDocumentRevision {
+  id: string;
+  revisionNumber: number;
+  issueDate: Timestamp;
+  status: IMSRevisionStatus;
+  summary?: string;
+  file?: IMSDocumentFile;
+  draftOutput?: IMSAgentDraftOutput;
+  source?: "agent" | "manual";
+  isCurrent: boolean;
+  createdAt: Timestamp;
+  createdById: string;
+  createdByName: string;
+  createdByEmail?: string;
+  approvedBy?: string;
+}
+
+export interface IMSDocument {
+  id: string;
+  docNumber: string;
+  title: string;
+  docType: IMSDocumentType;
+  status: IMSDocumentStatus;
+  owner?: {
+    id: string;
+    name: string;
+    email?: string;
+  };
+  isoClauses?: string[];
+  currentRevisionId?: string;
+  currentRevisionNumber?: number;
+  currentIssueDate?: Timestamp;
+  currentFile?: IMSDocumentFile;
+  createdAt: Timestamp;
+  createdById: string;
+  createdByName: string;
+  createdByEmail?: string;
+  updatedAt: Timestamp;
+}
+
+// ============================================
 // CRM & SALES PIPELINE
 // ============================================
 

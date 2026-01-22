@@ -5,10 +5,32 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 const IMS_PROCEDURES = [
+  "Context & Interested Parties",
+  "Scope & Process Mapping",
+  "Leadership & Commitment",
+  "Risk & Opportunity Management",
+  "Quality Objectives & Planning",
   "Document Control",
-  "Corrective Action",
+  "Control of Records",
+  "Competence, Training & Awareness",
+  "Communication",
+  "Operational Planning & Control",
+  "Customer Requirements Review",
+  "Design & Development (if applicable)",
+  "Control of External Providers",
+  "Production & Service Provision",
+  "Identification & Traceability",
+  "Property Belonging to Customers",
+  "Preservation & Handling",
+  "Monitoring & Measurement Resources",
+  "Release of Products & Services",
+  "Nonconforming Outputs",
+  "Performance Evaluation & KPI Review",
   "Internal Audit",
   "Management Review",
+  "Corrective Action",
+  "Continual Improvement",
+  "Change Management",
 ];
 
 const TECHNICAL_PROCEDURES = [
@@ -16,6 +38,7 @@ const TECHNICAL_PROCEDURES = [
   "Scratch Removal",
   "Trim Repair",
   "Film Installation",
+  "Lens Restoration",
 ];
 
 export default function ImsHubPage() {
@@ -94,6 +117,10 @@ export default function ImsHubPage() {
                   <CardTitle className="text-base">Registers</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-2 text-sm">
+                  <Link href="/dashboard/ims/documents" className="flex items-center gap-2">
+                    <FileText className="h-4 w-4 text-primary" />
+                    Document Register
+                  </Link>
                   <Link href="/dashboard/works-register" className="flex items-center gap-2">
                     <FileText className="h-4 w-4 text-primary" />
                     Works Register
@@ -109,6 +136,10 @@ export default function ImsHubPage() {
                     <FileText className="h-4 w-4 text-primary" />
                     Goods Received Register
                   </Link>
+                  <div className="flex items-center justify-between">
+                    <span>Corrective Action Register</span>
+                    <Badge variant="secondary">Draft</Badge>
+                  </div>
                 </CardContent>
               </Card>
 
@@ -120,6 +151,10 @@ export default function ImsHubPage() {
                   <Link href="/dashboard/daily-prestart" className="flex items-center gap-2">
                     <ClipboardCheck className="h-4 w-4 text-primary" />
                     Daily Prestart Checklist
+                  </Link>
+                  <Link href="/dashboard/ims/doc-manager" className="flex items-center gap-2">
+                    <FileText className="h-4 w-4 text-primary" />
+                    Doc Manager (Admin)
                   </Link>
                   <div className="flex items-center justify-between">
                     <span>Corrective Action Form</span>
