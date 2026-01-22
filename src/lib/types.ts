@@ -58,6 +58,7 @@ export type JobLifecycleStage = "rfq" | "job_scheduled" | "job_live" | "job_comp
 
 export type BookingType = 
   | "windscreen_crack_chip_repair"
+  | "windscreen_replacement"
   | "scratch_graffiti_removal"
   | "film_installation"
   | "trim_restoration_interior"
@@ -66,6 +67,7 @@ export type BookingType =
 
 export const BOOKING_TYPE_LABELS: Record<BookingType, string> = {
   windscreen_crack_chip_repair: "Windscreen Crack/Chip Repair",
+  windscreen_replacement: "Windscreen Replacement",
   scratch_graffiti_removal: "Scratch/Graffiti Removal",
   film_installation: "Film Installation",
   trim_restoration_interior: "Trim Restoration (Interior)",
