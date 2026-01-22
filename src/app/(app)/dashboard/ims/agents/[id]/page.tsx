@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import type { DocumentReference } from "firebase/firestore";
 import { Timestamp, doc, onSnapshot, updateDoc } from "firebase/firestore";
 import { ArrowLeft, Bot, Save, ShieldAlert } from "lucide-react";
 
@@ -148,8 +149,13 @@ export default function AgentRegistryDetailPage() {
         capabilities: capabilities.length > 0 ? capabilities : undefined,
         notes: form.notes.trim() || undefined,
         updatedAt: now,
-      }) as Record<string, unknown>;
-      await updateDoc(doc(db, COLLECTIONS.AUTOMATION_AGENTS, agent.id), payload);
+      }) as Partial<AutomationAgent>;
+      const agentRef = doc(
+        db,
+        COLLECTIONS.AUTOMATION_AGENTS,
+        agent.id
+      ) as DocumentReference<AutomationAgent>;
+      await updateDoc(agentRef, payload);
       toast({
         title: "Agent updated",
         description: "Registry details saved.",

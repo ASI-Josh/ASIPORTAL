@@ -86,6 +86,38 @@ const pruneUndefined = (value: unknown): unknown => {
   );
 };
 
+const buildAgentTemplate = ({
+  title,
+  docType,
+  processOwner,
+  isoClauses,
+  relatedDocs,
+}: {
+  title: string;
+  docType: IMSDocumentType;
+  processOwner: string;
+  isoClauses: string;
+  relatedDocs: string;
+}) =>
+  [
+    `Document title: ${title || "TBD"}`,
+    `Document type: ${docType}`,
+    `Process owner: ${processOwner || "TBD"}`,
+    `ISO clauses: ${isoClauses || "TBD"}`,
+    `Related documents: ${relatedDocs || "None"}`,
+    "",
+    "Purpose:",
+    "Scope:",
+    "Inputs/outputs:",
+    "Records produced:",
+    "Key risks/controls:",
+    "Verification/monitoring:",
+    "Tools/equipment/systems:",
+    "Process steps (high level):",
+    "Responsibilities:",
+    "Notes/constraints:",
+  ].join("\n");
+
 export default function DocManagerDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -111,6 +143,7 @@ export default function DocManagerDetailPage() {
   const [agentBrief, setAgentBrief] = useState("");
   const [agentIssueDate, setAgentIssueDate] = useState(buildLocalDateString());
   const [agentProcessOwner, setAgentProcessOwner] = useState("");
+  const [agentRelatedDocs, setAgentRelatedDocs] = useState("");
   const [agentRevision, setAgentRevision] = useState("");
   const [agentWorking, setAgentWorking] = useState(false);
   const [latestDraft, setLatestDraft] = useState<IMSDocumentRevision | null>(null);
@@ -190,7 +223,10 @@ export default function DocManagerDetailPage() {
   }, [agentRevision, nextRevisionNumber]);
 
   useEffect(() => {
-    const draft = revisions.find((revision) => Boolean(revision.draftOutput));
+    const draft = revisions.find(
+      (revision) =>
+        Boolean(revision.draftOutput) && (!revision.source || revision.source === "agent")
+    );
     setLatestDraft(draft || null);
   }, [revisions]);
 
@@ -355,6 +391,10 @@ export default function DocManagerDetailPage() {
         .split(",")
         .map((value) => value.trim())
         .filter(Boolean);
+      const relatedDocs = agentRelatedDocs
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean);
       const result = await generateImsDocumentDraftAction({
         docNumber: docRecord.docNumber,
         title: metadata.title.trim() || docRecord.title,
@@ -363,8 +403,8 @@ export default function DocManagerDetailPage() {
         issueDate: agentIssueDate,
         processOwner: agentProcessOwner,
         isoClauses,
-        relatedDocs: [],
-        brief: agentBrief,
+        relatedDocs,
+        brief: agentBrief.trim(),
       });
       const now = Timestamp.now();
       const revisionNumber = Number.parseInt(agentRevision, 10) || nextRevisionNumber;
@@ -378,6 +418,7 @@ export default function DocManagerDetailPage() {
         status: "draft",
         summary: "AI draft generated",
         draftOutput,
+        draftPrompt: agentBrief.trim() || undefined,
         isCurrent: false,
         source: "agent",
         createdAt: now,
@@ -592,69 +633,129 @@ export default function DocManagerDetailPage() {
 
       <Card className="bg-card/50 backdrop-blur">
         <CardHeader>
-          <CardTitle>Generate AI draft</CardTitle>
+          <CardTitle>Agent workspace</CardTitle>
         </CardHeader>
-        <CardContent className="grid gap-4 md:grid-cols-3">
-          <div className="grid gap-2">
-            <Label>Draft revision</Label>
-            <Input
-              value={agentRevision}
-              onChange={(event) => setAgentRevision(event.target.value)}
-            />
+        <CardContent className="grid gap-6 lg:grid-cols-2">
+          <div className="space-y-4">
+            <div className="rounded-lg border border-border/40 bg-background/60 p-4 space-y-3">
+              <div className="text-sm font-semibold">Draft settings</div>
+              <div className="grid gap-3 md:grid-cols-3">
+                <div className="grid gap-2">
+                  <Label>Draft revision</Label>
+                  <Input
+                    value={agentRevision}
+                    onChange={(event) => setAgentRevision(event.target.value)}
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label>Issue date</Label>
+                  <Input
+                    type="date"
+                    value={agentIssueDate}
+                    onChange={(event) => setAgentIssueDate(event.target.value)}
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label>Process owner</Label>
+                  <Input
+                    value={agentProcessOwner}
+                    onChange={(event) => setAgentProcessOwner(event.target.value)}
+                  />
+                </div>
+              </div>
+              <div className="grid gap-2">
+                <Label>Related documents (comma-separated)</Label>
+                <Input
+                  value={agentRelatedDocs}
+                  onChange={(event) => setAgentRelatedDocs(event.target.value)}
+                  placeholder="IMS-PROC-001, POL-002"
+                />
+              </div>
+            </div>
+            <div className="rounded-lg border border-border/40 bg-background/60 p-4 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="text-sm font-semibold">Your instruction</div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      setAgentBrief(
+                        buildAgentTemplate({
+                          title: metadata.title.trim() || docRecord.title,
+                          docType: metadata.docType,
+                          processOwner: agentProcessOwner,
+                          isoClauses: metadata.isoClauses,
+                          relatedDocs: agentRelatedDocs,
+                        })
+                      )
+                    }
+                  >
+                    Insert template
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setAgentBrief("")}
+                  >
+                    Clear
+                  </Button>
+                </div>
+              </div>
+              <Textarea
+                value={agentBrief}
+                onChange={(event) => setAgentBrief(event.target.value)}
+                placeholder="Tell the agent what to draft (purpose, scope, records, risks, verification, tools)."
+                rows={10}
+              />
+              <div className="text-xs text-muted-foreground">
+                This instruction is stored with the draft for traceability.
+              </div>
+            </div>
+            <div className="flex justify-end">
+              <Button onClick={handleGenerateDraft} disabled={agentWorking}>
+                {agentWorking ? "Generating..." : "Generate draft with agent"}
+              </Button>
+            </div>
           </div>
-          <div className="grid gap-2">
-            <Label>Issue date</Label>
-            <Input
-              type="date"
-              value={agentIssueDate}
-              onChange={(event) => setAgentIssueDate(event.target.value)}
-            />
-          </div>
-          <div className="grid gap-2">
-            <Label>Process owner</Label>
-            <Input
-              value={agentProcessOwner}
-              onChange={(event) => setAgentProcessOwner(event.target.value)}
-            />
-          </div>
-          <div className="grid gap-2 md:col-span-3">
-            <Label>Agent brief (include purpose, scope, records, risks, verification)</Label>
-            <Textarea
-              value={agentBrief}
-              onChange={(event) => setAgentBrief(event.target.value)}
-              placeholder="Provide the required inputs so the agent can draft the document."
-              rows={6}
-            />
-          </div>
-          <div className="md:col-span-3 flex justify-end">
-            <Button onClick={handleGenerateDraft} disabled={agentWorking}>
-              {agentWorking ? "Generating..." : "Generate draft with agent"}
-            </Button>
+          <div className="space-y-4">
+            <div className="rounded-lg border border-border/40 bg-background/60 p-4 space-y-3">
+              <div className="text-sm font-semibold">Agent response</div>
+              {latestDraft?.draftOutput ? (
+                <>
+                  {latestDraft.draftPrompt ? (
+                    <div className="space-y-2">
+                      <div className="text-xs uppercase text-muted-foreground">You</div>
+                      <Textarea readOnly rows={6} value={latestDraft.draftPrompt} />
+                    </div>
+                  ) : null}
+                  {latestDraft.draftOutput.questions?.length ? (
+                    <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-200">
+                      {latestDraft.draftOutput.questions.map((question) => (
+                        <div key={question}>- {question}</div>
+                      ))}
+                    </div>
+                  ) : null}
+                  <div className="space-y-2">
+                    <div className="text-xs uppercase text-muted-foreground">Agent draft (JSON)</div>
+                    <Textarea
+                      readOnly
+                      rows={14}
+                      value={JSON.stringify(latestDraft.draftOutput, null, 2)}
+                    />
+                  </div>
+                </>
+              ) : (
+                <div className="text-sm text-muted-foreground">
+                  No agent draft yet. Use the instruction panel to generate one.
+                </div>
+              )}
+            </div>
           </div>
         </CardContent>
       </Card>
-
-      {latestDraft?.draftOutput ? (
-        <Card className="bg-card/50 backdrop-blur">
-          <CardHeader>
-            <CardTitle>Latest agent draft</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {latestDraft.draftOutput.questions?.length ? (
-              <div className="text-sm text-amber-400">
-                {latestDraft.draftOutput.questions.map((question) => (
-                  <div key={question}>• {question}</div>
-                ))}
-              </div>
-            ) : null}
-            <Textarea
-              readOnly
-              rows={12}
-              value={JSON.stringify(latestDraft.draftOutput, null, 2)}
-            />
-          </CardContent>
-        </Card>
-      ) : null}
 
       <Card className="bg-card/50 backdrop-blur">
         <CardHeader>

@@ -609,6 +609,7 @@ export interface IMSDocumentRevision {
   summary?: string;
   file?: IMSDocumentFile;
   draftOutput?: IMSAgentDraftOutput;
+  draftPrompt?: string;
   source?: "agent" | "manual";
   isCurrent: boolean;
   createdAt: Timestamp;
