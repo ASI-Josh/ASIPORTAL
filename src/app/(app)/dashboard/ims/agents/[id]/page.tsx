@@ -48,6 +48,20 @@ const statusBadge = (status: AutomationAgentStatus) => {
   }
 };
 
+const pruneUndefined = (value: unknown): unknown => {
+  if (value instanceof Timestamp) return value;
+  if (Array.isArray(value)) {
+    return value.map(pruneUndefined);
+  }
+  if (!value || typeof value !== "object") return value;
+  const record = value as Record<string, unknown>;
+  return Object.fromEntries(
+    Object.entries(record)
+      .filter(([, val]) => val !== undefined)
+      .map(([key, val]) => [key, pruneUndefined(val)])
+  );
+};
+
 export default function AgentRegistryDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -122,7 +136,7 @@ export default function AgentRegistryDetailPage() {
         .split(",")
         .map((value) => value.trim())
         .filter(Boolean);
-      await updateDoc(doc(db, COLLECTIONS.AUTOMATION_AGENTS, agent.id), {
+      const payload = pruneUndefined({
         name: form.name.trim(),
         type: form.type,
         status: form.status,
@@ -134,7 +148,8 @@ export default function AgentRegistryDetailPage() {
         capabilities: capabilities.length > 0 ? capabilities : undefined,
         notes: form.notes.trim() || undefined,
         updatedAt: now,
-      });
+      }) as Record<string, unknown>;
+      await updateDoc(doc(db, COLLECTIONS.AUTOMATION_AGENTS, agent.id), payload);
       toast({
         title: "Agent updated",
         description: "Registry details saved.",
