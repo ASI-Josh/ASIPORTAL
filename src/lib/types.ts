@@ -493,6 +493,71 @@ export interface StockItem {
 }
 
 // ============================================
+// DAILY PRESTART CHECKS (ISO 9001)
+// ============================================
+
+export type PrestartIssueStatus = "open" | "in_progress" | "closed";
+export type PrestartIssueCategory = "tools" | "consumables" | "devices" | "vehicle" | "other";
+
+export interface PrestartIssue {
+  id: string;
+  title: string;
+  description?: string;
+  category?: PrestartIssueCategory;
+  status: PrestartIssueStatus;
+  assignedToId?: string;
+  assignedToName?: string;
+  assignedToEmail?: string;
+  dueDate?: Timestamp;
+  createdAt: Timestamp;
+  createdById: string;
+  createdByName: string;
+  createdByEmail?: string;
+  closureNotes?: string;
+  closedAt?: Timestamp;
+  closedBy?: string;
+}
+
+export interface PrestartChecklist {
+  toolsReady: boolean;
+  toolsNotes?: string;
+  consumablesReady: boolean;
+  consumablesNotes?: string;
+  devicesCharged: boolean;
+  devicesNotes?: string;
+  vehicleSafety: {
+    tyresOk: boolean;
+    lightsOk: boolean;
+    fluidsOk: boolean;
+    safetyEquipmentOk: boolean;
+    registrationOk: boolean;
+    cabCleanOk: boolean;
+  };
+  vehicleNotes?: string;
+  kits: {
+    crackRepairKit: boolean;
+    scratchRemovalKit: boolean;
+    trimRepairKit: boolean;
+    filmInstallationKit: boolean;
+  };
+  kitNotes?: string;
+}
+
+export interface PrestartCheck {
+  id: string;
+  prestartDate: string;
+  status: "completed" | "draft";
+  checklist: PrestartChecklist;
+  issues: PrestartIssue[];
+  notes?: string;
+  createdAt: Timestamp;
+  createdById: string;
+  createdByName: string;
+  createdByEmail?: string;
+  updatedAt: Timestamp;
+}
+
+// ============================================
 // CRM & SALES PIPELINE
 // ============================================
 

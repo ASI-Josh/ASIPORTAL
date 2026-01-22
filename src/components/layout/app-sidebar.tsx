@@ -21,6 +21,7 @@ import {
   GitBranch,
   Wrench,
   Trash2,
+  Layers,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import {
@@ -52,10 +53,12 @@ const adminMenuItems = [
   { href: "/dashboard/job-lifecycle", label: "Job Lifecycle", icon: GitBranch },
   { href: "/dashboard/inspections", label: "Inspections", icon: ClipboardCheck },
   { href: "/dashboard/goods-received", label: "Stock Control", icon: ClipboardCheck },
+  { href: "/dashboard/daily-prestart", label: "Daily Prestart", icon: ClipboardCheck },
   { href: "/dashboard/calendar", label: "Calendar", icon: Calendar },
   { href: "/dashboard/contacts", label: "Contacts", icon: Building2 },
   { href: "/dashboard/films", label: "Film Management", icon: FileText },
   { href: "/dashboard/works-register", label: "Works Register", icon: ClipboardList },
+  { href: "/dashboard/ims", label: "ASI IMS", icon: Layers },
   { href: "/dashboard/recycle-bin", label: "Recycle Bin", icon: Trash2 },
   { href: "/dashboard/reports", label: "Reports", icon: FileText },
 ];
@@ -70,6 +73,8 @@ export function AppSidebar() {
         admin: adminMenuItems,
         technician: [
           { href: "/technician", label: "Technician Dashboard", icon: Wrench },
+          { href: "/dashboard/daily-prestart", label: "Daily Prestart", icon: ClipboardCheck },
+          { href: "/dashboard/ims", label: "ASI IMS", icon: Layers },
         ],
         client: [
           { href: "/client", label: "Dashboard", icon: LayoutDashboard },
