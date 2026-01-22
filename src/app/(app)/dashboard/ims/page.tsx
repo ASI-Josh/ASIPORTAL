@@ -121,6 +121,10 @@ export default function ImsHubPage() {
                     <FileText className="h-4 w-4 text-primary" />
                     Document Register
                   </Link>
+                  <Link href="/dashboard/ims/agents" className="flex items-center gap-2">
+                    <FileText className="h-4 w-4 text-primary" />
+                    Agent Registry (Admin)
+                  </Link>
                   <Link href="/dashboard/works-register" className="flex items-center gap-2">
                     <FileText className="h-4 w-4 text-primary" />
                     Works Register

@@ -642,6 +642,39 @@ export interface IMSDocument {
 }
 
 // ============================================
+// AUTOMATION AGENTS
+// ============================================
+
+export type AutomationAgentStatus = "draft" | "active" | "paused" | "retired";
+export type AutomationAgentType = "workflow" | "assistant" | "api";
+
+export interface AutomationAgent {
+  id: string;
+  name: string;
+  type: AutomationAgentType;
+  status: AutomationAgentStatus;
+  purpose?: string;
+  model?: string;
+  workflowId?: string;
+  assistantId?: string;
+  endpoint?: string;
+  owner?: {
+    id: string;
+    name: string;
+    email?: string;
+  };
+  capabilities?: string[];
+  notes?: string;
+  lastRunAt?: Timestamp;
+  lastRunStatus?: "success" | "failed" | "unknown";
+  createdAt: Timestamp;
+  createdById: string;
+  createdByName: string;
+  createdByEmail?: string;
+  updatedAt: Timestamp;
+}
+
+// ============================================
 // CRM & SALES PIPELINE
 // ============================================
 

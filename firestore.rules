@@ -186,6 +186,13 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    match /automationAgents/{agentId} {
+      allow read: if isAdmin();
+      allow create: if isAdmin();
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
     match /stockItems/{itemId} {
       allow read: if isStaff();
       allow create: if isStaff();
