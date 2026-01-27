@@ -382,7 +382,11 @@ export default function InspectionDetailPage() {
     setSelectedOrganization(matchedOrg);
     if (matchedOrg) {
       const defaultSite = matchedOrg.sites.find((site) => site.isDefault) || matchedOrg.sites[0];
-      setSelectedSite(defaultSite || null);
+      const resolvedSite =
+        defaultSite && matchedOrg.address && defaultSite.isDefault
+          ? { ...defaultSite, address: matchedOrg.address }
+          : defaultSite;
+      setSelectedSite(resolvedSite || null);
     }
   }, [inspection, organizations]);
 
@@ -535,7 +539,11 @@ export default function InspectionDetailPage() {
     setSelectedContact(null);
     if (org) {
       const defaultSite = org.sites.find((site) => site.isDefault) || org.sites[0];
-      setSelectedSite(defaultSite || null);
+      const resolvedSite =
+        defaultSite && org.address && defaultSite.isDefault
+          ? { ...defaultSite, address: org.address }
+          : defaultSite;
+      setSelectedSite(resolvedSite || null);
     }
   };
 

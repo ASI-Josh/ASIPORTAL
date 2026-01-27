@@ -350,7 +350,39 @@ export default function ContactsPage() {
       .filter(Boolean);
 
   const handleSaveOrg = async () => {
+    const nextAddress = {
+      street: orgForm.street,
+      suburb: orgForm.suburb,
+      state: orgForm.state,
+      postcode: orgForm.postcode,
+      country: "Australia",
+    };
     if (editingOrg) {
+      const existingSites = editingOrg.sites || [];
+      let updatedSites = existingSites;
+      if (existingSites.length === 0) {
+        updatedSites = [
+          {
+            id: `site-${Date.now()}`,
+            name: "Main Location",
+            address: nextAddress,
+            isDefault: true,
+          },
+        ];
+      } else {
+        const hasDefault = existingSites.some((site) => site.isDefault);
+        updatedSites = existingSites.map((site, index) => {
+          const isDefault = hasDefault ? site.isDefault : index === 0;
+          return isDefault
+            ? {
+                ...site,
+                name: site.name || "Main Location",
+                address: nextAddress,
+                isDefault: true,
+              }
+            : site;
+        });
+      }
       await updateDoc(doc(db, COLLECTIONS.CONTACT_ORGANIZATIONS, editingOrg.id), {
         name: orgForm.name,
         category: orgForm.category,
@@ -360,13 +392,8 @@ export default function ContactsPage() {
         portalRole: orgForm.portalRole || "",
         jobCode: orgForm.jobCode.trim(),
         domains: parseDomains(orgForm.domains),
-        address: {
-          street: orgForm.street,
-          suburb: orgForm.suburb,
-          state: orgForm.state,
-          postcode: orgForm.postcode,
-          country: "Australia",
-        },
+        address: nextAddress,
+        sites: updatedSites,
         updatedAt: Timestamp.now(),
       });
     } else {
@@ -380,14 +407,15 @@ export default function ContactsPage() {
         portalRole: orgForm.portalRole || "",
         jobCode: orgForm.jobCode.trim(),
         domains: parseDomains(orgForm.domains),
-        address: {
-          street: orgForm.street,
-          suburb: orgForm.suburb,
-          state: orgForm.state,
-          postcode: orgForm.postcode,
-          country: "Australia",
-        },
-        sites: [],
+        address: nextAddress,
+        sites: [
+          {
+            id: `site-${Date.now()}`,
+            name: "Main Location",
+            address: nextAddress,
+            isDefault: true,
+          },
+        ],
       });
     }
     setOrgDialogOpen(false);

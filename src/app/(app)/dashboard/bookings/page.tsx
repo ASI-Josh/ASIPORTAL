@@ -711,7 +711,11 @@ export default function BookingsPage() {
     // Auto-select default site
     const defaultSite = org.sites.find((s) => s.isDefault) || org.sites[0];
     if (defaultSite) {
-      setSelectedSite(defaultSite);
+      const resolvedSite =
+        org.address && defaultSite.isDefault
+          ? { ...defaultSite, address: org.address }
+          : defaultSite;
+      setSelectedSite(resolvedSite);
     }
   };
 
@@ -742,7 +746,11 @@ export default function BookingsPage() {
     }
     const defaultSite = updatedOrg.sites.find((site) => site.isDefault) || updatedOrg.sites[0];
     if (defaultSite && (!selectedSite || defaultSite.id !== selectedSite.id)) {
-      setSelectedSite(defaultSite);
+      const resolvedSite =
+        updatedOrg.address && defaultSite.isDefault
+          ? { ...defaultSite, address: updatedOrg.address }
+          : defaultSite;
+      setSelectedSite(resolvedSite);
     }
   }, [organizations, selectedOrganization, selectedSite]);
 

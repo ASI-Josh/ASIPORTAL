@@ -339,7 +339,12 @@ export default function InspectionsPage() {
         clientEmail: contact.email,
         clientPhone: contact.mobile || contact.phone,
         siteLocation: organization.sites?.[0]
-          ? { name: organization.sites[0].name, address: organization.sites[0].address }
+          ? {
+              name: organization.sites[0].name,
+              address: organization.address && organization.sites[0].isDefault
+                ? organization.address
+                : organization.sites[0].address,
+            }
           : undefined,
         status: "draft",
         vehicleReports: [],
