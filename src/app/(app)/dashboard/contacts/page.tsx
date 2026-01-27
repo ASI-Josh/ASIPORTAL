@@ -150,6 +150,7 @@ export default function ContactsPage() {
   const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
   const [inviteLoading, setInviteLoading] = useState(false);
   const [inviteResendId, setInviteResendId] = useState<string | null>(null);
+  const [inviteContactId, setInviteContactId] = useState("new");
   const [bulkDialogOpen, setBulkDialogOpen] = useState(false);
   const [bulkFile, setBulkFile] = useState<File | null>(null);
   const [bulkPreview, setBulkPreview] = useState<string[]>([]);
@@ -309,6 +310,15 @@ export default function ContactsPage() {
       org.category === activeTab &&
       org.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  const inviteContactOptions = useMemo(() => {
+    const orgId =
+      inviteForm.organizationId ||
+      (inviteContactId !== "new"
+        ? contacts.find((contact) => contact.id === inviteContactId)?.organizationId
+        : undefined);
+    return orgId ? contacts.filter((contact) => contact.organizationId === orgId) : contacts;
+  }, [contacts, inviteForm.organizationId, inviteContactId]);
 
   const getOrgContacts = (orgId: string) =>
     contacts.filter((c) => c.organizationId === orgId);
@@ -500,7 +510,11 @@ export default function ContactsPage() {
       });
       return;
     }
-    const email = inviteForm.email.trim().toLowerCase();
+    const isExistingContact = inviteContactId !== "new";
+    const selectedContact = isExistingContact
+      ? contacts.find((contact) => contact.id === inviteContactId) || null
+      : null;
+    const email = (selectedContact?.email || inviteForm.email).trim().toLowerCase();
     if (!email) {
       toast({
         title: "Missing email",
@@ -509,10 +523,11 @@ export default function ContactsPage() {
       });
       return;
     }
-    if (
-      (inviteForm.role === "client" || inviteForm.role === "contractor") &&
-      !inviteForm.organizationId
-    ) {
+    const resolvedOrgId =
+      inviteForm.role === "client" || inviteForm.role === "contractor"
+        ? inviteForm.organizationId || selectedContact?.organizationId
+        : undefined;
+    if ((inviteForm.role === "client" || inviteForm.role === "contractor") && !resolvedOrgId) {
       toast({
         title: "Missing organisation",
         description: "Select an organisation for this invite.",
@@ -522,6 +537,12 @@ export default function ContactsPage() {
     }
     setInviteLoading(true);
     try {
+      if (selectedContact && !selectedContact.hasPortalAccess) {
+        await updateDoc(doc(db, COLLECTIONS.ORGANIZATION_CONTACTS, selectedContact.id), {
+          hasPortalAccess: true,
+          updatedAt: Timestamp.now(),
+        });
+      }
       const token = await firebaseUser.getIdToken();
       const response = await fetch("/api/admin/invite-user", {
         method: "POST",
@@ -531,13 +552,11 @@ export default function ContactsPage() {
         },
         body: JSON.stringify({
           email,
-          firstName: inviteForm.firstName.trim() || undefined,
-          lastName: inviteForm.lastName.trim() || undefined,
+          firstName:
+            selectedContact?.firstName || inviteForm.firstName.trim() || undefined,
+          lastName: selectedContact?.lastName || inviteForm.lastName.trim() || undefined,
           role: inviteForm.role,
-          organizationId:
-            inviteForm.role === "client" || inviteForm.role === "contractor"
-              ? inviteForm.organizationId
-              : undefined,
+          organizationId: resolvedOrgId,
         }),
       });
 
@@ -551,6 +570,7 @@ export default function ContactsPage() {
         description: `Invitation sent to ${email}.`,
       });
       setInviteDialogOpen(false);
+      setInviteContactId("new");
       setInviteForm({
         firstName: "",
         lastName: "",
@@ -903,15 +923,26 @@ export default function ContactsPage() {
                                   </div>
                                 )}
                               </div>
-                              {primaryContact && (
-                                <div className="text-sm">
+                            {primaryContact && (
+                              <div className="text-sm space-y-2">
+                                <div>
                                   <p className="text-muted-foreground mb-1">Primary Contact</p>
                                   <p className="font-medium">
                                     {primaryContact.firstName} {primaryContact.lastName}
                                   </p>
                                   <p className="text-muted-foreground">{primaryContact.email}</p>
                                 </div>
-                              )}
+                                {orgContacts.some((contact) => contact.hasPortalAccess) && (
+                                  <div className="text-xs text-muted-foreground">
+                                    Portal users:{" "}
+                                    {orgContacts
+                                      .filter((contact) => contact.hasPortalAccess)
+                                      .map((contact) => `${contact.firstName} ${contact.lastName}`)
+                                      .join(", ")}
+                                  </div>
+                                )}
+                              </div>
+                            )}
                             </div>
 
                             {orgContacts.length > 0 && (
@@ -1305,7 +1336,22 @@ export default function ContactsPage() {
       </Dialog>
 
       {/* Invite User Dialog */}
-      <Dialog open={inviteDialogOpen} onOpenChange={setInviteDialogOpen}>
+      <Dialog
+        open={inviteDialogOpen}
+        onOpenChange={(open) => {
+          setInviteDialogOpen(open);
+          if (!open) {
+            setInviteContactId("new");
+            setInviteForm({
+              firstName: "",
+              lastName: "",
+              email: "",
+              role: "client",
+              organizationId: "",
+            });
+          }
+        }}
+      >
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>Create User & Send Invite</DialogTitle>
@@ -1314,6 +1360,68 @@ export default function ContactsPage() {
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label>Select existing contact (optional)</Label>
+              <Select
+                value={inviteContactId}
+                onValueChange={(value) => {
+                  setInviteContactId(value);
+                  if (value === "new") {
+                    setInviteForm((prev) => ({
+                      ...prev,
+                      firstName: "",
+                      lastName: "",
+                      email: "",
+                    }));
+                    return;
+                  }
+                  const contact = contacts.find((item) => item.id === value);
+                  if (!contact) return;
+                  setInviteForm((prev) => ({
+                    ...prev,
+                    firstName: contact.firstName,
+                    lastName: contact.lastName,
+                    email: contact.email,
+                    organizationId: contact.organizationId,
+                    role: "client",
+                  }));
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Create new user invite" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="new">Create new invite</SelectItem>
+                  {inviteContactOptions.length === 0 ? (
+                    <SelectItem value="none" disabled>
+                      No contacts available
+                    </SelectItem>
+                  ) : (
+                    inviteContactOptions.map((contact) => (
+                      <SelectItem key={contact.id} value={contact.id}>
+                        {contact.firstName} {contact.lastName} ({contact.email}){" "}
+                        {contact.hasPortalAccess ? "- Portal enabled" : "- No portal access"}
+                      </SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
+            {inviteContactId !== "new" ? (
+              <div className="rounded-md border border-border/40 bg-muted/30 p-3 text-sm">
+                <div className="flex items-center justify-between">
+                  <span className="font-medium">Portal access</span>
+                  <Badge variant="secondary">
+                    {contacts.find((contact) => contact.id === inviteContactId)?.hasPortalAccess
+                      ? "Enabled"
+                      : "Not enabled"}
+                  </Badge>
+                </div>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  This invite will enable portal access for the selected contact.
+                </p>
+              </div>
+            ) : null}
             <div className="grid grid-cols-2 gap-4">
               <div className="grid gap-2">
                 <Label htmlFor="invite-first">First Name</Label>
@@ -1348,6 +1456,7 @@ export default function ContactsPage() {
                   setInviteForm({ ...inviteForm, email: e.target.value })
                 }
                 placeholder="user@company.com"
+                disabled={inviteContactId !== "new"}
               />
             </div>
             <div className="grid gap-2">
@@ -1375,7 +1484,10 @@ export default function ContactsPage() {
                 <Select
                   value={inviteForm.organizationId}
                   onValueChange={(value) =>
-                    setInviteForm({ ...inviteForm, organizationId: value })
+                    {
+                      setInviteForm({ ...inviteForm, organizationId: value });
+                      setInviteContactId("new");
+                    }
                   }
                 >
                   <SelectTrigger>
