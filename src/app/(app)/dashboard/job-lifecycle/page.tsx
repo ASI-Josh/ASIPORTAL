@@ -137,6 +137,10 @@ export default function JobLifecyclePage() {
     return date.toLocaleDateString("en-AU", { day: "2-digit", month: "short", year: "numeric" });
   };
 
+  const resolveScheduledDate = (job: any) => {
+    return job.scheduledDate || job.booking?.preferredDate || job.updatedAt || job.createdAt;
+  };
+
   return (
     <div className="min-h-screen p-6">
       <div className="mb-8 space-y-4">
@@ -260,7 +264,7 @@ export default function JobLifecyclePage() {
                       <TableHead>Client</TableHead>
                       <TableHead>Service</TableHead>
                       <TableHead>Status</TableHead>
-                      <TableHead>Last Updated</TableHead>
+                      <TableHead>Scheduled Date</TableHead>
                       <TableHead className="text-right">Action</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -287,7 +291,7 @@ export default function JobLifecyclePage() {
                               {JOB_LIFECYCLE_LABELS[stage]}
                             </Badge>
                           </TableCell>
-                          <TableCell>{formatDate(job.updatedAt ?? job.createdAt)}</TableCell>
+                          <TableCell>{formatDate(resolveScheduledDate(job))}</TableCell>
                           <TableCell className="text-right">
                             <Button
                               variant="ghost"
