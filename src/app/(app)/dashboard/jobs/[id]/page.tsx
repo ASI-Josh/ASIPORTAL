@@ -186,6 +186,9 @@ export default function JobCardPage() {
   } | null>(null);
   const [showCompleteDialog, setShowCompleteDialog] = useState(false);
   const [sendingCompletionNotice, setSendingCompletionNotice] = useState(false);
+  const [sendingClientNotice, setSendingClientNotice] = useState<
+    "job_started" | "job_on_hold" | "job_completed" | null
+  >(null);
   const [invoiceNumber, setInvoiceNumber] = useState(job?.invoiceNumber ?? "");
   const [invoiceDate, setInvoiceDate] = useState("");
   const [invoiceSentDate, setInvoiceSentDate] = useState("");
@@ -587,6 +590,74 @@ export default function JobCardPage() {
       });
     } finally {
       setSendingCompletionNotice(false);
+    }
+  };
+
+  const resolveHoldReason = () => {
+    const vehicleHold = jobVehicles.find((vehicle) => vehicle.status === "on_hold");
+    if (vehicleHold?.holdReason) return vehicleHold.holdReason;
+    const repairHold = jobVehicles
+      .flatMap((vehicle) => vehicle.repairSites)
+      .find((repair) => getRepairStatus(repair) === "on_hold");
+    if (repairHold?.holdReason) return repairHold.holdReason;
+    return "Awaiting update";
+  };
+
+  const handleSendClientNotice = async (
+    type: "job_started" | "job_on_hold" | "job_completed"
+  ) => {
+    if (!job) return;
+    if (!job.clientEmail && !job.organizationId) {
+      toast({
+        title: "Missing client contact",
+        description: "This job does not have a client email or organization linked.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setSendingClientNotice(type);
+    try {
+      if (type === "job_started") {
+        await notifyClients(
+          "job_started",
+          `Job ${job.jobNumber} started`,
+          `Our technician has started work on job ${job.jobNumber}.`,
+          `ASI Job Started: ${job.jobNumber}`,
+          true
+        );
+      }
+      if (type === "job_on_hold") {
+        const reason = resolveHoldReason();
+        await notifyClients(
+          "job_on_hold",
+          `Job ${job.jobNumber} on hold`,
+          `Job ${job.jobNumber} is on hold. Reason: ${reason}.`,
+          `ASI Job On Hold: ${job.jobNumber}`,
+          true
+        );
+      }
+      if (type === "job_completed") {
+        await notifyClients(
+          "job_completed",
+          `Job ${job.jobNumber} completed`,
+          `Your job ${job.jobNumber} with ASI is complete. We'll be in touch shortly.`,
+          `ASI Job Complete: ${job.jobNumber}`,
+          true
+        );
+      }
+      toast({
+        title: "Client notified",
+        description: "The notification has been sent.",
+      });
+    } catch (error) {
+      console.warn("Failed to send client notice:", error);
+      toast({
+        title: "Notification failed",
+        description: "Unable to send this notification.",
+        variant: "destructive",
+      });
+    } finally {
+      setSendingClientNotice(null);
     }
   };
 
@@ -2033,6 +2104,59 @@ export default function JobCardPage() {
                   </Card>
                 </>
               )}
+            </CardContent>
+          </Card>
+          <Card className="bg-card/50 backdrop-blur">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Mail className="h-5 w-5 text-primary" />
+                Client Notification Sends
+              </CardTitle>
+              <CardDescription>
+                Send manual status updates to the client (in-app + email).
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                <span>Client:</span>
+                <span className="font-medium text-foreground">
+                  {job.clientEmail || "Organization-linked users"}
+                </span>
+                <Badge variant="outline" className={statusColors[job.status]}>
+                  {job.status.replace("_", " ").toUpperCase()}
+                </Badge>
+              </div>
+              <div className="grid gap-3 md:grid-cols-3">
+                <Button
+                  variant="outline"
+                  onClick={() => handleSendClientNotice("job_started")}
+                  disabled={sendingClientNotice !== null}
+                >
+                  <Mail className="mr-2 h-4 w-4" />
+                  {sendingClientNotice === "job_started" ? "Sending..." : "Send Started Update"}
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => handleSendClientNotice("job_on_hold")}
+                  disabled={sendingClientNotice !== null}
+                >
+                  <Mail className="mr-2 h-4 w-4" />
+                  {sendingClientNotice === "job_on_hold" ? "Sending..." : "Send On-Hold Update"}
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => handleSendClientNotice("job_completed")}
+                  disabled={sendingClientNotice !== null}
+                >
+                  <Mail className="mr-2 h-4 w-4" />
+                  {sendingClientNotice === "job_completed"
+                    ? "Sending..."
+                    : "Send Completion Update"}
+                </Button>
+              </div>
+              <div className="text-xs text-muted-foreground">
+                These updates only send when you click. Automatic emails remain off.
+              </div>
             </CardContent>
           </Card>
           <Card className="bg-card/50 backdrop-blur">
