@@ -85,15 +85,17 @@ export default function JobLifecyclePage() {
     [filteredJobs]
   );
 
-  const recentJobs = useMemo(() => {
-    return [...listJobs]
-      .sort((a, b) => {
-        const aTime = (a.updatedAt ?? a.createdAt).toMillis();
-        const bTime = (b.updatedAt ?? b.createdAt).toMillis();
-        return bTime - aTime;
-      })
-      .slice(0, 10);
+  const sortedJobs = useMemo(() => {
+    return [...listJobs].sort((a, b) => {
+      const aDate = resolveScheduledDate(a);
+      const bDate = resolveScheduledDate(b);
+      const aTime = aDate?.toMillis ? aDate.toMillis() : new Date(aDate).getTime();
+      const bTime = bDate?.toMillis ? bDate.toMillis() : new Date(bDate).getTime();
+      return aTime - bTime;
+    });
   }, [listJobs]);
+
+  const recentJobs = useMemo(() => sortedJobs.slice(0, 10), [sortedJobs]);
 
   useEffect(() => {
     if (recentJobs.length === 0) {
