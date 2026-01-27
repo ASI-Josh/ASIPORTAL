@@ -724,6 +724,29 @@ export default function BookingsPage() {
   }, [selectedOrganization, selectedContact, contacts]);
 
   useEffect(() => {
+    if (!selectedOrganization) return;
+    const updatedOrg = organizations.find((org) => org.id === selectedOrganization.id);
+    if (!updatedOrg) return;
+    if (updatedOrg !== selectedOrganization) {
+      setSelectedOrganization(updatedOrg);
+    }
+    if (!updatedOrg.sites?.length) {
+      return;
+    }
+    if (selectedSite) {
+      const matchingSite = updatedOrg.sites.find((site) => site.id === selectedSite.id);
+      if (matchingSite && matchingSite !== selectedSite) {
+        setSelectedSite(matchingSite);
+        return;
+      }
+    }
+    const defaultSite = updatedOrg.sites.find((site) => site.isDefault) || updatedOrg.sites[0];
+    if (defaultSite && (!selectedSite || defaultSite.id !== selectedSite.id)) {
+      setSelectedSite(defaultSite);
+    }
+  }, [organizations, selectedOrganization, selectedSite]);
+
+  useEffect(() => {
     if (!isRetailBooking) return;
     setSelectedOrganization(null);
     setSelectedContact(null);
