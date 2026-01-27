@@ -466,11 +466,12 @@ export default function JobCardPage() {
     type: "job_started" | "job_on_hold" | "job_completed",
     title: string,
     message: string,
-    subject: string
+    subject: string,
+    sendEmail = false
   ) => {
     try {
       if (!job.organizationId) {
-        if (job.clientEmail) {
+        if (sendEmail && job.clientEmail) {
           await queueEmail(job.clientEmail, subject, message);
         }
         return;
@@ -482,7 +483,7 @@ export default function JobCardPage() {
         where("role", "==", "client")
       );
       const snapshot = await getDocs(clientQuery);
-      if (snapshot.empty && job.clientEmail) {
+      if (snapshot.empty && sendEmail && job.clientEmail) {
         await queueEmail(job.clientEmail, subject, message);
         return;
       }
@@ -490,7 +491,7 @@ export default function JobCardPage() {
         snapshot.docs.map(async (docSnap) => {
           const data = docSnap.data() as { email?: string };
           await queueNotification(docSnap.id, title, message, type);
-          if (data.email) {
+          if (sendEmail && data.email) {
             await queueEmail(data.email, subject, message);
           }
         })
@@ -545,6 +546,13 @@ export default function JobCardPage() {
       "job_completed",
       true
     );
+    await notifyClients(
+      "job_completed",
+      `Job ${job.jobNumber} completed`,
+      `Your job ${job.jobNumber} with ASI is complete. We'll be in touch shortly.`,
+      `ASI Job Complete: ${job.jobNumber}`,
+      false
+    );
   };
 
   const handleSendCompletionNotice = async () => {
@@ -563,7 +571,8 @@ export default function JobCardPage() {
         "job_completed",
         `Job ${job.jobNumber} completed`,
         `Your job ${job.jobNumber} with ASI is complete. We'll be in touch shortly.`,
-        `ASI Job Complete: ${job.jobNumber}`
+        `ASI Job Complete: ${job.jobNumber}`,
+        true
       );
       toast({
         title: "Completion notice sent",
@@ -885,6 +894,13 @@ export default function JobCardPage() {
       if (anyActive && (job.status === "scheduled" || job.status === "pending")) {
         await updateJobStatus(job.id, "in_progress", changedBy, "Repair work started");
         if (action === "start") {
+          await notifyClients(
+            "job_started",
+            `Job ${job.jobNumber} started`,
+            `Our technician has started work on job ${job.jobNumber}.`,
+            `ASI Job Started: ${job.jobNumber}`,
+            false
+          );
           await notifyAdmins(
             `Job ${job.jobNumber} started`,
             `${job.jobNumber} for ${job.clientName} has started.`,
@@ -895,6 +911,13 @@ export default function JobCardPage() {
         }
       }
       if (action === "hold") {
+        await notifyClients(
+          "job_on_hold",
+          `Job ${job.jobNumber} on hold`,
+          `Job ${job.jobNumber} is on hold. Reason: ${note || "Awaiting update"}.`,
+          `ASI Job On Hold: ${job.jobNumber}`,
+          false
+        );
         await notifyAdmins(
           `Job ${job.jobNumber} on hold`,
           `${job.jobNumber} for ${job.clientName} is on hold. Reason: ${note || "Awaiting update"}.`,
