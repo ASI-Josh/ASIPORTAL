@@ -185,6 +185,7 @@ export default function JobCardPage() {
     repairId: string;
   } | null>(null);
   const [showCompleteDialog, setShowCompleteDialog] = useState(false);
+  const [sendingCompletionNotice, setSendingCompletionNotice] = useState(false);
   const [invoiceNumber, setInvoiceNumber] = useState(job?.invoiceNumber ?? "");
   const [invoiceDate, setInvoiceDate] = useState("");
   const [invoiceSentDate, setInvoiceSentDate] = useState("");
@@ -544,12 +545,40 @@ export default function JobCardPage() {
       "job_completed",
       true
     );
-    await notifyClients(
-      "job_completed",
-      `Job ${job.jobNumber} completed`,
-      `Your job ${job.jobNumber} with ASI is complete. We'll be in touch shortly.`,
-      `ASI Job Complete: ${job.jobNumber}`
-    );
+  };
+
+  const handleSendCompletionNotice = async () => {
+    if (!job) return;
+    if (!job.clientEmail && !job.organizationId) {
+      toast({
+        title: "Missing client email",
+        description: "This job does not have a client email on file.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setSendingCompletionNotice(true);
+    try {
+      await notifyClients(
+        "job_completed",
+        `Job ${job.jobNumber} completed`,
+        `Your job ${job.jobNumber} with ASI is complete. We'll be in touch shortly.`,
+        `ASI Job Complete: ${job.jobNumber}`
+      );
+      toast({
+        title: "Completion notice sent",
+        description: "The client has been notified.",
+      });
+    } catch (error) {
+      console.warn("Failed to send completion notice:", error);
+      toast({
+        title: "Notification failed",
+        description: "Unable to send the completion notice.",
+        variant: "destructive",
+      });
+    } finally {
+      setSendingCompletionNotice(false);
+    }
   };
 
   const getRepairCompletionState = (vehicles: JobVehicle[]) => {
@@ -567,7 +596,7 @@ export default function JobCardPage() {
       await completeJobFlow("All repair sites completed");
       toast({
         title: "Job Completed",
-        description: "Notifications have been sent to the client and admins.",
+        description: "Job marked complete. Client notification is manual.",
       });
       router.push("/dashboard/bookings");
       return;
@@ -856,12 +885,6 @@ export default function JobCardPage() {
       if (anyActive && (job.status === "scheduled" || job.status === "pending")) {
         await updateJobStatus(job.id, "in_progress", changedBy, "Repair work started");
         if (action === "start") {
-          await notifyClients(
-            "job_started",
-            `Job ${job.jobNumber} started`,
-            `Our technician has started work on job ${job.jobNumber}.`,
-            `ASI Job Started: ${job.jobNumber}`
-          );
           await notifyAdmins(
             `Job ${job.jobNumber} started`,
             `${job.jobNumber} for ${job.clientName} has started.`,
@@ -872,12 +895,6 @@ export default function JobCardPage() {
         }
       }
       if (action === "hold") {
-        await notifyClients(
-          "job_on_hold",
-          `Job ${job.jobNumber} on hold`,
-          `Job ${job.jobNumber} is on hold. Reason: ${note || "Awaiting update"}.`,
-          `ASI Job On Hold: ${job.jobNumber}`
-        );
         await notifyAdmins(
           `Job ${job.jobNumber} on hold`,
           `${job.jobNumber} for ${job.clientName} is on hold. Reason: ${note || "Awaiting update"}.`,
@@ -1073,7 +1090,17 @@ export default function JobCardPage() {
               {job.clientName} • {serviceType}
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
+            {(job.status === "completed" || job.status === "closed") && (
+              <Button
+                variant="outline"
+                onClick={handleSendCompletionNotice}
+                disabled={sendingCompletionNotice}
+              >
+                <Mail className="mr-2 h-4 w-4" />
+                {sendingCompletionNotice ? "Sending..." : "Send Completion Notice"}
+              </Button>
+            )}
             <Button
               onClick={handleSaveChanges}
               className={readyToCloseJob ? "bg-emerald-600 hover:bg-emerald-700" : undefined}
@@ -1094,7 +1121,7 @@ export default function JobCardPage() {
                 <DialogHeader>
                   <DialogTitle>Mark Job as Complete?</DialogTitle>
                   <DialogDescription>
-                    This will notify the client and alert admins to review and invoice the job.
+                    This will alert admins to review and invoice the job. Client notification is manual.
                   </DialogDescription>
                 </DialogHeader>
                 <DialogFooter>
