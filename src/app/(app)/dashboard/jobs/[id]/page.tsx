@@ -40,6 +40,7 @@ import {
   MICROFIBER_DISK_SIZES,
   calculateCostBreakdown,
 } from "@/lib/types";
+import { getPublicEnv } from "@/lib/public-env";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -228,7 +229,7 @@ export default function JobCardPage() {
     });
   };
 
-  const mapsApiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || "";
+  const mapsApiKey = getPublicEnv("NEXT_PUBLIC_GOOGLE_MAPS_API_KEY") || "";
 
   const getJobDateValue = (targetJob: Job) =>
     targetJob.scheduledDate?.toDate?.() || targetJob.booking?.preferredDate?.toDate?.() || null;

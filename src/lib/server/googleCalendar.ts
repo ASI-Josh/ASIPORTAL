@@ -5,13 +5,14 @@ import { COLLECTIONS } from "@/lib/collections";
 const AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const CALENDAR_API = "https://www.googleapis.com/calendar/v3";
+const DEFAULT_APP_URL = "https://asiportal.live";
 
 const SCOPES = [
   "https://www.googleapis.com/auth/calendar",
 ];
 
 export function getRedirectUri() {
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:9002";
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || DEFAULT_APP_URL;
   return process.env.GOOGLE_REDIRECT_URI || `${baseUrl}/api/google/calendar/callback`;
 }
 

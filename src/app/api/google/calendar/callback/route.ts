@@ -3,7 +3,7 @@ import { admin } from "@/lib/firebaseAdmin";
 import { exchangeCodeForTokens, upsertCalendarToken, getRedirectUri } from "@/lib/server/googleCalendar";
 
 function getAppUrl() {
-  return process.env.NEXT_PUBLIC_APP_URL || "http://localhost:9002";
+  return process.env.NEXT_PUBLIC_APP_URL || "https://asiportal.live";
 }
 
 export async function GET(req: NextRequest) {

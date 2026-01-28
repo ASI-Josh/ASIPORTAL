@@ -10,6 +10,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { useAuth } from "@/contexts/AuthContext";
 import { useJobs } from "@/contexts/JobsContext";
 import { cn } from "@/lib/utils";
+import { getPublicEnv } from "@/lib/public-env";
 import type { Job } from "@/lib/types";
 
 type ChatMessage = {
@@ -74,7 +75,7 @@ export function OpsAssistantPanel() {
   const [input, setInput] = useState("");
   const [activeMapJob, setActiveMapJob] = useState<Job | null>(null);
 
-  const mapsApiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || "";
+  const mapsApiKey = getPublicEnv("NEXT_PUBLIC_GOOGLE_MAPS_API_KEY") || "";
 
   const nextJob = useMemo(() => {
     const now = new Date();
