@@ -6,6 +6,7 @@ import { collection, doc, onSnapshot, orderBy, query } from "firebase/firestore"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { OpsAssistantPanel } from "@/components/dashboard/ops-assistant-panel";
 import { useAuth } from "@/contexts/AuthContext";
 import { useJobs } from "@/contexts/JobsContext";
 import { db } from "@/lib/firebaseClient";
@@ -415,7 +416,11 @@ export default function DashboardPage() {
         </Card>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-4">
+      <div className="grid gap-6 lg:grid-cols-2">
+        <OpsAssistantPanel />
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-3">
         <Card className="bg-card/50 backdrop-blur-lg border-border/20">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">

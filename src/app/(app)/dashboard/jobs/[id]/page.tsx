@@ -32,6 +32,7 @@ import type {
   MicrofiberDiskGrade,
   MicrofiberDiskSize,
   RepairWorkStatus,
+  Job,
 } from "@/lib/types";
 import {
   BOOKING_TYPE_LABELS,
@@ -91,6 +92,7 @@ import {
   CircleDot,
   Pause,
   Clock,
+  Navigation,
   Upload,
 } from "lucide-react";
 
@@ -134,6 +136,7 @@ export default function JobCardPage() {
     deleteJob,
     worksRegister,
     completeWorksRegisterEntry,
+    jobs,
   } = useJobs();
   const { user } = useAuth();
   const { toast } = useToast();
@@ -185,6 +188,8 @@ export default function JobCardPage() {
     repairId: string;
   } | null>(null);
   const [showCompleteDialog, setShowCompleteDialog] = useState(false);
+  const [showNextJobDialog, setShowNextJobDialog] = useState(false);
+  const [nextJobCandidate, setNextJobCandidate] = useState<Job | null>(null);
   const [sendingCompletionNotice, setSendingCompletionNotice] = useState(false);
   const [sendingClientNotice, setSendingClientNotice] = useState<
     "job_started" | "job_on_hold" | "job_completed" | null
@@ -222,6 +227,71 @@ export default function JobCardPage() {
       minute: "2-digit",
     });
   };
+
+  const mapsApiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || "";
+
+  const getJobDateValue = (targetJob: Job) =>
+    targetJob.scheduledDate?.toDate?.() || targetJob.booking?.preferredDate?.toDate?.() || null;
+
+  const getJobMinutes = (targetJob: Job) => {
+    const time = targetJob.booking?.preferredTime;
+    if (!time) return null;
+    const [hours, minutes] = time.split(":").map((val) => Number.parseInt(val, 10));
+    if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+    return hours * 60 + minutes;
+  };
+
+  const isSameDay = (a: Date, b: Date) =>
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate();
+
+  const findNextJobCandidate = () => {
+    if (!job) return null;
+    const currentDate = getJobDateValue(job);
+    if (!currentDate) return null;
+    const currentMinutes = getJobMinutes(job) ?? -1;
+
+    return (
+      jobs
+        .filter((item) => item.id !== job.id)
+        .filter((item) => item.status !== "completed" && item.status !== "closed")
+        .filter((item) => !item.isDeleted)
+        .filter((item) => {
+          if (user?.uid && item.assignedTechnicianIds?.length) {
+            return item.assignedTechnicianIds.includes(user.uid);
+          }
+          return true;
+        })
+        .map((item) => ({
+          job: item,
+          date: getJobDateValue(item),
+          minutes: getJobMinutes(item) ?? 24 * 60 + 1,
+        }))
+        .filter((entry) => entry.date && isSameDay(entry.date, currentDate))
+        .filter((entry) => entry.minutes > currentMinutes)
+        .sort((a, b) => a.minutes - b.minutes)[0]?.job || null
+    );
+  };
+
+  const promptNextJobDirections = () => {
+    const next = findNextJobCandidate();
+    if (!next || !next.siteLocation?.address) return false;
+    setNextJobCandidate(next);
+    setShowNextJobDialog(true);
+    return true;
+  };
+
+  const nextJobMapQuery = nextJobCandidate?.siteLocation?.address
+    ? encodeURIComponent(nextJobCandidate.siteLocation.address)
+    : "";
+  const nextJobEmbedUrl =
+    mapsApiKey && nextJobMapQuery
+      ? `https://www.google.com/maps/embed/v1/place?key=${mapsApiKey}&q=${nextJobMapQuery}`
+      : "";
+  const nextJobDirectionsUrl = nextJobMapQuery
+    ? `https://www.google.com/maps/dir/?api=1&destination=${nextJobMapQuery}`
+    : "";
 
   function extractAiDescription(notes?: string) {
     if (!notes) return "";
@@ -678,7 +748,9 @@ export default function JobCardPage() {
         title: "Job Completed",
         description: "Job marked complete. Client notification is manual.",
       });
-      router.push("/dashboard/bookings");
+      if (!promptNextJobDirections()) {
+        router.push("/dashboard/bookings");
+      }
       return;
     }
 
@@ -1226,10 +1298,65 @@ export default function JobCardPage() {
                     onClick={async () => {
                       await completeJobFlow("Marked complete by technician");
                       setShowCompleteDialog(false);
-                      router.push("/dashboard/bookings");
+                      if (!promptNextJobDirections()) {
+                        router.push("/dashboard/bookings");
+                      }
                     }}
                   >
                     Confirm Complete
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+            <Dialog open={showNextJobDialog} onOpenChange={setShowNextJobDialog}>
+              <DialogContent className="max-w-2xl">
+                <DialogHeader>
+                  <DialogTitle>Next Job Directions</DialogTitle>
+                  <DialogDescription>
+                    We found another job booked later today. Want directions to the next site?
+                  </DialogDescription>
+                </DialogHeader>
+                {nextJobCandidate ? (
+                  <div className="space-y-4">
+                    <div className="rounded-xl border border-border/40 bg-muted/20 p-3 text-sm">
+                      <p className="font-medium">
+                        {nextJobCandidate.jobNumber} • {nextJobCandidate.clientName}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {nextJobCandidate.siteLocation?.address || "Address unavailable"}
+                      </p>
+                    </div>
+                    {nextJobEmbedUrl ? (
+                      <iframe
+                        title="Next job map"
+                        className="h-64 w-full rounded-xl border border-border/40"
+                        loading="lazy"
+                        referrerPolicy="no-referrer-when-downgrade"
+                        src={nextJobEmbedUrl}
+                      />
+                    ) : (
+                      <p className="text-xs text-muted-foreground">
+                        Map preview requires NEXT_PUBLIC_GOOGLE_MAPS_API_KEY.
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No next job found.</p>
+                )}
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setShowNextJobDialog(false)}>
+                    Not now
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      if (nextJobDirectionsUrl) {
+                        window.open(nextJobDirectionsUrl, "_blank", "noopener,noreferrer");
+                      }
+                    }}
+                    disabled={!nextJobDirectionsUrl}
+                  >
+                    <Navigation className="mr-2 h-4 w-4" />
+                    Open directions
                   </Button>
                 </DialogFooter>
               </DialogContent>
