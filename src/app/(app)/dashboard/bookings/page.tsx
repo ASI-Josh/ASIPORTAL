@@ -329,6 +329,7 @@ export default function BookingsPage() {
 
   // Organization search
   const [orgSearchQuery, setOrgSearchQuery] = useState("");
+  const [isCreatingBooking, setIsCreatingBooking] = useState(false);
   const filteredOrganizations = organizations.filter(
     (org) =>
       org.name.toLowerCase().includes(orgSearchQuery.toLowerCase()) ||
@@ -922,6 +923,7 @@ export default function BookingsPage() {
   };
 
   const handleCreateBooking = async () => {
+    if (isCreatingBooking) return;
     if (!bookingType || !scheduledDate || !scheduledTime) {
       toast({
         title: "Missing Information",
@@ -959,6 +961,7 @@ export default function BookingsPage() {
     const isCustomSite = isRetailBooking || useCustomSite;
     const siteAddress = isCustomSite ? customSite : selectedSite?.address || customSite;
 
+    setIsCreatingBooking(true);
     try {
       const bookingOrganization = isRetailBooking
         ? await ensureRetailOrganization()
@@ -1047,6 +1050,8 @@ export default function BookingsPage() {
         description: error.message || "Unable to create booking.",
         variant: "destructive",
       });
+    } finally {
+      setIsCreatingBooking(false);
     }
   };
 
@@ -2546,9 +2551,18 @@ export default function BookingsPage() {
                       <ArrowRight className="ml-2 h-4 w-4" />
                     </Button>
                   ) : (
-                    <Button onClick={handleCreateBooking} disabled={!canSubmit}>
-                      <CheckCircle className="mr-2 h-4 w-4" />
-                      Confirm Booking
+                    <Button onClick={handleCreateBooking} disabled={!canSubmit || isCreatingBooking}>
+                      {isCreatingBooking ? (
+                        <span className="inline-flex items-center gap-2">
+                          <span className="h-4 w-4 rounded-full border-2 border-current/30 border-t-current animate-spin" />
+                          Saving...
+                        </span>
+                      ) : (
+                        <>
+                          <CheckCircle className="mr-2 h-4 w-4" />
+                          Confirm Booking
+                        </>
+                      )}
                     </Button>
                   )}
                 </div>

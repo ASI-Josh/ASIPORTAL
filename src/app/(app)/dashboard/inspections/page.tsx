@@ -217,30 +217,42 @@ export default function InspectionsPage() {
   );
 
   const handleCreateInspection = async () => {
+    if (creating) return;
     if (!user) return;
+    if (!selectedOrgId && !isCreatingNewOrg) {
+      toast({
+        title: "Select an organisation",
+        description: "Choose an existing organisation or add a new one.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (isCreatingNewOrg && !newOrgData.name.trim()) {
+      toast({
+        title: "Missing organisation name",
+        description: "Enter the organisation name to continue.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const needsNewContact = isCreatingNewOrg || isCreatingNewContact || !selectedContactId;
+    if (needsNewContact && (!newContactData.firstName.trim() || !newContactData.email.trim())) {
+      toast({
+        title: "Missing contact details",
+        description: "Enter a contact name and email address to continue.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setCreating(true);
     try {
-      if (!selectedOrgId && !isCreatingNewOrg) {
-        toast({
-          title: "Select an organisation",
-          description: "Choose an existing organisation or add a new one.",
-          variant: "destructive",
-        });
-        return;
-      }
-
       let organizationId = selectedOrgId;
       let organization = selectedOrg;
 
       if (isCreatingNewOrg) {
-        if (!newOrgData.name.trim()) {
-          toast({
-            title: "Missing organisation name",
-            description: "Enter the organisation name to continue.",
-            variant: "destructive",
-          });
-          return;
-        }
         const newOrg: ContactOrganization = {
           id: `org-${Date.now()}`,
           name: newOrgData.name.trim(),
@@ -279,18 +291,9 @@ export default function InspectionsPage() {
         organization = { ...newOrg, id: orgRef.id };
       }
 
-      const needsNewContact = isCreatingNewOrg || isCreatingNewContact || !selectedContactId;
       let contact = selectedContact;
 
       if (needsNewContact) {
-        if (!newContactData.firstName.trim() || !newContactData.email.trim()) {
-          toast({
-            title: "Missing contact details",
-            description: "Enter a contact name and email address to continue.",
-            variant: "destructive",
-          });
-          return;
-        }
         const newContact: OrganizationContact = {
           id: `contact-${Date.now()}`,
           organizationId,
@@ -315,12 +318,7 @@ export default function InspectionsPage() {
       }
 
       if (!organization || !contact) {
-        toast({
-          title: "Missing details",
-          description: "Select an organisation and contact before continuing.",
-          variant: "destructive",
-        });
-        return;
+        throw new Error("Select an organisation and contact before continuing.");
       }
 
       const inspectionNumber = await generateInspectionNumber();
@@ -678,7 +676,14 @@ export default function InspectionsPage() {
                 Cancel
               </Button>
               <Button onClick={handleCreateInspection} disabled={creating}>
-                Start inspection
+                {creating ? (
+                  <span className="inline-flex items-center gap-2">
+                    <span className="h-4 w-4 rounded-full border-2 border-current/30 border-t-current animate-spin" />
+                    Saving...
+                  </span>
+                ) : (
+                  "Start inspection"
+                )}
               </Button>
             </div>
           </div>
