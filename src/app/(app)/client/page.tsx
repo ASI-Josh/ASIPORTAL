@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { format, startOfDay } from "date-fns";
-import { AlertTriangle, Leaf, LineChart, CalendarClock, CheckCircle2 } from "lucide-react";
+import { AlertTriangle, Leaf, LineChart, CalendarClock, CheckCircle2, FileText } from "lucide-react";
 import { collection, doc, onSnapshot, orderBy, query, where } from "firebase/firestore";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useJobs } from "@/contexts/JobsContext";
 import { db } from "@/lib/firebaseClient";
 import { COLLECTIONS } from "@/lib/collections";
-import type { Booking, ContactOrganization, Inspection } from "@/lib/types";
+import type { Booking, ContactOrganization, Inspection, Job } from "@/lib/types";
 import { calculateDashboardMetrics } from "@/lib/dashboard-analytics";
 
 type InsightPayload = {
@@ -34,6 +34,24 @@ function formatCurrency(value: number) {
 function formatHours(value: number) {
   if (!Number.isFinite(value) || value <= 0) return "0h";
   return `${value.toFixed(1)}h`;
+}
+
+function statusLabel(status: string) {
+  const labels: Record<string, string> = {
+    pending: "Pending",
+    confirmed: "Scheduled",
+    converted_to_job: "Scheduled",
+    scheduled: "Scheduled",
+    in_progress: "In progress",
+    completed: "Completed",
+    closed: "Closed",
+    cancelled: "Cancelled",
+  };
+  return labels[status] || status.replace("_", " ");
+}
+
+function startOfYear(date: Date) {
+  return new Date(date.getFullYear(), 0, 1);
 }
 
 export default function ClientPage() {
@@ -150,6 +168,12 @@ export default function ClientPage() {
   const lastInsightAt = insightDoc?.generatedAt?.toDate?.().toLocaleString("en-AU");
   const orgName = organization?.name || user?.organizationName || "your organisation";
   const today = startOfDay(new Date());
+  const yearStart = startOfYear(new Date());
+
+  const orgJobs = useMemo(() => {
+    if (!user?.organizationId) return jobs;
+    return jobs.filter((job) => job.organizationId === user.organizationId || job.clientId === user.organizationId);
+  }, [jobs, user?.organizationId]);
 
   const getBookingDateTime = (booking: Booking) => {
     const date = booking.scheduledDate.toDate();
@@ -160,23 +184,75 @@ export default function ClientPage() {
     return date;
   };
 
+  const getJobDateTime = (job: Job) => {
+    const date = job.scheduledDate?.toDate?.() || job.booking?.preferredDate?.toDate?.();
+    if (!date) return null;
+    const time = job.booking?.preferredTime;
+    if (time) {
+      const [hours, minutes] = time.split(":").map((part) => Number(part));
+      if (Number.isFinite(hours)) date.setHours(hours);
+      if (Number.isFinite(minutes)) date.setMinutes(minutes);
+    }
+    date.setSeconds(0, 0);
+    return date;
+  };
+
   const upcomingBookings = useMemo(() => {
-    return bookings
-      .filter((booking) => booking.status !== "cancelled")
-      .map((booking) => ({ booking, dateTime: getBookingDateTime(booking) }))
+    return orgJobs
+      .filter((job) => job.status !== "cancelled")
+      .map((job) => ({ job, dateTime: getJobDateTime(job) }))
+      .filter((entry): entry is { job: Job; dateTime: Date } => Boolean(entry.dateTime))
       .filter(({ dateTime }) => dateTime >= today)
       .sort((a, b) => a.dateTime.getTime() - b.dateTime.getTime())
       .slice(0, 3);
-  }, [bookings, today]);
+  }, [orgJobs, today]);
 
   const completedBookings = useMemo(() => {
-    return bookings
-      .filter((booking) => booking.status !== "cancelled")
-      .map((booking) => ({ booking, dateTime: getBookingDateTime(booking) }))
-      .filter(({ dateTime }) => dateTime < today)
+    return orgJobs
+      .filter((job) => job.status === "completed" || job.status === "closed")
+      .map((job) => ({
+        job,
+        dateTime: job.completedDate?.toDate?.() || job.updatedAt?.toDate?.() || getJobDateTime(job),
+      }))
+      .filter((entry): entry is { job: Job; dateTime: Date } => Boolean(entry.dateTime))
       .sort((a, b) => b.dateTime.getTime() - a.dateTime.getTime())
       .slice(0, 3);
-  }, [bookings, today]);
+  }, [orgJobs]);
+
+  const pendingInspectionApprovals = useMemo(() => {
+    return inspections.filter(
+      (inspection) =>
+        inspection.status === "submitted" ||
+        inspection.clientApprovalStatus === "pending" ||
+        inspection.clientApprovalStatus === "partial"
+    );
+  }, [inspections]);
+
+  const scheduledWorksCount = useMemo(() => {
+    const scheduledJobs = orgJobs.filter((job) =>
+      ["scheduled", "pending", "in_progress"].includes(job.status)
+    );
+    const count = scheduledJobs.reduce((total, job) => total + (job.jobVehicles?.length || 0), 0);
+    return count || scheduledJobs.length;
+  }, [orgJobs]);
+
+  const completedWorksYtd = useMemo(() => {
+    const completedJobs = orgJobs.filter((job) => job.status === "completed" || job.status === "closed");
+    const inYear = completedJobs.filter((job) => {
+      const completedAt = job.completedDate?.toDate?.() || job.updatedAt?.toDate?.();
+      return completedAt ? completedAt >= yearStart : false;
+    });
+    const repairsCount = inYear.reduce((total, job) => {
+      const jobVehicleCount = job.jobVehicles?.length || 0;
+      const repairCount = job.jobVehicles?.reduce(
+        (count, vehicle) =>
+          count + (vehicle.repairSites?.filter((repair) => repair.isCompleted).length || 0),
+        0
+      );
+      return total + (repairCount || jobVehicleCount || 0);
+    }, 0);
+    return repairsCount;
+  }, [orgJobs, yearStart]);
 
   return (
     <div className="space-y-8">
@@ -192,29 +268,45 @@ export default function ClientPage() {
       <div className="grid gap-4 md:grid-cols-3">
         <Card className="bg-card/50 backdrop-blur-lg border-border/20">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Works Quoted</CardTitle>
-            <CardDescription>{metrics.revenue.quoted.count} jobs</CardDescription>
+            <CardTitle className="text-sm font-medium">Inspections</CardTitle>
+            <CardDescription>
+              {pendingInspectionApprovals.length} awaiting your approval
+            </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{formatCurrency(metrics.revenue.quoted.total)}</div>
+            <div className="flex items-center justify-between">
+              <div className="text-2xl font-bold">{pendingInspectionApprovals.length}</div>
+              {pendingInspectionApprovals.length > 0 ? (
+                <Badge variant="secondary">Action required</Badge>
+              ) : (
+                <Badge variant="outline">All clear</Badge>
+              )}
+            </div>
+            <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
+              <FileText className="h-3.5 w-3.5" />
+              Review quotes and approve vehicle repairs.
+            </div>
+            <Button variant="ghost" size="sm" className="mt-3 px-0" asChild>
+              <Link href="/client/inspections">Review inspections</Link>
+            </Button>
           </CardContent>
         </Card>
         <Card className="bg-card/50 backdrop-blur-lg border-border/20">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Works Confirmed</CardTitle>
-            <CardDescription>{metrics.revenue.confirmed.count} jobs</CardDescription>
+            <CardTitle className="text-sm font-medium">Current Works Scheduled</CardTitle>
+            <CardDescription>Vehicles scheduled and in progress</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{formatCurrency(metrics.revenue.confirmed.total)}</div>
+            <div className="text-2xl font-bold">{scheduledWorksCount}</div>
           </CardContent>
         </Card>
         <Card className="bg-card/50 backdrop-blur-lg border-border/20">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Works Completed</CardTitle>
-            <CardDescription>{metrics.revenue.completed.count} jobs</CardDescription>
+            <CardTitle className="text-sm font-medium">Works Completed (YTD)</CardTitle>
+            <CardDescription>Completed vehicle works this calendar year</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{formatCurrency(metrics.revenue.completed.total)}</div>
+            <div className="text-2xl font-bold">{completedWorksYtd}</div>
           </CardContent>
         </Card>
       </div>
@@ -319,18 +411,20 @@ export default function ClientPage() {
             {upcomingBookings.length === 0 ? (
               <p className="text-sm text-muted-foreground">No upcoming bookings.</p>
             ) : (
-              upcomingBookings.map(({ booking, dateTime }) => (
-                <div key={booking.id} className="flex items-center justify-between gap-3">
+              upcomingBookings.map(({ job, dateTime }) => (
+                <div key={job.id} className="flex items-center justify-between gap-3">
                   <div>
-                    <div className="text-sm font-medium">{booking.bookingNumber}</div>
+                    <div className="text-sm font-medium">{job.jobNumber}</div>
                     <div className="text-xs text-muted-foreground">
-                      {booking.organizationName} • {booking.contactName}
+                      {job.clientName}
                     </div>
-                    <div className="text-xs text-muted-foreground">
-                      {format(dateTime, "PPP")} at {booking.scheduledTime}
-                    </div>
+                    {dateTime && (
+                      <div className="text-xs text-muted-foreground">
+                        {format(dateTime, "PPP")} at {job.booking?.preferredTime || "Scheduled"}
+                      </div>
+                    )}
                   </div>
-                  <Badge variant="secondary">{booking.status.replace("_", " ")}</Badge>
+                  <Badge variant="secondary">{statusLabel(job.status)}</Badge>
                 </div>
               ))
             )}
@@ -352,18 +446,20 @@ export default function ClientPage() {
             {completedBookings.length === 0 ? (
               <p className="text-sm text-muted-foreground">No completed bookings yet.</p>
             ) : (
-              completedBookings.map(({ booking, dateTime }) => (
-                <div key={booking.id} className="flex items-center justify-between gap-3">
+              completedBookings.map(({ job, dateTime }) => (
+                <div key={job.id} className="flex items-center justify-between gap-3">
                   <div>
-                    <div className="text-sm font-medium">{booking.bookingNumber}</div>
+                    <div className="text-sm font-medium">{job.jobNumber}</div>
                     <div className="text-xs text-muted-foreground">
-                      {booking.organizationName} • {booking.contactName}
+                      {job.clientName}
                     </div>
-                    <div className="text-xs text-muted-foreground">
-                      {format(dateTime, "PPP")} at {booking.scheduledTime}
-                    </div>
+                    {dateTime && (
+                      <div className="text-xs text-muted-foreground">
+                        {format(dateTime, "PPP")}
+                      </div>
+                    )}
                   </div>
-                  <Badge variant="secondary">{booking.status.replace("_", " ")}</Badge>
+                  <Badge variant="secondary">{statusLabel(job.status)}</Badge>
                 </div>
               ))
             )}

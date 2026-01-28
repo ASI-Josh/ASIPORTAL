@@ -15,6 +15,10 @@ const GenerateDashboardInsightsInputSchema = z.object({
   metrics: z
     .string()
     .describe('JSON metrics payload including revenue, glass saved, operations, and client activity.'),
+  audience: z
+    .enum(['admin', 'client'])
+    .default('admin')
+    .describe('Target audience for the insights.'),
 });
 export type GenerateDashboardInsightsInput = z.infer<typeof GenerateDashboardInsightsInputSchema>;
 
@@ -40,11 +44,19 @@ const prompt = ai.definePrompt({
 Summarise the dashboard metrics clearly and identify risks and opportunities.
 Use Australian English and keep everything concise.
 
+If audience is "client", write in client-friendly language:
+- Focus on service progress, approvals, and scheduling.
+- Avoid internal revenue, margin, compliance, or operational performance language.
+- Never mention internal KPIs or admin-only metrics.
+
 Return:
 - summary: 2-3 sentences maximum
 - risks: 2-4 bullet points
 - opportunities: 2-4 bullet points
 - alerts: 2-4 bullet points
+
+Audience:
+{{audience}}
 
 Metrics:
 {{metrics}}

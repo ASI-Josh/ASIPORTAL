@@ -50,6 +50,7 @@ export async function POST(req: NextRequest) {
 
     const insights = await generateDashboardInsights({
       metrics: buildInsightPrompt(metrics),
+      audience: "admin",
     });
 
     const now = admin.firestore.FieldValue.serverTimestamp();
