@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import {
   User as FirebaseUser,
   onAuthStateChanged,
@@ -99,6 +99,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
   const [loading, setLoading] = useState(true);
+  const inviteCheckRef = useRef(false);
 
   useEffect(() => {
     getRedirectResult(auth).catch((error) => {
@@ -257,6 +258,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               ? { ...storedUser, ...updates }
               : storedUser;
             setUser(nextUser);
+
+            if (!inviteCheckRef.current) {
+              inviteCheckRef.current = true;
+              try {
+                const token = await firebaseUser.getIdToken();
+                await fetch("/api/auth/accept-invite", {
+                  method: "POST",
+                  headers: {
+                    Authorization: `Bearer ${token}`,
+                  },
+                });
+              } catch (inviteError) {
+                console.warn("Invite reconciliation failed:", inviteError);
+              }
+            }
 
             if (Object.keys(updates).length > 0) {
               try {
