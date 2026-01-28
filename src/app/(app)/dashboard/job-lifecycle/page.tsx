@@ -56,6 +56,21 @@ export default function JobLifecyclePage() {
   const [selectedOrganisation, setSelectedOrganisation] = useState("all");
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
 
+  const getServiceType = (notes?: string) => {
+    const match = notes?.match(/^Service: (.+)$/m);
+    return match?.[1] || "Service";
+  };
+
+  const formatDate = (timestamp: any) => {
+    if (!timestamp) return "N/A";
+    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+    return date.toLocaleDateString("en-AU", { day: "2-digit", month: "short", year: "numeric" });
+  };
+
+  const resolveScheduledDate = (job: any) => {
+    return job.scheduledDate || job.booking?.preferredDate || job.updatedAt || job.createdAt;
+  };
+
   const pipelineJobs = useMemo(
     () => jobs.filter((job) => !job.isDeleted && job.status !== "cancelled"),
     [jobs]
@@ -127,21 +142,6 @@ export default function JobLifecyclePage() {
     });
     return counts;
   }, [pipelineJobs]);
-
-  const getServiceType = (notes?: string) => {
-    const match = notes?.match(/^Service: (.+)$/m);
-    return match?.[1] || "Service";
-  };
-
-  const formatDate = (timestamp: any) => {
-    if (!timestamp) return "N/A";
-    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
-    return date.toLocaleDateString("en-AU", { day: "2-digit", month: "short", year: "numeric" });
-  };
-
-  const resolveScheduledDate = (job: any) => {
-    return job.scheduledDate || job.booking?.preferredDate || job.updatedAt || job.createdAt;
-  };
 
   return (
     <div className="min-h-screen p-6">
