@@ -19,6 +19,12 @@ type ChatMessage = {
   content: string;
 };
 
+type OpsAssistantPanelProps = {
+  variant?: "card" | "embedded";
+  layout?: "standard" | "compact";
+  className?: string;
+};
+
 const PROMPTS = [
   {
     id: "next_directions",
@@ -61,7 +67,11 @@ const isSameDay = (a: Date, b: Date) =>
   a.getMonth() === b.getMonth() &&
   a.getDate() === b.getDate();
 
-export function OpsAssistantPanel() {
+export function OpsAssistantPanel({
+  variant = "card",
+  layout = "standard",
+  className,
+}: OpsAssistantPanelProps) {
   const { user } = useAuth();
   const { jobs } = useJobs();
   const [messages, setMessages] = useState<ChatMessage[]>([
@@ -179,25 +189,46 @@ export function OpsAssistantPanel() {
     );
   };
 
+  const Wrapper: React.ElementType = variant === "card" ? Card : "div";
+  const Header: React.ElementType = variant === "card" ? CardHeader : "div";
+  const Content: React.ElementType = variant === "card" ? CardContent : "div";
+
   return (
-    <Card className="bg-card/50 backdrop-blur-lg border-border/20">
-      <CardHeader className="space-y-1">
-        <CardTitle className="flex items-center gap-2 text-base">
-          <MessageSquare className="h-4 w-4 text-primary" />
-          Operations Assistant
-        </CardTitle>
-        <p className="text-xs text-muted-foreground">
-          Chat-style quick actions for directions, schedules, and admin support.
-        </p>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="flex flex-wrap gap-2">
+    <Wrapper
+      className={cn(
+        variant === "card" && "bg-card/50 backdrop-blur-lg border-border/20",
+        className
+      )}
+    >
+      <Header className={cn("space-y-1", variant === "card" ? "" : "flex items-center justify-between")}>
+        <div>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <MessageSquare className="h-4 w-4 text-primary" />
+            Operations Assistant
+          </CardTitle>
+          <p className="text-xs text-muted-foreground">
+            Chat-style quick actions for directions, schedules, and admin support.
+          </p>
+        </div>
+      </Header>
+      <Content className={cn("space-y-4", layout === "compact" && "space-y-3")}>
+        <div className="flex items-center justify-between text-[11px] uppercase tracking-[0.2em] text-muted-foreground/70">
+          <span>Quick prompts</span>
+          <span className="text-[10px] tracking-[0.18em]">Ops Assist</span>
+        </div>
+        <div
+          className={cn(
+            "flex flex-wrap gap-2",
+            layout === "compact" && "gap-1.5",
+            "items-center"
+          )}
+        >
           {PROMPTS.map((prompt) => (
             <button
               key={prompt.id}
               type="button"
               onClick={() => handleQuickPrompt(prompt.id)}
-              className="rounded-full border border-border/40 bg-muted/40 px-3 py-1 text-xs text-muted-foreground hover:text-foreground hover:border-primary/40 transition"
+              className="rounded-full border border-border/40 bg-gradient-to-r from-muted/50 to-muted/20 px-3 py-1 text-xs text-muted-foreground hover:text-foreground hover:border-primary/40 transition"
               title={prompt.description}
             >
               {prompt.label}
@@ -206,7 +237,7 @@ export function OpsAssistantPanel() {
         </div>
 
         <div className="rounded-2xl border border-border/40 bg-background/60">
-          <ScrollArea className="h-64 px-4 py-3">
+          <ScrollArea className={cn(layout === "compact" ? "h-40" : "h-64", "px-4 py-3")}>
             <div className="space-y-3">
               {messages.map((message) => (
                 <div
@@ -273,7 +304,10 @@ export function OpsAssistantPanel() {
             </div>
             <iframe
               title="Next job map"
-              className="h-56 w-full rounded-xl border border-border/40"
+              className={cn(
+                "w-full rounded-xl border border-border/40",
+                layout === "compact" ? "h-44" : "h-56"
+              )}
               loading="lazy"
               referrerPolicy="no-referrer-when-downgrade"
               src={mapEmbedUrl}
@@ -285,7 +319,7 @@ export function OpsAssistantPanel() {
             ) : null}
           </div>
         ) : null}
-      </CardContent>
-    </Card>
+      </Content>
+    </Wrapper>
   );
 }

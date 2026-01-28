@@ -317,6 +317,31 @@ export default function DashboardPage() {
         </Card>
       </div>
 
+      <Card className="relative overflow-hidden border-border/30 bg-card/50 backdrop-blur-lg">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.12),_transparent_55%)]" />
+        <div className="absolute -right-24 -top-24 h-56 w-56 rounded-full bg-sky-500/10 blur-3xl" />
+        <CardHeader className="relative z-10">
+          <CardTitle className="text-base">Operations Command Deck</CardTitle>
+          <CardDescription>
+            Chat-first support, live weather, and rapid ops prompts in one place.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="relative z-10">
+          <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
+            <OpsAssistantPanel
+              variant="embedded"
+              layout="compact"
+              className="rounded-2xl border border-border/30 bg-background/40 p-4"
+            />
+            <WeatherCard
+              variant="embedded"
+              layout="compact"
+              className="rounded-2xl border border-border/30 bg-background/40 p-4"
+            />
+          </div>
+        </CardContent>
+      </Card>
+
       <div className="grid gap-6 lg:grid-cols-3">
         <Card className="bg-card/50 backdrop-blur-lg border-border/20">
           <CardHeader>
@@ -415,11 +440,6 @@ export default function DashboardPage() {
             </div>
           </CardContent>
         </Card>
-      </div>
-
-      <div className="grid gap-6 lg:grid-cols-3">
-        <OpsAssistantPanel />
-        <WeatherCard />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
@@ -579,31 +599,29 @@ export default function DashboardPage() {
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
             {calendarLoading ? <p className="text-muted-foreground">Loading...</p> : null}
-            {calendarConnected && calendarEvents.length > 0 ? (
-              calendarEvents.map((event) => (
-                <div key={event.id}>
-                  <p className="font-medium">{event.summary || "Calendar event"}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {toLocalDateString(event.start?.dateTime || event.start?.date)}{" "}
-                    {event.location ? `• ${event.location}` : ""}
-                  </p>
-                </div>
-              ))
-            ) : (
-              <>
-                {scheduleFallback.length === 0 ? (
-                  <p className="text-muted-foreground">No scheduled jobs today.</p>
-                ) : (
-                  scheduleFallback.map((job) => (
-                    <div key={job.id}>
-                      <p className="font-medium">{job.summary}</p>
-                      <p className="text-xs text-muted-foreground">{job.time}</p>
-                    </div>
-                  ))
-                )}
-              </>
-            )}
-          </CardContent>
+            <div className="max-h-44 space-y-3 overflow-y-auto pr-2">
+              {calendarConnected && calendarEvents.length > 0 ? (
+                calendarEvents.map((event) => (
+                  <div key={event.id}>
+                    <p className="font-medium">{event.summary || "Calendar event"}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {toLocalDateString(event.start?.dateTime || event.start?.date)}{" "}
+                      {event.location ? `• ${event.location}` : ""}
+                    </p>
+                  </div>
+                ))
+              ) : scheduleFallback.length === 0 ? (
+                <p className="text-muted-foreground">No scheduled jobs today.</p>
+              ) : (
+                scheduleFallback.map((job) => (
+                  <div key={job.id}>
+                    <p className="font-medium">{job.summary}</p>
+                    <p className="text-xs text-muted-foreground">{job.time}</p>
+                  </div>
+                ))
+              )}
+            </div>
+</CardContent>
         </Card>
       </div>
     </div>
