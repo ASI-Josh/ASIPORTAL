@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { OpsAssistantPanel } from "@/components/dashboard/ops-assistant-panel";
+import { WeatherCard } from "@/components/dashboard/weather-card";
 import { useAuth } from "@/contexts/AuthContext";
 import { useJobs } from "@/contexts/JobsContext";
 import { db } from "@/lib/firebaseClient";
@@ -416,8 +417,9 @@ export default function DashboardPage() {
         </Card>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid gap-6 lg:grid-cols-3">
         <OpsAssistantPanel />
+        <WeatherCard />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
