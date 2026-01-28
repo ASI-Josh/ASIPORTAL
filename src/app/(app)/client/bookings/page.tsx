@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { format } from "date-fns";
+import { format, startOfDay } from "date-fns";
 
 import type { Booking } from "@/lib/types";
 import { BOOKING_TYPE_LABELS } from "@/lib/types";
@@ -21,10 +21,25 @@ const statusLabels: Record<Booking["status"], string> = {
 export default function ClientBookingsPage() {
   const router = useRouter();
   const { bookings } = useJobs();
+  const today = startOfDay(new Date());
+
+  const getBookingDateTime = (booking: Booking) => {
+    const date = booking.scheduledDate.toDate();
+    const [hours, minutes] = booking.scheduledTime.split(":").map((part) => Number(part));
+    if (Number.isFinite(hours)) date.setHours(hours);
+    if (Number.isFinite(minutes)) date.setMinutes(minutes);
+    date.setSeconds(0, 0);
+    return date;
+  };
 
   const clientBookings = useMemo(
-    () => bookings.slice().sort((a, b) => b.createdAt.toMillis() - a.createdAt.toMillis()),
-    [bookings]
+    () =>
+      bookings
+        .filter((booking) => booking.status !== "cancelled")
+        .map((booking) => ({ booking, dateTime: getBookingDateTime(booking) }))
+        .filter(({ dateTime }) => dateTime >= today)
+        .sort((a, b) => a.dateTime.getTime() - b.dateTime.getTime()),
+    [bookings, today]
   );
 
   return (
@@ -44,10 +59,10 @@ export default function ClientBookingsPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           {clientBookings.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No bookings yet.</p>
+            <p className="text-sm text-muted-foreground">No upcoming bookings.</p>
           ) : (
             <div className="space-y-3">
-              {clientBookings.map((booking) => (
+              {clientBookings.map(({ booking, dateTime }) => (
                 <Card key={booking.id} className="bg-background/50 border-border/50">
                   <CardContent className="p-4 space-y-2">
                     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -60,7 +75,7 @@ export default function ClientBookingsPage() {
                       <Badge variant="secondary">{statusLabels[booking.status]}</Badge>
                     </div>
                     <div className="text-sm text-muted-foreground">
-                      {format(booking.scheduledDate.toDate(), "PPP")} at {booking.scheduledTime}
+                      {format(dateTime, "PPP")} at {booking.scheduledTime}
                     </div>
                     <div className="text-sm text-muted-foreground">
                       Contact: {booking.contactName}

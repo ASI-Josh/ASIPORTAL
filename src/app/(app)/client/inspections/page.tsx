@@ -76,16 +76,16 @@ export default function ClientInspectionsPage() {
         </Card>
       )}
 
-      {inspections.length === 0 ? (
+      {pendingApprovals.length === 0 ? (
         <Card className="bg-card/50 backdrop-blur-lg border-border/20">
           <CardContent className="p-10 text-center text-muted-foreground">
             <ClipboardCheck className="mx-auto h-10 w-10 mb-4 opacity-50" />
-            No inspections recorded yet.
+            No inspections awaiting approval.
           </CardContent>
         </Card>
       ) : (
         <div className="space-y-3">
-          {inspections.map((inspection) => (
+          {pendingApprovals.map((inspection) => (
             <Card key={inspection.id} className="bg-card/50 backdrop-blur-lg border-border/20">
               <CardHeader className="pb-2">
                 <div className="flex flex-wrap items-center justify-between gap-2">

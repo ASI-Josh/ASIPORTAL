@@ -19,6 +19,8 @@ export async function POST(req: NextRequest) {
     const payload = (await req.json()) as {
       inspectionId?: string;
       approvalStatus?: string;
+      clientSchedulingNote?: string;
+      clientVehicleJobRefs?: Record<string, string>;
     };
     if (!payload.inspectionId) {
       return NextResponse.json({ error: "Inspection ID is required." }, { status: 400 });
@@ -56,6 +58,8 @@ export async function POST(req: NextRequest) {
         clientApprovalStatus: payload.approvalStatus || "approved",
         clientApprovalUpdatedAt: now,
         updatedAt: now,
+        clientSchedulingNote: payload.clientSchedulingNote || "",
+        clientVehicleJobRefs: payload.clientVehicleJobRefs || {},
       },
       { merge: true }
     );
@@ -79,6 +83,8 @@ export async function POST(req: NextRequest) {
           ],
           scheduledDate: inspection.scheduledDate || jobData.scheduledDate || now,
           updatedAt: now,
+          clientSchedulingNote: payload.clientSchedulingNote || "",
+          clientVehicleJobRefs: payload.clientVehicleJobRefs || {},
         },
         { merge: true }
       );
@@ -116,7 +122,9 @@ export async function POST(req: NextRequest) {
         userId: adminDoc.id,
         type: "quote_approved",
         title: "Inspection approved by client",
-        message: "Client approval received. Review and schedule the RFQ job.",
+        message: payload.clientSchedulingNote
+          ? `Client approval received. Scheduling note: ${payload.clientSchedulingNote}`
+          : "Client approval received. Review and schedule the RFQ job.",
         read: false,
         relatedEntityId: payload.inspectionId,
         relatedEntityType: "inspection",

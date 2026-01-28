@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Timestamp, doc, onSnapshot, updateDoc } from "firebase/firestore";
-import { CheckCircle, ChevronLeft, ClipboardCheck } from "lucide-react";
+import { CheckCircle, ChevronLeft, ClipboardCheck, Image as ImageIcon } from "lucide-react";
 import { db } from "@/lib/firebaseClient";
 import { COLLECTIONS } from "@/lib/collections";
 import { useAuth } from "@/contexts/AuthContext";
@@ -16,6 +16,8 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 
 type ClientDecision = "pending" | "approved" | "rejected";
 
@@ -45,6 +47,9 @@ export default function ClientInspectionDetailPage() {
   const [vehicleReports, setVehicleReports] = useState<VehicleReport[]>([]);
   const [saving, setSaving] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [schedulingNote, setSchedulingNote] = useState("");
+  const [vehicleJobRefs, setVehicleJobRefs] = useState<Record<string, string>>({});
+  const [activePhoto, setActivePhoto] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id || !user?.organizationId) return;
@@ -74,6 +79,8 @@ export default function ClientInspectionDetailPage() {
       })),
     }));
     setVehicleReports(nextReports);
+    setSchedulingNote((inspection as any).clientSchedulingNote || "");
+    setVehicleJobRefs((inspection as any).clientVehicleJobRefs || {});
   }, [inspection]);
 
   const approvalStatus = useMemo(
@@ -122,6 +129,8 @@ export default function ClientInspectionDetailPage() {
         clientApprovalStatus: approvalStatus,
         clientApprovalUpdatedAt: Timestamp.now(),
         updatedAt: Timestamp.now(),
+        clientSchedulingNote: schedulingNote,
+        clientVehicleJobRefs: vehicleJobRefs,
       });
       toast({
         title: "Approvals saved",
@@ -153,6 +162,8 @@ export default function ClientInspectionDetailPage() {
         body: JSON.stringify({
           inspectionId: inspection.id,
           approvalStatus,
+          clientSchedulingNote: schedulingNote,
+          clientVehicleJobRefs: vehicleJobRefs,
         }),
       });
       if (!response.ok) {
@@ -190,6 +201,20 @@ export default function ClientInspectionDetailPage() {
 
   return (
     <div className="space-y-6">
+      <Dialog open={Boolean(activePhoto)} onOpenChange={(open) => !open && setActivePhoto(null)}>
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>Inspection Photo</DialogTitle>
+          </DialogHeader>
+          {activePhoto && (
+            <img
+              src={activePhoto}
+              alt="Inspection photo"
+              className="w-full rounded-lg object-contain max-h-[70vh]"
+            />
+          )}
+        </DialogContent>
+      </Dialog>
       <div className="flex items-center justify-between">
         <div>
           <Button variant="ghost" size="sm" onClick={() => router.back()}>
@@ -222,6 +247,21 @@ export default function ClientInspectionDetailPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
+            {report.damages.some((damage) => damage.clientDecision === "approved") && (
+              <div className="rounded-lg border border-border/40 bg-background/50 p-3">
+                <Label className="text-xs text-muted-foreground">Client Job Number</Label>
+                <Input
+                  value={vehicleJobRefs[report.vehicleId] || ""}
+                  onChange={(event) =>
+                    setVehicleJobRefs((prev) => ({
+                      ...prev,
+                      [report.vehicleId]: event.target.value,
+                    }))
+                  }
+                  placeholder="Optional reference for approved vehicle work"
+                />
+              </div>
+            )}
             {report.damages.map((damage) => (
               <Card key={damage.id} className="bg-background/50 border-border/50">
                 <CardContent className="p-4 space-y-3">
@@ -272,12 +312,51 @@ export default function ClientInspectionDetailPage() {
                       />
                     </div>
                   </div>
+
+                  {damage.preWorkPhotos?.length ? (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <ImageIcon className="h-3.5 w-3.5" />
+                        Before photos
+                      </div>
+                      <div className="grid gap-2 sm:grid-cols-3">
+                        {damage.preWorkPhotos.map((url) => (
+                          <button
+                            key={url}
+                            type="button"
+                            onClick={() => setActivePhoto(url)}
+                            className="group relative overflow-hidden rounded-lg border border-border/40 bg-muted/20"
+                          >
+                            <img
+                              src={url}
+                              alt="Before repair"
+                              className="h-28 w-full object-cover transition group-hover:scale-105"
+                            />
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
                 </CardContent>
               </Card>
             ))}
           </CardContent>
         </Card>
       ))}
+
+      <Card className="bg-card/50 backdrop-blur-lg border-border/20">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Scheduling notes</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Textarea
+            value={schedulingNote}
+            onChange={(event) => setSchedulingNote(event.target.value)}
+            placeholder="Tell ASI your preferred dates/times or availability."
+            className="min-h-[120px]"
+          />
+        </CardContent>
+      </Card>
 
       <div className="flex flex-wrap gap-3">
         <Button variant="outline" onClick={handleSaveApprovals} disabled={saving}>
