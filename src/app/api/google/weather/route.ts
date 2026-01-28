@@ -30,11 +30,9 @@ export async function GET(request: Request) {
   }
 
   const params = new URLSearchParams({
+    key: apiKey,
     "location.latitude": lat,
     "location.longitude": lng,
-    unitsSystem: "METRIC",
-    languageCode: "en",
-    key: apiKey,
   });
 
   const response = await fetch(
