@@ -89,9 +89,9 @@ export default function JobLifecyclePage() {
     return [...listJobs].sort((a, b) => {
       const aDate = resolveScheduledDate(a);
       const bDate = resolveScheduledDate(b);
-      const aTime = aDate?.toMillis ? aDate.toMillis() : new Date(aDate).getTime();
-      const bTime = bDate?.toMillis ? bDate.toMillis() : new Date(bDate).getTime();
-      return aTime - bTime;
+      const aMillis = aDate?.toMillis ? aDate.toMillis() : aDate ? new Date(aDate).getTime() : 0;
+      const bMillis = bDate?.toMillis ? bDate.toMillis() : bDate ? new Date(bDate).getTime() : 0;
+      return aMillis - bMillis;
     });
   }, [listJobs]);
 
