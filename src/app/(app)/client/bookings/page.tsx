@@ -13,8 +13,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 const statusLabels: Record<Booking["status"], string> = {
   pending: "Pending",
-  confirmed: "Confirmed",
-  converted_to_job: "Converted",
+  confirmed: "Scheduled",
+  converted_to_job: "Scheduled",
   cancelled: "Cancelled",
 };
 
