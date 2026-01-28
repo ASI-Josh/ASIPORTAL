@@ -10,6 +10,7 @@ import {
   updateDoc,
   deleteDoc,
   query,
+  where,
 } from "firebase/firestore";
 import {
   Building2,
@@ -137,6 +138,9 @@ export default function ContactsPage() {
   const [activeTab, setActiveTab] = useState<ContactCategory>("trade_client");
   const [organizations, setOrganizations] = useState<ContactOrganization[]>([]);
   const [contacts, setContacts] = useState<OrganizationContact[]>([]);
+  const [asiOrganizations, setAsiOrganizations] = useState<ContactOrganization[]>([]);
+  const [userOrganization, setUserOrganization] = useState<ContactOrganization | null>(null);
+  const [asiOrgIds, setAsiOrgIds] = useState<string[]>([]);
   const [invites, setInvites] = useState<UserInvite[]>([]);
   const [hasLoaded, setHasLoaded] = useState(false);
   const [hasLoadedContacts, setHasLoadedContacts] = useState(false);
@@ -168,6 +172,13 @@ export default function ContactsPage() {
   });
 
   const isAdmin = user?.role === "admin";
+  const isStaffUser = user?.role === "admin" || user?.role === "technician";
+
+  useEffect(() => {
+    if (!isStaffUser && activeTab !== "asi_staff") {
+      setActiveTab("asi_staff");
+    }
+  }, [isStaffUser, activeTab]);
   const organizationOptions = useMemo(
     () =>
       organizations
@@ -189,35 +200,72 @@ export default function ContactsPage() {
   };
 
   useEffect(() => {
-    const orgQuery = query(collection(db, COLLECTIONS.CONTACT_ORGANIZATIONS), orderBy("name"));
-    const contactsQuery = query(
-      collection(db, COLLECTIONS.ORGANIZATION_CONTACTS),
-      orderBy("firstName")
-    );
+    if (!user) return;
 
-    const unsubscribeOrgs = onSnapshot(orgQuery, (snapshot) => {
+    if (isStaffUser) {
+      const orgQuery = query(collection(db, COLLECTIONS.CONTACT_ORGANIZATIONS), orderBy("name"));
+      const contactsQuery = query(
+        collection(db, COLLECTIONS.ORGANIZATION_CONTACTS),
+        orderBy("firstName")
+      );
+
+      const unsubscribeOrgs = onSnapshot(orgQuery, (snapshot) => {
+        const loaded = snapshot.docs.map((docSnap) => ({
+          id: docSnap.id,
+          ...(docSnap.data() as Omit<ContactOrganization, "id">),
+        }));
+        setOrganizations(loaded);
+        setHasLoaded(true);
+      });
+
+      const unsubscribeContacts = onSnapshot(contactsQuery, (snapshot) => {
+        const loaded = snapshot.docs.map((docSnap) => ({
+          id: docSnap.id,
+          ...(docSnap.data() as Omit<OrganizationContact, "id">),
+        }));
+        setContacts(loaded);
+        setHasLoadedContacts(true);
+      });
+
+      return () => {
+        unsubscribeOrgs();
+        unsubscribeContacts();
+      };
+    }
+
+    const orgsRef = collection(db, COLLECTIONS.CONTACT_ORGANIZATIONS);
+    const userOrgId = user.organizationId;
+
+    const asiQuery = query(orgsRef, where("category", "==", "asi_staff"), orderBy("name"));
+    const unsubscribeAsi = onSnapshot(asiQuery, (snapshot) => {
       const loaded = snapshot.docs.map((docSnap) => ({
         id: docSnap.id,
         ...(docSnap.data() as Omit<ContactOrganization, "id">),
       }));
-      setOrganizations(loaded);
-      setHasLoaded(true);
+      setAsiOrganizations(loaded);
+      setAsiOrgIds(loaded.map((org) => org.id));
     });
 
-    const unsubscribeContacts = onSnapshot(contactsQuery, (snapshot) => {
-      const loaded = snapshot.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...(docSnap.data() as Omit<OrganizationContact, "id">),
-      }));
-      setContacts(loaded);
-      setHasLoadedContacts(true);
-    });
+    let unsubscribeUserOrg = () => {};
+    if (userOrgId) {
+      const userOrgRef = doc(db, COLLECTIONS.CONTACT_ORGANIZATIONS, userOrgId);
+      unsubscribeUserOrg = onSnapshot(userOrgRef, (docSnap) => {
+        if (!docSnap.exists()) {
+          setUserOrganization(null);
+          return;
+        }
+        setUserOrganization({
+          id: docSnap.id,
+          ...(docSnap.data() as Omit<ContactOrganization, "id">),
+        });
+      });
+    }
 
     return () => {
-      unsubscribeOrgs();
-      unsubscribeContacts();
+      unsubscribeAsi();
+      unsubscribeUserOrg();
     };
-  }, []);
+  }, [user, isStaffUser]);
 
   useEffect(() => {
     if (!isAdmin) {
@@ -239,6 +287,66 @@ export default function ContactsPage() {
   }, [isAdmin]);
 
   useEffect(() => {
+    if (isStaffUser) return;
+    const combined = [...asiOrganizations];
+    if (userOrganization && !combined.some((org) => org.id === userOrganization.id)) {
+      combined.push(userOrganization);
+    }
+    combined.sort((a, b) => a.name.localeCompare(b.name));
+    setOrganizations(combined);
+    setHasLoaded(true);
+  }, [asiOrganizations, userOrganization, isStaffUser]);
+
+  useEffect(() => {
+    if (!user || isStaffUser) return;
+    const contactsRef = collection(db, COLLECTIONS.ORGANIZATION_CONTACTS);
+    const orgIds = [
+      ...(user.organizationId ? [user.organizationId] : []),
+      ...asiOrgIds,
+    ].filter(Boolean);
+
+    if (orgIds.length === 0) {
+      setContacts([]);
+      setHasLoadedContacts(true);
+      return;
+    }
+
+    if (orgIds.length > 10) {
+      const trimmed = orgIds.slice(0, 10);
+      const contactsQuery = query(
+        contactsRef,
+        where("organizationId", "in", trimmed),
+        orderBy("firstName")
+      );
+      const unsubscribe = onSnapshot(contactsQuery, (snapshot) => {
+        const loaded = snapshot.docs.map((docSnap) => ({
+          id: docSnap.id,
+          ...(docSnap.data() as Omit<OrganizationContact, "id">),
+        }));
+        setContacts(loaded);
+        setHasLoadedContacts(true);
+      });
+      return () => unsubscribe();
+    }
+
+    const contactsQuery = query(
+      contactsRef,
+      where("organizationId", "in", orgIds),
+      orderBy("firstName")
+    );
+    const unsubscribe = onSnapshot(contactsQuery, (snapshot) => {
+      const loaded = snapshot.docs.map((docSnap) => ({
+        id: docSnap.id,
+        ...(docSnap.data() as Omit<OrganizationContact, "id">),
+      }));
+      setContacts(loaded);
+      setHasLoadedContacts(true);
+    });
+    return () => unsubscribe();
+  }, [user, isStaffUser, asiOrgIds]);
+
+  useEffect(() => {
+    if (!isAdmin) return;
     if (!hasLoaded || !hasLoadedContacts || hasSeeded) return;
 
     const seedContacts = async () => {
