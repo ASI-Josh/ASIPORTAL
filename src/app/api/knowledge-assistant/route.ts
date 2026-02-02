@@ -249,17 +249,17 @@ export async function POST(req: NextRequest) {
         .firestore()
         .collection(COLLECTIONS.IMS_DOCUMENTS)
         .where("status", "==", "active")
-        .where("docType", "in", ["technical_procedure", "work_instruction"])
-        .limit(12)
+        .limit(20)
         .get();
-      liveContext.technicalDocs = techDocsSnap.docs.map((docSnap) => {
-        const data = docSnap.data();
-        return {
+      liveContext.technicalDocs = techDocsSnap.docs
+        .map((docSnap) => docSnap.data())
+        .filter((data) => ["technical_procedure", "work_instruction"].includes(data.docType))
+        .slice(0, 12)
+        .map((data) => ({
           docNumber: data.docNumber,
           title: data.title,
           type: data.docType,
-        };
-      });
+        }));
     }
 
     let memoryUpdates: FirebaseFirestore.DocumentData[] = [];
