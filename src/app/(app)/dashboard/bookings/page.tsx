@@ -1370,8 +1370,25 @@ export default function BookingsPage() {
     }
   };
 
+  const isClosedStatus = (status: string) => status === "completed" || status === "closed";
+
+  const getBookingSortTimestamp = (booking: Booking) => {
+    const scheduledDate = booking.scheduledDate?.toDate?.();
+    if (scheduledDate) {
+      const scheduledDateTime = new Date(scheduledDate);
+      const [hours, minutes] = booking.scheduledTime
+        ? booking.scheduledTime.split(":").map((part) => Number(part))
+        : [];
+      if (Number.isFinite(hours)) scheduledDateTime.setHours(hours);
+      if (Number.isFinite(minutes)) scheduledDateTime.setMinutes(minutes);
+      scheduledDateTime.setSeconds(0, 0);
+      return scheduledDateTime.getTime();
+    }
+    return booking.createdAt?.toMillis?.() ?? 0;
+  };
+
   const deletedJobIds = new Set(deletedJobs.map((job) => job.id));
-  const filteredBookings = bookings.filter((booking) => {
+  const filteredBookings = [...bookings.filter((booking) => {
     const matchesSearch =
       booking.bookingNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
       booking.organizationName.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -1379,6 +1396,17 @@ export default function BookingsPage() {
     const hasDeletedJob =
       booking.convertedJobId && deletedJobIds.has(booking.convertedJobId);
     return matchesSearch && !hasDeletedJob;
+  })].sort((a, b) => {
+    const statusA = getBookingDisplayStatus(a);
+    const statusB = getBookingDisplayStatus(b);
+    const closedA = isClosedStatus(statusA);
+    const closedB = isClosedStatus(statusB);
+    if (closedA !== closedB) return closedA ? 1 : -1;
+
+    const timeA = getBookingSortTimestamp(a);
+    const timeB = getBookingSortTimestamp(b);
+    if (timeA !== timeB) return timeA - timeB;
+    return a.bookingNumber.localeCompare(b.bookingNumber);
   });
 
   return (
