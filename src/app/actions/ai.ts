@@ -4,13 +4,16 @@ import { generateJobDescription } from "@/ai/flows/generate-job-descriptions";
 import { generateInspectionSummary } from "@/ai/flows/generate-inspection-summary";
 import { summarizeLeadNotes } from "@/ai/flows/summarize-lead-notes";
 import { runWorkflowJson } from "@/lib/openai-workflow";
-import { InternalKnowledgeSchema } from "@/lib/assistant/internal-knowledge-schema";
+import { z } from "zod";
 
 export async function generateJobDescriptionAction(clientRequest: string) {
   const workflowId =
     process.env.OPENAI_INTERNAL_TECH_WORKFLOW_ID ||
     process.env.OPENAI_INTERNAL_ADMIN_WORKFLOW_ID;
   if (workflowId) {
+    const JobDescriptionSchema = z.object({
+      answer: z.string(),
+    }).passthrough();
     const prompt = [
       "Generate a clear, detailed job description for a technician.",
       "Use the client request below.",
@@ -23,7 +26,7 @@ export async function generateJobDescriptionAction(clientRequest: string) {
       const result = await runWorkflowJson({
         workflowId,
         input: prompt,
-        schema: InternalKnowledgeSchema,
+        schema: JobDescriptionSchema,
         timeoutMs: 30000,
         maxRetries: 1,
       });
