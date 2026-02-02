@@ -95,7 +95,17 @@ import {
   Clock,
   Navigation,
   Upload,
+  Bot,
 } from "lucide-react";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+  SheetTrigger,
+} from "@/components/ui/sheet";
+import { InternalKnowledgeAssistant } from "@/components/assistant/internal-knowledge-assistant";
 
 const statusColors: Record<JobStatus, string> = {
   pending: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30",
@@ -139,7 +149,7 @@ export default function JobCardPage() {
     completeWorksRegisterEntry,
     jobs,
   } = useJobs();
-  const { user } = useAuth();
+  const { user, firebaseUser } = useAuth();
   const { toast } = useToast();
   const jobId = params.id as string;
 
@@ -195,6 +205,8 @@ export default function JobCardPage() {
   const [sendingClientNotice, setSendingClientNotice] = useState<
     "job_started" | "job_on_hold" | "job_completed" | null
   >(null);
+  const [auditRunning, setAuditRunning] = useState(false);
+  const [auditError, setAuditError] = useState<string | null>(null);
   const [invoiceNumber, setInvoiceNumber] = useState(job?.invoiceNumber ?? "");
   const [invoiceDate, setInvoiceDate] = useState("");
   const [invoiceSentDate, setInvoiceSentDate] = useState("");
@@ -603,6 +615,39 @@ export default function JobCardPage() {
     }
   };
 
+  const triggerCompletionAudit = async (mode: "auto" | "manual") => {
+    if (!job || !firebaseUser) return;
+    if (auditRunning) return;
+    setAuditError(null);
+    setAuditRunning(true);
+    try {
+      const token = await firebaseUser.getIdToken();
+      const response = await fetch("/api/knowledge-assistant/job-audit", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ jobId: job.id }),
+      });
+      const payload = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        throw new Error(payload.error || "Job audit failed.");
+      }
+      if (mode === "manual") {
+        toast({
+          title: "Audit generated",
+          description: "Completion audit saved to the job card.",
+        });
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Job audit failed.";
+      setAuditError(message);
+    } finally {
+      setAuditRunning(false);
+    }
+  };
+
   const completeJobFlow = async (note: string) => {
     const changedBy = user?.name || user?.email || user?.uid || "System";
     await updateJob(job.id, {
@@ -630,6 +675,7 @@ export default function JobCardPage() {
       `ASI Job Complete: ${job.jobNumber}`,
       false
     );
+    void triggerCompletionAudit("auto");
   };
 
   const handleSendCompletionNotice = async () => {
@@ -2357,6 +2403,111 @@ export default function JobCardPage() {
               )}
             </CardContent>
           </Card>
+
+          {user?.role === "admin" && (job.status === "completed" || job.status === "closed") && (
+            <Card className="bg-card/50 backdrop-blur">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Bot className="h-5 w-5 text-primary" />
+                  Completion Audit (AI)
+                </CardTitle>
+                <CardDescription>
+                  Quick audit for compliance, billing readiness, and improvement opportunities.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {job.completionAudit ? (
+                  <>
+                    <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
+                      <Badge
+                        variant="outline"
+                        className={
+                          job.completionAudit.status === "needs_attention"
+                            ? "border-amber-500/40 text-amber-300"
+                            : "border-emerald-500/40 text-emerald-300"
+                        }
+                      >
+                        {job.completionAudit.status === "needs_attention"
+                          ? "Needs attention"
+                          : "Pass"}
+                      </Badge>
+                      <span>
+                        Generated: {formatDateTime(job.completionAudit.generatedAt)}
+                      </span>
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <div className="text-xs uppercase text-muted-foreground">
+                          Compliance checks
+                        </div>
+                        <ul className="list-disc space-y-1 pl-4 text-sm text-muted-foreground">
+                          {(job.completionAudit.complianceChecks.length
+                            ? job.completionAudit.complianceChecks
+                            : ["No compliance gaps flagged."])}
+                        </ul>
+                      </div>
+                      <div className="space-y-2">
+                        <div className="text-xs uppercase text-muted-foreground">
+                          Issues & risks
+                        </div>
+                        <ul className="list-disc space-y-1 pl-4 text-sm text-muted-foreground">
+                          {(job.completionAudit.issues.length
+                            ? job.completionAudit.issues
+                            : ["No critical issues flagged."])}
+                        </ul>
+                      </div>
+                      <div className="space-y-2">
+                        <div className="text-xs uppercase text-muted-foreground">
+                          Billing notes
+                        </div>
+                        <ul className="list-disc space-y-1 pl-4 text-sm text-muted-foreground">
+                          {(job.completionAudit.billingNotes.length
+                            ? job.completionAudit.billingNotes
+                            : ["No billing notes flagged."])}
+                        </ul>
+                      </div>
+                      <div className="space-y-2">
+                        <div className="text-xs uppercase text-muted-foreground">
+                          Commercial opportunities
+                        </div>
+                        <ul className="list-disc space-y-1 pl-4 text-sm text-muted-foreground">
+                          {(job.completionAudit.commercialOpportunities.length
+                            ? job.completionAudit.commercialOpportunities
+                            : ["No opportunities flagged."])}
+                        </ul>
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <div className="text-xs uppercase text-muted-foreground">
+                        Continuous improvement
+                      </div>
+                      <ul className="list-disc space-y-1 pl-4 text-sm text-muted-foreground">
+                        {(job.completionAudit.improvements.length
+                          ? job.completionAudit.improvements
+                          : ["No improvement actions flagged."])}
+                      </ul>
+                    </div>
+                  </>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    No audit has been generated for this job yet.
+                  </p>
+                )}
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => triggerCompletionAudit("manual")}
+                    disabled={auditRunning}
+                  >
+                    {auditRunning ? "Running audit..." : "Run completion audit"}
+                  </Button>
+                  {auditError && <span className="text-xs text-destructive">{auditError}</span>}
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
         {/* Team Tab */}
@@ -2688,6 +2839,37 @@ export default function JobCardPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {(user?.role === "admin" || user?.role === "technician") && (
+        <Sheet>
+          <SheetTrigger asChild>
+            <Button
+              className="fixed bottom-6 right-6 z-40 rounded-full shadow-lg"
+              size="lg"
+            >
+              <Bot className="mr-2 h-4 w-4" />
+              Assistant
+            </Button>
+          </SheetTrigger>
+          <SheetContent side="bottom" className="max-h-[85vh] overflow-y-auto">
+            <SheetHeader>
+              <SheetTitle>ASI Knowledge Assistant</SheetTitle>
+              <SheetDescription>
+                Technical procedures, QA support, and job guidance in one place.
+              </SheetDescription>
+            </SheetHeader>
+            <div className="mt-4">
+              <InternalKnowledgeAssistant
+                context="job"
+                jobId={job.id}
+                variant="embedded"
+                compact={false}
+                className="rounded-2xl border border-border/30 bg-background/40 p-4"
+              />
+            </div>
+          </SheetContent>
+        </Sheet>
+      )}
     </div>
   );
 }

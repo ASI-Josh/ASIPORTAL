@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { OpsAssistantPanel } from "@/components/dashboard/ops-assistant-panel";
+import { InternalKnowledgeAssistant } from "@/components/assistant/internal-knowledge-assistant";
 import { WeatherCard } from "@/components/dashboard/weather-card";
 import { useAuth } from "@/contexts/AuthContext";
 import { useJobs } from "@/contexts/JobsContext";
@@ -341,6 +342,14 @@ export default function DashboardPage() {
           </div>
         </CardContent>
       </Card>
+
+      <InternalKnowledgeAssistant
+        variant="card"
+        compact
+        className="border-border/30"
+        title="ASI Internal Knowledge Assistant"
+        description="Live IMS, technical, and operational guidance tailored to your role."
+      />
 
       <div className="grid gap-6 lg:grid-cols-3">
         <Card className="bg-card/50 backdrop-blur-lg border-border/20">

@@ -333,6 +333,19 @@ export interface Job {
   totalJobCost?: number;
   totalLabourCost?: number;
   totalMaterialsCost?: number;
+  completionAudit?: JobCompletionAudit;
+}
+
+export interface JobCompletionAudit {
+  status: "pass" | "needs_attention";
+  issues: string[];
+  billingNotes: string[];
+  commercialOpportunities: string[];
+  improvements: string[];
+  complianceChecks: string[];
+  generatedAt: Timestamp;
+  generatedBy?: string;
+  source?: "agent" | "manual";
 }
 
 // ============================================

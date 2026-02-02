@@ -27,5 +27,7 @@ export const COLLECTIONS = {
   IMS_DOCUMENTS: "imsDocuments",
   IMS_DOCUMENT_COUNTERS: "imsDocumentCounters",
   IMS_AUDITS: "imsAudits",
+  ASSISTANT_MESSAGES: "assistantMessages",
+  ASSISTANT_KNOWLEDGE: "assistantKnowledge",
   AUTOMATION_AGENTS: "automationAgents",
 } as const;
