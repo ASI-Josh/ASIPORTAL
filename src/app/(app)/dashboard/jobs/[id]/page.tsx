@@ -1279,6 +1279,12 @@ export default function JobCardPage() {
     completionState.allCompleted && job.status !== "completed" && job.status !== "closed";
   const canManageCloseOff = user?.role === "admin";
   const isClosed = job.status === "closed";
+  const completionAudit = job.completionAudit;
+  const auditCompliance = completionAudit?.complianceChecks ?? [];
+  const auditIssues = completionAudit?.issues ?? [];
+  const auditBilling = completionAudit?.billingNotes ?? [];
+  const auditOpportunities = completionAudit?.commercialOpportunities ?? [];
+  const auditImprovements = completionAudit?.improvements ?? [];
 
   return (
     <div className="space-y-6">
@@ -2416,23 +2422,23 @@ export default function JobCardPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                {job.completionAudit ? (
+                {completionAudit ? (
                   <>
                     <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
                       <Badge
                         variant="outline"
                         className={
-                          job.completionAudit.status === "needs_attention"
+                          completionAudit.status === "needs_attention"
                             ? "border-amber-500/40 text-amber-300"
                             : "border-emerald-500/40 text-emerald-300"
                         }
                       >
-                        {job.completionAudit.status === "needs_attention"
+                        {completionAudit.status === "needs_attention"
                           ? "Needs attention"
                           : "Pass"}
                       </Badge>
                       <span>
-                        Generated: {formatDateTime(job.completionAudit.generatedAt)}
+                        Generated: {formatDateTime(completionAudit.generatedAt)}
                       </span>
                     </div>
 
@@ -2442,8 +2448,8 @@ export default function JobCardPage() {
                           Compliance checks
                         </div>
                         <ul className="list-disc space-y-1 pl-4 text-sm text-muted-foreground">
-                          {(job.completionAudit.complianceChecks.length
-                            ? job.completionAudit.complianceChecks
+                          {(auditCompliance.length
+                            ? auditCompliance
                             : ["No compliance gaps flagged."])}
                         </ul>
                       </div>
@@ -2452,8 +2458,8 @@ export default function JobCardPage() {
                           Issues & risks
                         </div>
                         <ul className="list-disc space-y-1 pl-4 text-sm text-muted-foreground">
-                          {(job.completionAudit.issues.length
-                            ? job.completionAudit.issues
+                          {(auditIssues.length
+                            ? auditIssues
                             : ["No critical issues flagged."])}
                         </ul>
                       </div>
@@ -2462,8 +2468,8 @@ export default function JobCardPage() {
                           Billing notes
                         </div>
                         <ul className="list-disc space-y-1 pl-4 text-sm text-muted-foreground">
-                          {(job.completionAudit.billingNotes.length
-                            ? job.completionAudit.billingNotes
+                          {(auditBilling.length
+                            ? auditBilling
                             : ["No billing notes flagged."])}
                         </ul>
                       </div>
@@ -2472,8 +2478,8 @@ export default function JobCardPage() {
                           Commercial opportunities
                         </div>
                         <ul className="list-disc space-y-1 pl-4 text-sm text-muted-foreground">
-                          {(job.completionAudit.commercialOpportunities.length
-                            ? job.completionAudit.commercialOpportunities
+                          {(auditOpportunities.length
+                            ? auditOpportunities
                             : ["No opportunities flagged."])}
                         </ul>
                       </div>
@@ -2483,8 +2489,8 @@ export default function JobCardPage() {
                         Continuous improvement
                       </div>
                       <ul className="list-disc space-y-1 pl-4 text-sm text-muted-foreground">
-                        {(job.completionAudit.improvements.length
-                          ? job.completionAudit.improvements
+                        {(auditImprovements.length
+                          ? auditImprovements
                           : ["No improvement actions flagged."])}
                       </ul>
                     </div>
