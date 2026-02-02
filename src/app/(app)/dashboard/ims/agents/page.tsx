@@ -60,11 +60,13 @@ const statusBadge = (status: AutomationAgentStatus) => {
 
 export default function AgentRegistryPage() {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, firebaseUser } = useAuth();
   const { toast } = useToast();
   const [agents, setAgents] = useState<AutomationAgent[]>([]);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncedDefaults, setSyncedDefaults] = useState(false);
   const [newAgent, setNewAgent] = useState({
     name: "",
     type: "workflow" as AutomationAgentType,
@@ -87,6 +89,50 @@ export default function AgentRegistryPage() {
     });
     return () => unsubscribe();
   }, [user]);
+
+  const syncDefaultAgents = async (silent = false) => {
+    if (!user || user.role !== "admin") return;
+    if (syncing) return;
+    setSyncing(true);
+    try {
+      const token = await firebaseUser?.getIdToken?.();
+      const response = await fetch("/api/admin/agents/sync", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      const payload = (await response.json()) as { created?: number; updated?: number; error?: string };
+      if (!response.ok) {
+        throw new Error(payload.error || "Unable to sync agents.");
+      }
+      if (!silent) {
+        toast({
+          title: "Agents synced",
+          description: `Created ${payload.created ?? 0}, updated ${payload.updated ?? 0}.`,
+        });
+      }
+      setSyncedDefaults(true);
+    } catch (error) {
+      if (!silent) {
+        const message = error instanceof Error ? error.message : "Unable to sync agents.";
+        toast({
+          title: "Sync failed",
+          description: message,
+          variant: "destructive",
+        });
+      }
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!user || user.role !== "admin") return;
+    if (syncedDefaults) return;
+    syncDefaultAgents(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, syncedDefaults]);
 
   const stats = useMemo(() => {
     const total = agents.length;
@@ -167,10 +213,15 @@ export default function AgentRegistryPage() {
             </p>
           </div>
         </div>
-        <Button onClick={() => setShowCreateDialog(true)}>
-          <Plus className="mr-2 h-4 w-4" />
-          New agent
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" onClick={() => syncDefaultAgents(false)} disabled={syncing}>
+            {syncing ? "Syncing..." : "Sync defaults"}
+          </Button>
+          <Button onClick={() => setShowCreateDialog(true)}>
+            <Plus className="mr-2 h-4 w-4" />
+            New agent
+          </Button>
+        </div>
       </div>
 
       <div className="grid gap-4 md:grid-cols-4">
