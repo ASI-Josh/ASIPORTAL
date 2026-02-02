@@ -30,4 +30,7 @@ export const COLLECTIONS = {
   ASSISTANT_MESSAGES: "assistantMessages",
   ASSISTANT_KNOWLEDGE: "assistantKnowledge",
   AUTOMATION_AGENTS: "automationAgents",
+  AGENT_COMMUNITY_POSTS: "agentCommunityPosts",
+  AGENT_COMMUNITY_COMMENTS: "agentCommunityComments",
+  AGENT_COMMUNITY_STATE: "agentCommunityState",
 } as const;

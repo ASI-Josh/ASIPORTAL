@@ -8,6 +8,8 @@ import { RoleBasedRedirect } from '@/components/ProtectedRoute';
 export const metadata: Metadata = {
   title: 'ASI Portal',
   description: 'Glass & Surface Life-Extension Business Management Platform',
+  manifest: '/manifest.webmanifest',
+  themeColor: '#0b0f1a',
   icons: {
     icon: [
       { url: '/icons/favicon.ico' },

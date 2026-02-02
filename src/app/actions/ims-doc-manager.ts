@@ -1,7 +1,7 @@
 ﻿"use server";
 
-import { z } from "zod";
 import { runWorkflowJson } from "@/lib/openai-workflow";
+import { DocumentManagerAgentSchema } from "@/lib/assistant/ims-schemas";
 
 type GenerateDraftParams = {
   docNumber: string;
@@ -14,37 +14,6 @@ type GenerateDraftParams = {
   relatedDocs: string[];
   brief: string;
 };
-
-const DocumentManagerAgentSchema = z.object({
-  metadata: z.object({
-    docId: z.string(),
-    title: z.string(),
-    type: z.enum([
-      "policy",
-      "manual",
-      "ims_procedure",
-      "technical_procedure",
-      "work_instruction",
-      "form",
-      "register",
-    ]),
-    status: z.enum(["draft", "proposed", "active", "obsolete"]),
-    revision: z.string(),
-    issueDate: z.string(),
-    processOwner: z.string(),
-    isoClauses: z.array(z.string()),
-    relatedDocs: z.array(z.string()),
-  }),
-  sections: z.array(
-    z.object({
-      title: z.string(),
-      content: z.string(),
-    })
-  ),
-  changeSummary: z.array(z.string()),
-  adminIssuanceChecklist: z.array(z.string()),
-  questions: z.array(z.string()),
-});
 
 const buildPrompt = (params: GenerateDraftParams) => {
   return [

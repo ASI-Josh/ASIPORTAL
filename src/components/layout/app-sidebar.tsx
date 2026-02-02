@@ -22,6 +22,8 @@ import {
   Wrench,
   Trash2,
   Layers,
+  Bot,
+  MessagesSquare,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import {
@@ -59,6 +61,8 @@ const adminMenuItems = [
   { href: "/dashboard/films", label: "Film Management", icon: FileText },
   { href: "/dashboard/works-register", label: "Works Register", icon: ClipboardList },
   { href: "/dashboard/ims", label: "ASI IMS", icon: Layers },
+  { href: "/dashboard/agent-hub", label: "Agent Hub", icon: Bot },
+  { href: "/dashboard/agent-community", label: "Agent Community", icon: MessagesSquare },
   { href: "/dashboard/recycle-bin", label: "Recycle Bin", icon: Trash2 },
   { href: "/dashboard/reports", label: "Reports", icon: FileText },
 ];

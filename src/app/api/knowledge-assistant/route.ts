@@ -140,13 +140,15 @@ export async function POST(req: NextRequest) {
         .get();
       if (jobSnap.exists) {
         const job = jobSnap.data();
-        if (role === "technician") {
-          const assignedIds = (job?.assignedTechnicianIds || []) as string[];
-          if (!assignedIds.includes(userId)) {
-            return NextResponse.json({ error: "Job access denied." }, { status: 403 });
+        if (job) {
+          if (role === "technician") {
+            const assignedIds = (job.assignedTechnicianIds || []) as string[];
+            if (!assignedIds.includes(userId)) {
+              return NextResponse.json({ error: "Job access denied." }, { status: 403 });
+            }
           }
+          jobSummary = summarizeJob(job, role === "admin");
         }
-        jobSummary = summarizeJob(job, role === "admin");
       }
     }
 
