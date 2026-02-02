@@ -171,10 +171,13 @@ export default function ImsHubPage() {
                     <span>Corrective Action Form</span>
                     <Badge variant="secondary">Draft</Badge>
                   </div>
-                  <div className="flex items-center justify-between">
-                    <span>Internal Audit Checklist</span>
-                    <Badge variant="secondary">Draft</Badge>
-                  </div>
+                  <Link
+                    href="/dashboard/ims/ims-auditor"
+                    className="flex items-center gap-2"
+                  >
+                    <ClipboardCheck className="h-4 w-4 text-primary" />
+                    Internal Audit Workspace
+                  </Link>
                 </CardContent>
               </Card>
             </div>

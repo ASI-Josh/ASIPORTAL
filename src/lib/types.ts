@@ -644,6 +644,63 @@ export interface IMSDocument {
   updatedAt: Timestamp;
 }
 
+export interface IMSAuditReport {
+  id: string;
+  metadata: {
+    auditId: string;
+    standard: "ISO9001:2015";
+    scope: string;
+    period: string;
+    sites: string[];
+    processes: string[];
+    leadAuditor: string;
+    auditDate: string;
+    status: "planned" | "in_progress" | "completed";
+  };
+  plan: {
+    objectives: string[];
+    criteria: string[];
+    methods: string[];
+    schedule: Array<{
+      area: string;
+      time: string;
+      owner: string;
+    }>;
+  };
+  checklist: Array<{
+    clause: string;
+    question: string;
+    evidenceNeeded: string;
+    records: string[];
+  }>;
+  findings: Array<{
+    id: string;
+    type: "conformity" | "observation" | "OFI" | "minor_nc" | "major_nc";
+    clause: string;
+    requirement: string;
+    evidence: string;
+    description: string;
+    risk: string;
+    correctiveAction: string;
+    owner: string;
+    dueDate: string;
+    status: "open" | "closed";
+  }>;
+  summary: {
+    strengths: string[];
+    risks: string[];
+    overallConclusion: string;
+  };
+  questions: string[];
+  prompt?: string;
+  source?: "agent" | "manual";
+  createdAt: Timestamp;
+  createdById: string;
+  createdByName: string;
+  createdByEmail?: string;
+  updatedAt: Timestamp;
+}
+
 // ============================================
 // AUTOMATION AGENTS
 // ============================================

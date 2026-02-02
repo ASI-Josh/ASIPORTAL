@@ -26,5 +26,6 @@ export const COLLECTIONS = {
   PRESTART_CHECKS: "prestartChecks",
   IMS_DOCUMENTS: "imsDocuments",
   IMS_DOCUMENT_COUNTERS: "imsDocumentCounters",
+  IMS_AUDITS: "imsAudits",
   AUTOMATION_AGENTS: "automationAgents",
 } as const;
