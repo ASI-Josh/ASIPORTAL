@@ -91,6 +91,10 @@ export async function POST(req: NextRequest) {
       (docSnap) => (docSnap.data() as InviteRecord).status === "pending"
     );
     if (!inviteDoc) {
+      const mode = req.nextUrl.searchParams.get("mode");
+      if (mode === "cleanup") {
+        return NextResponse.json({ status: "no_invite" }, { status: 200 });
+      }
       return NextResponse.json({ error: "Invite not found." }, { status: 403 });
     }
 

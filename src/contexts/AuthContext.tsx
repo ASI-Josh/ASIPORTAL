@@ -263,7 +263,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               inviteCheckRef.current = true;
               try {
                 const token = await firebaseUser.getIdToken();
-                await fetch("/api/auth/accept-invite", {
+                await fetch("/api/auth/accept-invite?mode=cleanup", {
                   method: "POST",
                   headers: {
                     Authorization: `Bearer ${token}`,
