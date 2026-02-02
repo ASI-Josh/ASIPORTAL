@@ -81,6 +81,7 @@ import {
 } from "@/lib/types";
 import { initialOrganizations, initialContacts } from "@/lib/contacts-data";
 import { COLLECTIONS, addDocument, createDocument } from "@/lib/firestore";
+import { isJobOnHold } from "@/lib/jobs-data";
 import { db } from "@/lib/firebaseClient";
 import { useJobs } from "@/contexts/JobsContext";
 import { useAuth } from "@/contexts/AuthContext";
@@ -1342,7 +1343,13 @@ export default function BookingsPage() {
   const getBookingDisplayStatus = (booking: Booking) => {
     if (booking.convertedJobId) {
       const job = jobsById.get(booking.convertedJobId);
-      if (job) return job.status;
+      if (job) {
+        if (job.status === "completed" || job.status === "closed" || job.status === "cancelled") {
+          return job.status;
+        }
+        if (isJobOnHold(job)) return "on_hold";
+        return job.status;
+      }
       return "converted_to_job";
     }
     return booking.status;
@@ -1357,6 +1364,8 @@ export default function BookingsPage() {
       case "closed":
       case "in_progress":
         return "default";
+      case "on_hold":
+        return "secondary";
       case "scheduled":
       case "pending":
       case "confirmed":

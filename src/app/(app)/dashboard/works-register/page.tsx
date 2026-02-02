@@ -16,7 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ClipboardList, Search, Calendar, Plus, FileText, Download } from "lucide-react";
 import { useJobs } from "@/contexts/JobsContext";
-import { worksEntryToDisplay } from "@/lib/jobs-data";
+import { isJobOnHold, worksEntryToDisplay } from "@/lib/jobs-data";
 
 function getStatusColor(status: string) {
   switch (status) {
@@ -26,6 +26,8 @@ function getStatusColor(status: string) {
       return "text-amber-400";
     case "Scheduled":
       return "text-blue-400";
+    case "On Hold":
+      return "text-amber-400";
     case "Deleted":
       return "text-red-400";
     default:
@@ -55,9 +57,16 @@ export default function WorksRegisterPage() {
 
   const deletedJobIds = new Set(deletedJobs.map((job) => job.id));
   const deletedJobNumbers = new Set(deletedJobs.map((job) => job.jobNumber));
+  const jobLookup = new Map(jobs.map((job) => [job.id, job]));
+  const jobByNumber = new Map(jobs.map((job) => [job.jobNumber, job]));
 
   const worksData = worksRegister.map((entry) => {
     const display = worksEntryToDisplay(entry);
+    const relatedJob =
+      entry.recordType !== "inspection"
+        ? jobLookup.get(entry.jobId) || jobByNumber.get(entry.jobNumber)
+        : null;
+    const onHold = relatedJob ? isJobOnHold(relatedJob) : false;
     const isDeleted =
       entry.recordType !== "inspection" &&
       (deletedJobIds.has(entry.jobId) || deletedJobNumbers.has(entry.jobNumber));
@@ -66,7 +75,11 @@ export default function WorksRegisterPage() {
       jobId: entry.jobId,
       recordType: entry.recordType || "job",
       isDeleted,
-      status: isDeleted ? "Deleted" : display.status,
+      status: isDeleted
+        ? "Deleted"
+        : onHold && display.status === "In Progress"
+          ? "On Hold"
+          : display.status,
     };
   });
 

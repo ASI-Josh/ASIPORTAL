@@ -275,6 +275,14 @@ export function jobToLifecycleCard(job: Job, serviceType: string): JobLifecycleC
   };
 }
 
+export function isJobOnHold(job: Job): boolean {
+  const vehicles = job.jobVehicles || [];
+  return vehicles.some((vehicle) => {
+    if (vehicle.status === "on_hold") return true;
+    return vehicle.repairSites?.some((repair) => repair.workStatus === "on_hold") ?? false;
+  });
+}
+
 // ============================================
 // WORKS REGISTER DISPLAY TYPE
 // ============================================
@@ -286,7 +294,7 @@ export interface WorksRegisterDisplay {
   technician: string;
   startDate: string;
   completionDate: string;
-  status: "Completed" | "In Progress" | "Scheduled";
+  status: "Completed" | "In Progress" | "Scheduled" | "On Hold";
   compliance: "Compliant" | "Non-Conformance" | "Pending";
 }
 
