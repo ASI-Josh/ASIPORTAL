@@ -91,6 +91,14 @@ export async function POST(req: NextRequest) {
       (docSnap) => (docSnap.data() as InviteRecord).status === "pending"
     );
     if (!inviteDoc) {
+      const existingUserSnap = await admin
+        .firestore()
+        .collection(COLLECTIONS.USERS)
+        .doc(userId)
+        .get();
+      if (existingUserSnap.exists) {
+        return NextResponse.json({ status: "already_registered" }, { status: 200 });
+      }
       const mode = req.nextUrl.searchParams.get("mode");
       if (mode === "cleanup") {
         return NextResponse.json({ status: "no_invite" }, { status: 200 });
