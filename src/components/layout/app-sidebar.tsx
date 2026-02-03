@@ -78,7 +78,7 @@ export function AppSidebar() {
         technician: [
           { href: "/technician", label: "Technician Dashboard", icon: Wrench },
           { href: "/dashboard/daily-prestart", label: "Daily Prestart", icon: ClipboardCheck },
-          { href: "/dashboard/ims", label: "ASI IMS", icon: Layers },
+          { href: "/dashboard/ims/library", label: "IMS Library", icon: Layers },
         ],
         client: [
           { href: "/client", label: "Dashboard", icon: LayoutDashboard },
