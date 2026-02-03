@@ -1,5 +1,3 @@
-"use server";
-
 import { NextRequest, NextResponse } from "next/server";
 import { admin } from "@/lib/firebaseAdmin";
 import { requireUserId } from "@/lib/server/firebaseAuth";
