@@ -64,11 +64,12 @@ export async function runWorkflowJson<T extends z.ZodObject<any>>({
 
   while (attempt <= maxRetries) {
     try {
+      const outputSchema = schema.strict ? schema.strict() : schema;
       const agent = new Agent({
         name,
         instructions,
         model,
-        outputType: schema,
+        outputType: outputSchema,
       });
       const runner = new Runner({
         traceMetadata: { __trace_source__: "agent-builder" },

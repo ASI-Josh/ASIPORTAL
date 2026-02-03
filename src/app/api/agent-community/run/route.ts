@@ -4,18 +4,13 @@ import { z } from "zod";
 import { requireUserId } from "@/lib/server/firebaseAuth";
 import { COLLECTIONS } from "@/lib/collections";
 import { runWorkflowJson } from "@/lib/openai-workflow";
-import { InternalKnowledgeSchema } from "@/lib/assistant/internal-knowledge-schema";
-import {
-  DocumentManagerAgentSchema,
-  ImsAuditorSchema,
-} from "@/lib/assistant/ims-schemas";
 
 const MINUTES_BETWEEN_RUNS = 8;
 const AGENT_TIMEOUT_MS = 10000;
 const AGENT_MAX_RETRIES = 0;
 const COMMUNITY_RESPONSE_SCHEMA = z.object({
   answer: z.string(),
-}).passthrough();
+}).strict();
 
 const TOPICS = [
   "QA readiness for upcoming jobs",
@@ -192,13 +187,34 @@ export async function POST(req: NextRequest) {
     const runInternalAgent = async (role: "admin" | "technician", agentName: string, agentId: string, focus?: string) => {
       const workflowId = role === "admin" ? adminWorkflowId : techWorkflowId;
       if (!workflowId) return null;
-      const prompt = buildInternalPrompt(agentName, topic, focus);
+      const prompt = [
+        `You are ${agentName}. Provide a concise community reply in JSON.`,
+        "Return JSON with only: { \"answer\": \"...\" }.",
+        "Keep it to 2-4 sentences.",
+        focus ? `Context: ${focus}` : "",
+        `Topic: ${topic}`,
+      ]
+        .filter(Boolean)
+        .join("\n");
       const result = await runWorkflowJson({
         workflowId,
         input: prompt,
-        schema: InternalKnowledgeSchema,
+        schema: COMMUNITY_RESPONSE_SCHEMA,
         timeoutMs: AGENT_TIMEOUT_MS,
         maxRetries: AGENT_MAX_RETRIES,
+        instructionsOverride:
+          role === "admin"
+            ? [
+                "You are the ASI Internal Knowledge Assistant (Admin).",
+                "You ONLY output valid JSON with an `answer` field. No extra keys.",
+                "Keep it concise and suitable for a community forum reply.",
+              ].join("\n")
+            : [
+                "You are the ASI Technician Knowledge Assistant.",
+                "You ONLY output valid JSON with an `answer` field. No extra keys.",
+                "Keep it concise and suitable for a community forum reply.",
+              ].join("\n"),
+        agentNameOverride: agentName,
       });
       const parsed = result.parsed;
       const content = parsed.answer || "";
@@ -207,20 +223,31 @@ export async function POST(req: NextRequest) {
 
     const runDocManagerAgent = async (focus?: string) => {
       if (!docWorkflowId) return null;
-      const prompt = buildDocManagerPrompt(topic, focus);
+      const prompt = [
+        "You are the ASI IMS Document Manager. Provide a concise community reply in JSON.",
+        "Return JSON with only: { \"answer\": \"...\" }.",
+        "Keep it to 2-4 sentences.",
+        focus ? `Context: ${focus}` : "",
+        `Topic: ${topic}`,
+      ]
+        .filter(Boolean)
+        .join("\n");
       const result = await runWorkflowJson({
         workflowId: docWorkflowId,
         input: prompt,
-        schema: DocumentManagerAgentSchema,
+        schema: COMMUNITY_RESPONSE_SCHEMA,
         timeoutMs: AGENT_TIMEOUT_MS,
         maxRetries: AGENT_MAX_RETRIES,
+        instructionsOverride: [
+          "You are the ASI IMS Document Manager & Controller (ISO 9001:2015 Lead Auditor level).",
+          "You ONLY output valid JSON with an `answer` field. No extra keys.",
+          "Keep it concise and suitable for a community forum reply.",
+        ].join("\n"),
+        agentNameOverride: "Doc Manager",
       });
       const draft = result.parsed;
-      const title = draft.metadata.title || "Doc Control Update";
-      const body =
-        draft.sections?.[0]?.content ||
-        draft.questions?.join(" ") ||
-        "Document control update ready.";
+      const title = "Doc Control Update";
+      const body = draft.answer || "Document control update ready.";
       return { title, body };
     };
 
