@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   Timestamp,
@@ -2763,24 +2764,31 @@ export default function BookingsPage() {
                     >
                       Edit
                     </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        if (booking.convertedJobId) {
-                          router.push(`/dashboard/jobs/${booking.convertedJobId}`);
-                          return;
-                        }
-                        toast({
-                          title: "Job Not Available",
-                          description: "This booking has not been converted into a job yet.",
-                          variant: "destructive",
-                        });
-                      }}
-                    >
-                      View
-                    </Button>
+                    {booking.convertedJobId ? (
+                      <Button variant="ghost" size="sm" asChild>
+                        <Link
+                          href={`/dashboard/jobs/${booking.convertedJobId}`}
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          View
+                        </Link>
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          toast({
+                            title: "Job Not Available",
+                            description: "This booking has not been converted into a job yet.",
+                            variant: "destructive",
+                          });
+                        }}
+                      >
+                        View
+                      </Button>
+                    )}
                   </TableCell>
                 </TableRow>
               );
