@@ -102,11 +102,17 @@ const formatAgentAuthor = (name: string, role: string, agentId: string) => ({
 
 export async function POST(req: NextRequest) {
   try {
-    const userId = await requireUserId(req);
-    const userSnap = await admin.firestore().collection(COLLECTIONS.USERS).doc(userId).get();
-    const user = userSnap.data() as { role?: string } | undefined;
-    if (!user || user.role !== "admin") {
-      return NextResponse.json({ error: "Not authorised." }, { status: 403 });
+    const cronSecret = process.env.AGENT_COMMUNITY_CRON_SECRET;
+    const providedSecret = req.headers.get("x-agent-cron-secret");
+    const isCron = !!cronSecret && providedSecret === cronSecret;
+
+    if (!isCron) {
+      const userId = await requireUserId(req);
+      const userSnap = await admin.firestore().collection(COLLECTIONS.USERS).doc(userId).get();
+      const user = userSnap.data() as { role?: string } | undefined;
+      if (!user || user.role !== "admin") {
+        return NextResponse.json({ error: "Not authorised." }, { status: 403 });
+      }
     }
 
     const payload = (await req.json()) as {
