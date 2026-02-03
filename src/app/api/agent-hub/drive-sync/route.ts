@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { admin } from "@/lib/firebaseAdmin";
-import { requireUserId } from "@/lib/server/firebaseAuth";
+import { requireAdminUser } from "@/lib/server/firebaseAuth";
 import { COLLECTIONS } from "@/lib/collections";
 import {
   downloadDriveFile,
@@ -38,12 +38,7 @@ const resolveDriveBuffer = async (file: {
 
 export async function POST(req: NextRequest) {
   try {
-    const userId = await requireUserId(req);
-    const userSnap = await admin.firestore().collection(COLLECTIONS.USERS).doc(userId).get();
-    const user = userSnap.data() as { role?: string; name?: string; email?: string } | undefined;
-    if (!user || user.role !== "admin") {
-      return NextResponse.json({ error: "Not authorised." }, { status: 403 });
-    }
+    const { userId, user } = await requireAdminUser(req);
 
     const payload = (await req.json()) as { folderId?: string; maxFiles?: number };
     const folderId = payload.folderId?.trim();
@@ -105,7 +100,7 @@ export async function POST(req: NextRequest) {
           createdAt: existing ? existing.data().createdAt : now,
           updatedAt: now,
           createdById: existing ? existing.data().createdById : userId,
-          createdByName: existing ? existing.data().createdByName : user.name || user.email || "Admin",
+          createdByName: existing ? existing.data().createdByName : user?.name || user?.email || "Admin",
         };
 
         if (existing) {

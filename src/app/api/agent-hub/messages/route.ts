@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { admin } from "@/lib/firebaseAdmin";
-import { requireUserId } from "@/lib/server/firebaseAuth";
+import { requireAdminUser } from "@/lib/server/firebaseAuth";
 import { COLLECTIONS } from "@/lib/collections";
 export const runtime = "nodejs";
 
@@ -183,12 +183,7 @@ const normalizeRequestContext = (payload: { meetingNotes?: string; intent?: stri
 
 export async function GET(req: NextRequest) {
   try {
-    const userId = await requireUserId(req);
-    const userSnap = await admin.firestore().collection(COLLECTIONS.USERS).doc(userId).get();
-    const user = userSnap.data() as { role?: string } | undefined;
-    if (!user || user.role !== "admin") {
-      return NextResponse.json({ error: "Not authorised." }, { status: 403 });
-    }
+    await requireAdminUser(req);
 
     const threadId = req.nextUrl.searchParams.get("thread") || THREAD_ID;
     const messagesSnap = await admin
@@ -230,12 +225,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const userId = await requireUserId(req);
-    const userSnap = await admin.firestore().collection(COLLECTIONS.USERS).doc(userId).get();
-    const user = userSnap.data() as { role?: string; name?: string; email?: string } | undefined;
-    if (!user || user.role !== "admin") {
-      return NextResponse.json({ error: "Not authorised." }, { status: 403 });
-    }
+    const { userId, user } = await requireAdminUser(req);
 
     let payload: {
       message?: string;
@@ -271,7 +261,7 @@ export async function POST(req: NextRequest) {
         content: message,
         createdAt: now,
         authorId: userId,
-        authorName: user.name || user.email || "Admin",
+        authorName: user?.name || user?.email || "Admin",
       });
 
     const messagesSnap = await admin
@@ -386,7 +376,7 @@ export async function POST(req: NextRequest) {
                 scope: agent.role === "technician" ? "tech" : update.scope,
                 createdAt: now,
                 createdById: userId,
-                createdByName: user.name || user.email || "Admin",
+                createdByName: user?.name || user?.email || "Admin",
                 context: "knowledge_hub",
                 jobId: null,
               })

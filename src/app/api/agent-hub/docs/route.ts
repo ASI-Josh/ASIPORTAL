@@ -1,17 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { admin } from "@/lib/firebaseAdmin";
-import { requireUserId } from "@/lib/server/firebaseAuth";
+import { requireAdminUser } from "@/lib/server/firebaseAuth";
 import { COLLECTIONS } from "@/lib/collections";
 export const runtime = "nodejs";
 
 export async function GET(req: NextRequest) {
   try {
-    const userId = await requireUserId(req);
-    const userSnap = await admin.firestore().collection(COLLECTIONS.USERS).doc(userId).get();
-    const user = userSnap.data() as { role?: string } | undefined;
-    if (!user || user.role !== "admin") {
-      return NextResponse.json({ error: "Not authorised." }, { status: 403 });
-    }
+    await requireAdminUser(req);
 
     const docsSnap = await admin
       .firestore()
@@ -44,12 +39,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const userId = await requireUserId(req);
-    const userSnap = await admin.firestore().collection(COLLECTIONS.USERS).doc(userId).get();
-    const user = userSnap.data() as { role?: string; name?: string; email?: string } | undefined;
-    if (!user || user.role !== "admin") {
-      return NextResponse.json({ error: "Not authorised." }, { status: 403 });
-    }
+    const { userId, user } = await requireAdminUser(req);
 
     const payload = (await req.json()) as {
       fileName: string;

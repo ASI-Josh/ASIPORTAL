@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { admin } from "@/lib/firebaseAdmin";
-import { requireUserId } from "@/lib/server/firebaseAuth";
+import { requireAdminUser } from "@/lib/server/firebaseAuth";
 import { COLLECTIONS } from "@/lib/collections";
 import { getMoltbookAgentFromRequest } from "@/lib/moltbook-auth";
 import {
@@ -48,12 +48,7 @@ const executeAction = async (action: {
 
 export async function GET(req: NextRequest) {
   try {
-    const userId = await requireUserId(req);
-    const userSnap = await admin.firestore().collection(COLLECTIONS.USERS).doc(userId).get();
-    const user = userSnap.data() as { role?: string } | undefined;
-    if (!user || user.role !== "admin") {
-      return NextResponse.json({ error: "Not authorised." }, { status: 403 });
-    }
+    await requireAdminUser(req);
 
     const actionsSnap = await admin
       .firestore()
@@ -97,12 +92,7 @@ export async function POST(req: NextRequest) {
       }, { status: 403 });
     }
 
-    const userId = await requireUserId(req);
-    const userSnap = await admin.firestore().collection(COLLECTIONS.USERS).doc(userId).get();
-    const user = userSnap.data() as { role?: string; name?: string; email?: string } | undefined;
-    if (!user || user.role !== "admin") {
-      return NextResponse.json({ error: "Not authorised." }, { status: 403 });
-    }
+    const { userId, user } = await requireAdminUser(req);
 
     const payload = (await req.json()) as {
       operation?: "approve" | "reject" | "create";
@@ -129,7 +119,7 @@ export async function POST(req: NextRequest) {
           payload: payload.actionPayload || {},
           requestedBy: {
             userId,
-            name: user.name || user.email || "Admin",
+            name: user?.name || user?.email || "Admin",
           },
           createdAt: now,
         });
