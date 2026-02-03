@@ -71,6 +71,7 @@ export default function KnowledgeHubPage() {
   );
   const [selectedDocs, setSelectedDocs] = useState<string[]>([]);
   const [selectedActions, setSelectedActions] = useState<string[]>([]);
+  const [allowExternalActions, setAllowExternalActions] = useState(false);
   const [newAction, setNewAction] = useState({
     actionType: "moltbook.register",
     summary: "",
@@ -153,6 +154,7 @@ export default function KnowledgeHubPage() {
           docIds: selectedDocs,
           meetingNotes: meetingNotes.trim(),
           intent: intent.trim(),
+          allowExternalActions,
         }),
       });
       const payload = await response.json();
@@ -412,6 +414,13 @@ export default function KnowledgeHubPage() {
                   value={intent}
                   onChange={(event) => setIntent(event.target.value)}
                 />
+                <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Checkbox
+                    checked={allowExternalActions}
+                    onCheckedChange={(value) => setAllowExternalActions(Boolean(value))}
+                  />
+                  Allow external actions (Awareness/non-work only)
+                </label>
                 <Label className="pt-2">Meeting notes (optional)</Label>
                 <Textarea
                   rows={4}

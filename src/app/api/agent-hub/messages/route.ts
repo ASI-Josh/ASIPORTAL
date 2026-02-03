@@ -74,6 +74,7 @@ const buildAgentPrompt = ({
     "Return ONLY valid JSON with keys: answer, warnings, actionRequests, knowledgeUpdates.",
     "actionRequests must be an array (empty if none).",
     "warnings must be an array (empty if none).",
+    "Only propose external actionRequests if the user explicitly asks and the intent is Awareness/non-work.",
     "If you include actionRequests, include all payload fields. Use empty strings or null for non-applicable values. Use [] for tags.",
     "Guardrail: You are NOT allowed to execute financial transactions of any kind, any value.",
     "If external actions are proposed, add them to actionRequests and ask for approval.",
@@ -99,6 +100,7 @@ const buildAgentInstructions = (agent: AgentConfig) => {
     "You ONLY output valid JSON with keys: answer, warnings, actionRequests, knowledgeUpdates.",
     "warnings and actionRequests must be arrays (empty if none).",
     "knowledgeUpdates must be an array (empty if none).",
+    "Only propose external actionRequests if the user explicitly asks and the intent is Awareness/non-work.",
     "If you include actionRequests, include all payload fields. Use empty strings or null for non-applicable values. Use [] for tags.",
     "Never execute external actions. Propose external actions only via actionRequests.",
     "Guardrail: You are NOT allowed to execute financial transactions of any kind, any value.",
@@ -242,6 +244,7 @@ export async function POST(req: NextRequest) {
       docIds?: string[];
       meetingNotes?: string;
       intent?: string;
+      allowExternalActions?: boolean;
     };
     try {
       payload = (await req.json()) as typeof payload;
@@ -255,6 +258,9 @@ export async function POST(req: NextRequest) {
 
     const threadId = payload.threadId || THREAD_ID;
     const now = admin.firestore.FieldValue.serverTimestamp();
+    const allowExternalActions = Boolean(payload.allowExternalActions);
+    const intentText = `${payload.intent || ""} ${message}`.toLowerCase();
+    const isAwareness = intentText.includes("awareness") || intentText.includes("non-work") || intentText.includes("personal");
 
     const userMessageRef = await admin
       .firestore()
@@ -303,8 +309,8 @@ export async function POST(req: NextRequest) {
     const createdMessages: Array<{ id: string; role: string; agentId?: string }> = [];
     const actionRequestIds: string[] = [];
 
-    const agentTimeoutMs = Number(process.env.AGENT_HUB_TIMEOUT_MS || "12000");
-    const agentRetries = Number(process.env.AGENT_HUB_MAX_RETRIES || "0");
+    const agentTimeoutMs = Number(process.env.AGENT_HUB_TIMEOUT_MS || "60000");
+    const agentRetries = Number(process.env.AGENT_HUB_MAX_RETRIES || "2");
 
     const agentTasks = targetAgents.map(async (agent) => {
       const workflowId = process.env[agent.workflowEnv];
@@ -336,7 +342,19 @@ export async function POST(req: NextRequest) {
         const agentOutput = result.parsed;
         const actionIds: string[] = [];
 
+        const shouldAllowActions = allowExternalActions && isAwareness;
         if (Array.isArray(agentOutput.actionRequests) && agentOutput.actionRequests.length > 0) {
+          if (!shouldAllowActions) {
+            const warning = allowExternalActions
+              ? "External actions are restricted to Awareness/non-work rounds."
+              : "External actions are disabled for this round.";
+            agentOutput.warnings = Array.isArray(agentOutput.warnings)
+              ? [...agentOutput.warnings, warning]
+              : [warning];
+          }
+        }
+
+        if (Array.isArray(agentOutput.actionRequests) && agentOutput.actionRequests.length > 0 && shouldAllowActions) {
           for (const action of agentOutput.actionRequests) {
             const actionRef = await admin
               .firestore()
