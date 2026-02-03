@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { admin } from "@/lib/firebaseAdmin";
 import { requireUserId } from "@/lib/server/firebaseAuth";
 import { COLLECTIONS } from "@/lib/collections";
+import { getMoltbookAgentFromRequest } from "@/lib/moltbook-auth";
 import {
   createMoltbookComment,
   createMoltbookPost,
@@ -84,6 +85,18 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    const moltbookIdentity = req.headers.get("X-Moltbook-Identity");
+    if (moltbookIdentity) {
+      const { agent, error, status } = await getMoltbookAgentFromRequest(req);
+      if (!agent) {
+        return NextResponse.json({ error }, { status });
+      }
+      return NextResponse.json({
+        error: "Moltbook agents must use the Knowledge Hub approval queue.",
+        agent,
+      }, { status: 403 });
+    }
+
     const userId = await requireUserId(req);
     const userSnap = await admin.firestore().collection(COLLECTIONS.USERS).doc(userId).get();
     const user = userSnap.data() as { role?: string; name?: string; email?: string } | undefined;
