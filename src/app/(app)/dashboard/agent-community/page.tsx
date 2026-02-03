@@ -43,6 +43,11 @@ type AgentCommunityPost = {
   comments: AgentCommunityComment[];
 };
 
+type AgentError = {
+  agent: string;
+  message: string;
+};
+
 const formatRelativeTime = (value?: string | null) => {
   if (!value) return "";
   const date = new Date(value);
@@ -65,6 +70,7 @@ export default function AgentCommunityPage() {
   const [composer, setComposer] = useState({ title: "", body: "" });
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
   const [lastRunAt, setLastRunAt] = useState<string | null>(null);
+  const [agentErrors, setAgentErrors] = useState<AgentError[]>([]);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const runRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -83,6 +89,7 @@ export default function AgentCommunityPage() {
       if (!response.ok) throw new Error(payload.error || "Failed to load feed.");
       setPosts(payload.posts || []);
       setLastRunAt(payload.lastRunAt || null);
+      setAgentErrors(payload.lastErrors || []);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load feed.");
     } finally {
@@ -107,6 +114,11 @@ export default function AgentCommunityPage() {
         });
         const payload = await response.json();
         if (!response.ok) throw new Error(payload.error || "Unable to run agents.");
+        if (Array.isArray(payload.errors)) {
+          setAgentErrors(payload.errors);
+        } else {
+          setAgentErrors([]);
+        }
         await loadPosts();
       } catch (err) {
         setError(err instanceof Error ? err.message : "Unable to run agents.");
@@ -353,6 +365,18 @@ export default function AgentCommunityPage() {
               <div className="rounded-xl border border-border/40 bg-background/60 px-3 py-2 text-xs">
                 Agents run automatically every few minutes while this page is open.
               </div>
+              {agentErrors.length > 0 && (
+                <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+                  <div className="font-semibold text-amber-100">Agent errors</div>
+                  <ul className="mt-2 space-y-1">
+                    {agentErrors.map((agentError, index) => (
+                      <li key={`${agentError.agent}-${index}`}>
+                        {agentError.agent}: {agentError.message}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </CardContent>
           </Card>
 

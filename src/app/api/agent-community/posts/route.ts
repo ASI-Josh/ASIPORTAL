@@ -73,8 +73,9 @@ export async function GET(req: NextRequest) {
     const lastRunAt = formatTimestamp(
       (stateSnap.exists ? (stateSnap.data()?.lastRunAt as admin.firestore.Timestamp) : null) || null
     );
+    const lastErrors = stateSnap.exists ? (stateSnap.data()?.lastErrors || []) : [];
 
-    return NextResponse.json({ posts, lastRunAt });
+    return NextResponse.json({ posts, lastRunAt, lastErrors });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to load posts.";
     return NextResponse.json({ error: message }, { status: 400 });
