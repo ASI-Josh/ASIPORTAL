@@ -37,4 +37,5 @@ export const COLLECTIONS = {
   AGENT_HUB_MESSAGES: "agentHubMessages",
   AGENT_HUB_ACTIONS: "agentHubActions",
   AGENT_HUB_DOCS: "agentHubDocs",
+  AGENT_HUB_THREADS: "agentHubThreads",
 } as const;

@@ -230,6 +230,7 @@ export async function POST(req: NextRequest) {
     let payload: {
       message?: string;
       threadId?: string;
+      threadTitle?: string;
       agents?: string[];
       docIds?: string[];
       meetingNotes?: string;
@@ -246,11 +247,24 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Message is required." }, { status: 400 });
     }
 
-    const threadId = payload.threadId || THREAD_ID;
+    let threadId = payload.threadId || THREAD_ID;
     const now = admin.firestore.FieldValue.serverTimestamp();
     const allowExternalActions = Boolean(payload.allowExternalActions);
     const intentText = `${payload.intent || ""} ${message}`.toLowerCase();
     const isAwareness = intentText.includes("awareness") || intentText.includes("non-work") || intentText.includes("personal");
+
+    if (threadId === THREAD_ID) {
+      const title = payload.threadTitle?.trim() || message.slice(0, 60) || "New conversation";
+      const threadRef = await admin.firestore().collection(COLLECTIONS.AGENT_HUB_THREADS).add({
+        title,
+        createdAt: now,
+        updatedAt: now,
+        lastMessage: "",
+        createdById: userId,
+        createdByName: user?.name || user?.email || "Admin",
+      });
+      threadId = threadRef.id;
+    }
 
     const userMessageRef = await admin
       .firestore()
@@ -263,6 +277,13 @@ export async function POST(req: NextRequest) {
         authorId: userId,
         authorName: user?.name || user?.email || "Admin",
       });
+    await admin.firestore().collection(COLLECTIONS.AGENT_HUB_THREADS).doc(threadId).set(
+      {
+        updatedAt: now,
+        lastMessage: message,
+      },
+      { merge: true }
+    );
 
     const messagesSnap = await admin
       .firestore()
@@ -426,6 +447,7 @@ export async function POST(req: NextRequest) {
       userMessageId: userMessageRef.id,
       createdMessages,
       actionRequestIds,
+      threadId,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to run Knowledge Hub.";

@@ -35,6 +35,14 @@ type KnowledgeDoc = {
   createdAt?: string | null;
 };
 
+type KnowledgeThread = {
+  id: string;
+  title: string;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  lastMessage?: string | null;
+};
+
 type ActionItem = {
   id: string;
   status: string;
@@ -59,6 +67,8 @@ export default function KnowledgeHubPage() {
   const [messages, setMessages] = useState<KnowledgeMessage[]>([]);
   const [actions, setActions] = useState<ActionItem[]>([]);
   const [docs, setDocs] = useState<KnowledgeDoc[]>([]);
+  const [threads, setThreads] = useState<KnowledgeThread[]>([]);
+  const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [meetingNotes, setMeetingNotes] = useState("");
   const [intent, setIntent] = useState("");
@@ -92,17 +102,37 @@ export default function KnowledgeHubPage() {
 
   const isAdmin = user?.role === "admin";
 
-  const loadMessages = useCallback(async () => {
+  const loadMessages = useCallback(async (threadOverride?: string | null) => {
     if (!firebaseUser) return;
     const token = await firebaseUser.getIdToken();
-    const response = await fetch("/api/agent-hub/messages", {
+    const threadId = threadOverride ?? activeThreadId;
+    const query = threadId ? `?thread=${encodeURIComponent(threadId)}` : "";
+    const response = await fetch(`/api/agent-hub/messages${query}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     const payload = await response.json();
     if (response.ok) {
       setMessages(payload.messages || []);
+      if (!activeThreadId && payload.threadId) {
+        setActiveThreadId(payload.threadId);
+      }
     }
-  }, [firebaseUser]);
+  }, [firebaseUser, activeThreadId]);
+
+  const loadThreads = useCallback(async () => {
+    if (!firebaseUser) return;
+    const token = await firebaseUser.getIdToken();
+    const response = await fetch("/api/agent-hub/threads", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const payload = await response.json();
+    if (response.ok) {
+      setThreads(payload.threads || []);
+      if (!activeThreadId && payload.threads?.length) {
+        setActiveThreadId(payload.threads[0].id);
+      }
+    }
+  }, [firebaseUser, activeThreadId]);
 
   const loadActions = useCallback(async () => {
     if (!firebaseUser) return;
@@ -130,10 +160,16 @@ export default function KnowledgeHubPage() {
 
   useEffect(() => {
     if (!isAdmin) return;
+    loadThreads();
     loadMessages();
     loadActions();
     loadDocs();
-  }, [isAdmin, loadMessages, loadActions, loadDocs]);
+  }, [isAdmin, loadMessages, loadActions, loadDocs, loadThreads]);
+
+  useEffect(() => {
+    if (!isAdmin || !activeThreadId) return;
+    loadMessages(activeThreadId);
+  }, [activeThreadId, isAdmin, loadMessages]);
 
   const sendMessage = async () => {
     if (!firebaseUser || !input.trim()) return;
@@ -153,12 +189,15 @@ export default function KnowledgeHubPage() {
           meetingNotes: meetingNotes.trim(),
           intent: intent.trim(),
           allowExternalActions,
+          threadId: activeThreadId,
+          threadTitle: activeThreadId ? undefined : input.trim().slice(0, 60),
         }),
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "Unable to run Knowledge Hub.");
       setInput("");
-      await loadMessages();
+      await loadThreads();
+      await loadMessages(payload.threadId || activeThreadId);
       await loadActions();
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to run Knowledge Hub.";
@@ -191,6 +230,29 @@ export default function KnowledgeHubPage() {
       toast({ title: "Upload failed", description: message, variant: "destructive" });
     } finally {
       setUploading(false);
+    }
+  };
+
+  const createThread = async () => {
+    if (!firebaseUser) return;
+    try {
+      const token = await firebaseUser.getIdToken();
+      const response = await fetch("/api/agent-hub/threads", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ title: "New conversation" }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Unable to create thread.");
+      await loadThreads();
+      setActiveThreadId(payload.id);
+      setMessages([]);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to create thread.";
+      toast({ title: "Thread error", description: message, variant: "destructive" });
     }
   };
 
@@ -372,8 +434,44 @@ export default function KnowledgeHubPage() {
         </div>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
-        <Card className="bg-card/50 backdrop-blur border-border/40">
+      <div className="grid gap-6 lg:grid-cols-[240px_1fr]">
+        <Card className="bg-card/50 backdrop-blur border-border/40 h-fit">
+          <CardHeader>
+            <CardTitle className="text-base">Conversations</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <Button size="sm" onClick={createThread} className="w-full">
+              New conversation
+            </Button>
+            <ScrollArea className="h-[60vh] pr-2">
+              <div className="space-y-2">
+                {threads.map((thread) => (
+                  <button
+                    key={thread.id}
+                    className={cn(
+                      "w-full rounded-xl border px-3 py-2 text-left text-xs transition",
+                      activeThreadId === thread.id
+                        ? "border-primary/50 bg-primary/10 text-foreground"
+                        : "border-border/40 bg-background/60 text-muted-foreground hover:border-primary/40"
+                    )}
+                    onClick={() => setActiveThreadId(thread.id)}
+                  >
+                    <div className="font-semibold text-foreground">{thread.title}</div>
+                    <div className="text-[11px] text-muted-foreground line-clamp-2">
+                      {thread.lastMessage || "No messages yet"}
+                    </div>
+                  </button>
+                ))}
+                {threads.length === 0 && (
+                  <div className="text-xs text-muted-foreground">No conversations yet.</div>
+                )}
+              </div>
+            </ScrollArea>
+          </CardContent>
+        </Card>
+
+        <div className="space-y-6">
+          <Card className="bg-card/50 backdrop-blur border-border/40">
           <CardHeader>
             <CardTitle className="text-base">Agent roundtable</CardTitle>
           </CardHeader>
@@ -417,7 +515,7 @@ export default function KnowledgeHubPage() {
             </div>
 
             <div className="rounded-2xl border border-border/40 bg-background/60">
-              <ScrollArea className="h-80 px-4 py-3">
+              <ScrollArea className="h-[60vh] lg:h-[68vh] px-4 py-3">
                 <div className="space-y-3">
                   {messages.map((message) => (
                     <div
@@ -429,7 +527,7 @@ export default function KnowledgeHubPage() {
                     >
                       <div
                         className={cn(
-                          "max-w-[80%] whitespace-pre-line rounded-2xl px-4 py-2 text-sm",
+                          "max-w-[92%] whitespace-pre-line rounded-2xl px-4 py-2 text-sm",
                           message.role === "user"
                             ? "bg-primary text-primary-foreground"
                             : "bg-muted text-foreground"
@@ -479,7 +577,7 @@ export default function KnowledgeHubPage() {
           </CardContent>
         </Card>
 
-        <div className="space-y-4">
+          <div className="grid gap-4 lg:grid-cols-2">
           <Card className="bg-card/50 backdrop-blur border-border/40">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
@@ -754,6 +852,7 @@ export default function KnowledgeHubPage() {
               </div>
             </CardContent>
           </Card>
+          </div>
         </div>
       </div>
     </div>
