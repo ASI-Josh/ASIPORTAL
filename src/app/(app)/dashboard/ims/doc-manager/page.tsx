@@ -70,6 +70,7 @@ export default function DocManagerPage() {
   const [documents, setDocuments] = useState<IMSDocument[]>([]);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [sharingAll, setSharingAll] = useState(false);
   const [newDoc, setNewDoc] = useState({
     title: "",
     docType: "ims_procedure" as IMSDocumentType,
@@ -204,10 +205,45 @@ export default function DocManagerPage() {
             </p>
           </div>
         </div>
-        <Button onClick={() => setShowCreateDialog(true)}>
-          <Plus className="mr-2 h-4 w-4" />
-          New document
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="outline"
+            onClick={async () => {
+              if (!user) return;
+              setSharingAll(true);
+              try {
+                const token = await user.getIdToken?.();
+                const response = await fetch("/api/ims/doc-context/bulk", {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                  },
+                  body: JSON.stringify({ maxDocs: 25 }),
+                });
+                const payload = await response.json();
+                if (!response.ok) throw new Error(payload.error || "Unable to share IMS docs.");
+                toast({
+                  title: "Shared to Knowledge Hub",
+                  description: `Synced ${payload.results?.synced ?? 0}, skipped ${payload.results?.skipped ?? 0}.`,
+                });
+              } catch (error) {
+                const message =
+                  error instanceof Error ? error.message : "Unable to share IMS docs.";
+                toast({ title: "Share failed", description: message, variant: "destructive" });
+              } finally {
+                setSharingAll(false);
+              }
+            }}
+            disabled={sharingAll}
+          >
+            {sharingAll ? "Sharing..." : "Share all to Knowledge Hub"}
+          </Button>
+          <Button onClick={() => setShowCreateDialog(true)}>
+            <Plus className="mr-2 h-4 w-4" />
+            New document
+          </Button>
+        </div>
       </div>
 
       <div className="grid gap-4 md:grid-cols-4">

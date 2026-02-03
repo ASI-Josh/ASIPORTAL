@@ -99,18 +99,22 @@ export default function ImsHubPage() {
               </Card>
 
               <Card className="bg-background/60 border-border/40">
-                <CardHeader>
-                  <CardTitle className="text-base">Technical Procedures</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                  {TECHNICAL_PROCEDURES.map((item) => (
-                    <div key={item} className="flex items-center justify-between text-sm">
-                      <span>{item}</span>
-                      <Badge variant="secondary">Draft</Badge>
-                    </div>
-                  ))}
-                </CardContent>
-              </Card>
+              <CardHeader>
+                <CardTitle className="text-base">Technical Procedures</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {TECHNICAL_PROCEDURES.map((item) => (
+                  <div key={item} className="flex items-center justify-between text-sm">
+                    <span>{item}</span>
+                    <Badge variant="secondary">Draft</Badge>
+                  </div>
+                ))}
+                <Link href="/dashboard/ims/library" className="flex items-center gap-2 text-sm">
+                  <FileText className="h-4 w-4 text-primary" />
+                  View active procedures
+                </Link>
+              </CardContent>
+            </Card>
 
               <Card className="bg-background/60 border-border/40">
                 <CardHeader>
@@ -154,15 +158,19 @@ export default function ImsHubPage() {
                 <CardHeader>
                   <CardTitle className="text-base">Forms</CardTitle>
                 </CardHeader>
-                <CardContent className="space-y-2 text-sm">
-                  <Link href="/dashboard/daily-prestart" className="flex items-center gap-2">
-                    <ClipboardCheck className="h-4 w-4 text-primary" />
-                    Daily Prestart Checklist
-                  </Link>
-                  <Link
-                    href="/dashboard/ims/doc-manager/chat"
-                    className="flex items-center gap-2"
-                  >
+              <CardContent className="space-y-2 text-sm">
+                <Link href="/dashboard/daily-prestart" className="flex items-center gap-2">
+                  <ClipboardCheck className="h-4 w-4 text-primary" />
+                  Daily Prestart Checklist
+                </Link>
+                <Link href="/dashboard/ims/library" className="flex items-center gap-2">
+                  <FileText className="h-4 w-4 text-primary" />
+                  IMS Library (Technician)
+                </Link>
+                <Link
+                  href="/dashboard/ims/doc-manager/chat"
+                  className="flex items-center gap-2"
+                >
                     <FileText className="h-4 w-4 text-primary" />
                     Doc Manager Chat (Admin)
                   </Link>
