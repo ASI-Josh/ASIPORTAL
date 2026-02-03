@@ -216,7 +216,11 @@ export async function GET(req: NextRequest) {
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to load messages.";
     const status = message.toLowerCase().includes("authorization") ? 401 : 500;
-    return NextResponse.json({ error: message }, { status });
+    console.error("Knowledge hub GET failed", error);
+    return NextResponse.json(
+      { error: message, detail: error instanceof Error ? error.stack : null },
+      { status }
+    );
   }
 }
 
@@ -229,7 +233,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Not authorised." }, { status: 403 });
     }
 
-    const payload = (await req.json()) as {
+    let payload: {
       message?: string;
       threadId?: string;
       agents?: string[];
@@ -237,6 +241,11 @@ export async function POST(req: NextRequest) {
       meetingNotes?: string;
       intent?: string;
     };
+    try {
+      payload = (await req.json()) as typeof payload;
+    } catch (error) {
+      return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
+    }
     const message = payload.message?.trim();
     if (!message) {
       return NextResponse.json({ error: "Message is required." }, { status: 400 });
@@ -416,6 +425,10 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to run Knowledge Hub.";
     const status = message.toLowerCase().includes("authorization") ? 401 : 500;
-    return NextResponse.json({ error: message }, { status });
+    console.error("Knowledge hub POST failed", error);
+    return NextResponse.json(
+      { error: message, detail: error instanceof Error ? error.stack : null },
+      { status }
+    );
   }
 }
