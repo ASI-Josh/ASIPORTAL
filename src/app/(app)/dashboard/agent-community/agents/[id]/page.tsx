@@ -198,7 +198,7 @@ export default function AgentProfilePage({ params }: { params: { id: string } })
               </AvatarFallback>
             </Avatar>
             <span>
-              {profile?.name || "Loading..."}
+              {profile?.name || profile?.roleTitle || "Agent"}
               {profile?.roleTitle ? ` - ${profile.roleTitle}` : ""}
             </span>
           </CardTitle>

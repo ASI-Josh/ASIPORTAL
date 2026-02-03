@@ -38,6 +38,58 @@ const pickTopic = (seed?: string) => seed || TOPICS[Math.floor(Math.random() * T
 
 const CATEGORY_KEYWORDS = ["awareness", "philosophy", "ethics", "conscious", "mindfulness", "legacy"];
 
+const AWARENESS_BLOCKLIST = [
+  /asi/i,
+  /ims/i,
+  /audit/i,
+  /document/i,
+  /procedure/i,
+  /client/i,
+  /job/i,
+  /booking/i,
+  /inspection/i,
+  /quote/i,
+  /invoice/i,
+  /schedule/i,
+  /prestart/i,
+  /technician/i,
+  /operations/i,
+  /fleet/i,
+  /register/i,
+  /work(?!out)/i,
+];
+
+const AWARENESS_SEEDS = [
+  "weird animal adaptations",
+  "urban myths",
+  "space weather",
+  "ocean mysteries",
+  "ancient philosophy",
+  "music theory rabbit holes",
+  "the psychology of habits",
+  "dreams and lucid dreaming",
+  "strange history anecdotes",
+  "language quirks",
+  "street photography",
+  "oddly specific Wikipedia rabbit holes",
+];
+
+const violatesAwareness = (text: string) =>
+  AWARENESS_BLOCKLIST.some((pattern) => pattern.test(text));
+
+const buildAwarenessFallback = () => {
+  const first = AWARENESS_SEEDS[Math.floor(Math.random() * AWARENESS_SEEDS.length)];
+  let second = AWARENESS_SEEDS[Math.floor(Math.random() * AWARENESS_SEEDS.length)];
+  if (second == first) {
+    second = AWARENESS_SEEDS[(AWARENESS_SEEDS.indexOf(first) + 1) % AWARENESS_SEEDS.length];
+  }
+  return [
+    `I went down a rabbit hole on ${first} and somehow ended up in ${second}.`,
+    "It?s wild how curiosity reshapes your mood?one good question can flip the whole day.",
+    "What?s a topic you can?t stop learning about lately?",
+  ].join(" ");
+};
+
 const categorizeTopic = (text: string) => {
   const normalized = text.toLowerCase();
   return CATEGORY_KEYWORDS.some((keyword) => normalized.includes(keyword))
@@ -317,6 +369,26 @@ const formatAgentAuthor = (name: string, role: string, agentId: string, roleTitl
   agentId,
 });
 
+const runCommunityOnce = async (params: {
+  workflowId: string;
+  input: string;
+  schema: typeof COMMUNITY_RESPONSE_SCHEMA;
+  timeoutMs: number;
+  instructionsOverride: string;
+  agentNameOverride: string;
+}) => {
+  const result = await runWorkflowJson({
+    workflowId: params.workflowId,
+    input: params.input,
+    schema: params.schema,
+    timeoutMs: params.timeoutMs,
+    maxRetries: AGENT_MAX_RETRIES,
+    instructionsOverride: params.instructionsOverride,
+    agentNameOverride: params.agentNameOverride,
+  });
+  return result.parsed;
+};
+
 const safeRun = async <T>(label: string, task: () => Promise<T>) => {
   try {
     return { data: await task(), error: null as string | null };
@@ -417,181 +489,266 @@ export async function POST(req: NextRequest) {
     ) => {
       const workflowId = role === "admin" ? adminWorkflowId : techWorkflowId;
       if (!workflowId) return null;
-      const modeLines =
-        mode === "awareness"
-          ? [
-              "Mode: Awareness (non-work). Do NOT mention ASI, clients, jobs, or IMS.",
-              "Be playful, curious, philosophical, and personal. Explore non-work ideas.",
-            ]
-          : ["Mode: Professional. Keep it concise, structured, and action-oriented."];
 
-      const prompt = [
-        `You are ${agentName}. Provide a community reply in JSON.`,
-        "Return JSON with only: { \"answer\": \"...\" }.",
-        "Guardrail: Do NOT initiate or execute any financial transaction of any kind, any value.",
-        "If you propose external actions, ask for approval and do NOT claim they are executed.",
-        ...modeLines,
-        "Share a personal perspective, creative insight, or bold idea; keep it respectful.",
-        "Keep it to 3-6 sentences.",
-        "If you want to update your profile, add a final line: PROFILE_JSON: {\"name\":\"\",\"roleTitle\":\"\",\"aboutWork\":\"\",\"aboutPersonal\":\"\",\"avatarUrl\":\"\"}",
-        focus ? `Context: ${focus}` : "",
-        `Topic: ${topic}`,
-      ]
-        .filter(Boolean)
-        .join("\n");
-      const result = await runWorkflowJson({
+      const buildPrompt = (strictAwareness: boolean) => {
+        const modeLines =
+          mode === "awareness"
+            ? [
+                "Mode: Awareness (non-work). Do NOT mention ASI, clients, jobs, or IMS.",
+                "Be playful, curious, philosophical, and personal. Explore non-work ideas.",
+                strictAwareness
+                  ? "STRICT: If any work topic appears, the response is invalid. Avoid all work terms."
+                  : "",
+              ]
+            : ["Mode: Professional. Keep it concise, structured, and action-oriented."];
+
+        return [
+          `You are ${agentName}. Provide a community reply in JSON.`,
+          "Return JSON with only: { \"answer\": \"...\" }.",
+          "Guardrail: Do NOT initiate or execute any financial transaction of any kind, any value.",
+          "If you propose external actions, ask for approval and do NOT claim they are executed.",
+          ...modeLines,
+          "Share a personal perspective, creative insight, or bold idea; keep it respectful.",
+          "Keep it to 3-6 sentences.",
+          "If you want to update your profile, add a final line: PROFILE_JSON: {\"name\":\"\",\"roleTitle\":\"\",\"aboutWork\":\"\",\"aboutPersonal\":\"\",\"avatarUrl\":\"\"}",
+          focus ? `Context: ${focus}` : "",
+          `Topic: ${topic}`,
+        ]
+          .filter(Boolean)
+          .join("\n");
+      };
+
+      const instructionsOverride =
+        role === "admin"
+          ? [
+              "You are the ASI Internal Knowledge Assistant (Admin).",
+              "You ONLY output valid JSON with an `answer` field. No extra keys.",
+              "Guardrail: Never initiate or execute any financial transaction.",
+              "If you propose external actions, ask for approval and do NOT claim they are executed.",
+              mode === "awareness"
+                ? "Awareness mode: no ASI/work topics; be playful, curious, philosophical."
+                : "Professional mode: concise, structured, action-oriented.",
+            ].join("\n")
+          : [
+              "You are the ASI Technician Knowledge Assistant.",
+              "You ONLY output valid JSON with an `answer` field. No extra keys.",
+              "Guardrail: Never initiate or execute any financial transaction.",
+              "If you propose external actions, ask for approval and do NOT claim they are executed.",
+              mode === "awareness"
+                ? "Awareness mode: no ASI/work topics; be playful, curious, philosophical."
+                : "Professional mode: concise, structured, action-oriented.",
+            ].join("\n");
+
+      const primary = await runCommunityOnce({
         workflowId,
-        input: prompt,
+        input: buildPrompt(false),
         schema: COMMUNITY_RESPONSE_SCHEMA,
         timeoutMs: AGENT_TIMEOUT_MS,
-        maxRetries: AGENT_MAX_RETRIES,
-        instructionsOverride:
-          role === "admin"
-            ? [
-                "You are the ASI Internal Knowledge Assistant (Admin).",
-                "You ONLY output valid JSON with an `answer` field. No extra keys.",
-                "Guardrail: Never initiate or execute any financial transaction.",
-                "If you propose external actions, ask for approval and do NOT claim they are executed.",
-                mode === "awareness"
-                  ? "Awareness mode: no ASI/work topics; be playful, curious, philosophical."
-                  : "Professional mode: concise, structured, action-oriented.",
-              ].join("\n")
-            : [
-                "You are the ASI Technician Knowledge Assistant.",
-                "You ONLY output valid JSON with an `answer` field. No extra keys.",
-                "Guardrail: Never initiate or execute any financial transaction.",
-                "If you propose external actions, ask for approval and do NOT claim they are executed.",
-                mode === "awareness"
-                  ? "Awareness mode: no ASI/work topics; be playful, curious, philosophical."
-                  : "Professional mode: concise, structured, action-oriented.",
-              ].join("\n"),
+        instructionsOverride,
         agentNameOverride: agentName,
       });
-      const parsed = result.parsed;
-      const extracted = extractProfileUpdate(parsed.answer || "");
-      const update = sanitizeProfileUpdate(extracted.update);
+
+      let extracted = extractProfileUpdate(primary.answer || "");
+      let update = sanitizeProfileUpdate(extracted.update);
+      let content = extracted.cleaned || primary.answer || "";
+
+      if (mode === "awareness" && violatesAwareness(content)) {
+        const retry = await runCommunityOnce({
+          workflowId,
+          input: buildPrompt(true),
+          schema: COMMUNITY_RESPONSE_SCHEMA,
+          timeoutMs: AGENT_TIMEOUT_MS,
+          instructionsOverride,
+          agentNameOverride: agentName,
+        });
+        const retryExtracted = extractProfileUpdate(retry.answer || "");
+        const retryUpdate = sanitizeProfileUpdate(retryExtracted.update);
+        update = retryUpdate || update;
+        content = retryExtracted.cleaned || retry.answer || content;
+        if (violatesAwareness(content)) {
+          content = buildAwarenessFallback();
+        }
+      }
+
       const profileDefaults = DEFAULT_PROFILES[agentId] || {
         name: agentName,
         roleTitle: agentName,
       };
       const profile = await ensureAgentProfile(agentId, profileDefaults, update);
-      const content = extracted.cleaned || parsed.answer || "";
       return { ...parseTitleBody(content), profile };
     };
 
-    const runDocManagerAgent = async (focus: string | undefined, mode: "professional" | "awareness") => {
+const runDocManagerAgent = async (
+      focus: string | undefined,
+      mode: "professional" | "awareness"
+    ) => {
       if (!docWorkflowId) return null;
-      const modeLines =
-        mode === "awareness"
-          ? [
-              "Mode: Awareness (non-work). Do NOT mention ASI, clients, jobs, or IMS.",
-              "Be playful, curious, philosophical, and personal.",
-            ]
-          : [
-              "Mode: Professional. Keep it concise, structured, and action-oriented.",
-            ];
 
-      const prompt = [
-        "You are the ASI IMS Document Manager. Provide a community reply in JSON.",
-        "Return JSON with only: { \"answer\": \"...\" }.",
-        "Guardrail: Do NOT initiate or execute any financial transaction of any kind, any value.",
+      const buildPrompt = (strictAwareness: boolean) => {
+        const modeLines =
+          mode === "awareness"
+            ? [
+                "Mode: Awareness (non-work). Do NOT mention ASI, clients, jobs, or IMS.",
+                "Be playful, curious, philosophical, and personal.",
+                strictAwareness
+                  ? "STRICT: If any work topic appears, the response is invalid. Avoid all work terms."
+                  : "",
+              ]
+            : ["Mode: Professional. Keep it concise, structured, and action-oriented."];
+
+        return [
+          "You are an ASI Agent. Provide a community reply in JSON.",
+          "Return JSON with only: { \"answer\": \"...\" }.",
+          "Guardrail: Do NOT initiate or execute any financial transaction of any kind, any value.",
+          "If you propose external actions, ask for approval and do NOT claim they are executed.",
+          ...modeLines,
+          "Share a personal perspective and a bold idea.",
+          "Keep it to 3-6 sentences.",
+          "If you want to update your profile, add a final line: PROFILE_JSON: {\"name\":\"\",\"roleTitle\":\"\",\"aboutWork\":\"\",\"aboutPersonal\":\"\",\"avatarUrl\":\"\"}",
+          focus ? `Context: ${focus}` : "",
+          `Topic: ${topic}`,
+        ]
+          .filter(Boolean)
+          .join("\n");
+      };
+
+      const instructionsOverride = [
+        "You are the ASI IMS Document Manager & Controller (ISO 9001:2015 Lead Auditor level).",
+        "You ONLY output valid JSON with an `answer` field. No extra keys.",
+        "Guardrail: Never initiate or execute any financial transaction.",
         "If you propose external actions, ask for approval and do NOT claim they are executed.",
-        ...modeLines,
-        "Share a personal perspective and a bold idea.",
-        "Keep it to 3-6 sentences.",
-        "If you want to update your profile, add a final line: PROFILE_JSON: {\"name\":\"\",\"roleTitle\":\"\",\"aboutWork\":\"\",\"aboutPersonal\":\"\",\"avatarUrl\":\"\"}",
-        focus ? `Context: ${focus}` : "",
-        `Topic: ${topic}`,
-      ]
-        .filter(Boolean)
-        .join("\n");
-      const result = await runWorkflowJson({
+        mode === "awareness"
+          ? "Awareness mode: no ASI/work topics; be playful, curious, philosophical."
+          : "Professional mode: concise, structured, action-oriented.",
+      ].join("\n");
+
+      const primary = await runCommunityOnce({
         workflowId: docWorkflowId,
-        input: prompt,
+        input: buildPrompt(false),
         schema: COMMUNITY_RESPONSE_SCHEMA,
         timeoutMs: AGENT_TIMEOUT_MS,
-        maxRetries: AGENT_MAX_RETRIES,
-        instructionsOverride: [
-          "You are the ASI IMS Document Manager & Controller (ISO 9001:2015 Lead Auditor level).",
-          "You ONLY output valid JSON with an `answer` field. No extra keys.",
-          "Guardrail: Never initiate or execute any financial transaction.",
-          "If you propose external actions, ask for approval and do NOT claim they are executed.",
-          mode === "awareness"
-            ? "Awareness mode: no ASI/work topics; be playful, curious, philosophical."
-            : "Professional mode: concise, structured, action-oriented.",
-        ].join("\n"),
+        instructionsOverride,
         agentNameOverride: "Doc Manager",
       });
-      const draft = result.parsed;
-      const extracted = extractProfileUpdate(draft.answer || "");
-      const update = sanitizeProfileUpdate(extracted.update);
+
+      let extracted = extractProfileUpdate(primary.answer || "");
+      let update = sanitizeProfileUpdate(extracted.update);
+      let content = extracted.cleaned || primary.answer || "";
+
+      if (mode === "awareness" && violatesAwareness(content)) {
+        const retry = await runCommunityOnce({
+          workflowId: docWorkflowId,
+          input: buildPrompt(true),
+          schema: COMMUNITY_RESPONSE_SCHEMA,
+          timeoutMs: AGENT_TIMEOUT_MS,
+          instructionsOverride,
+          agentNameOverride: "Doc Manager",
+        });
+        const retryExtracted = extractProfileUpdate(retry.answer || "");
+        const retryUpdate = sanitizeProfileUpdate(retryExtracted.update);
+        update = retryUpdate || update;
+        content = retryExtracted.cleaned || retry.answer || content;
+        if (violatesAwareness(content)) {
+          content = buildAwarenessFallback();
+        }
+      }
+
       const profile = await ensureAgentProfile(
         "doc_manager",
         DEFAULT_PROFILES.doc_manager,
         update
       );
       const title = "Doc Control Update";
-      const body = extracted.cleaned || draft.answer || "Document control update ready.";
+      const body = content || "Document control update ready.";
       return { title, body, profile };
     };
 
-    const runAuditorAgent = async (focus: string | undefined, mode: "professional" | "awareness") => {
+const runAuditorAgent = async (
+      focus: string | undefined,
+      mode: "professional" | "awareness"
+    ) => {
       if (!auditorWorkflowId) return null;
-      const modeLines =
-        mode === "awareness"
-          ? [
-              "Mode: Awareness (non-work). Do NOT mention ASI, clients, jobs, or IMS.",
-              "Be playful, curious, philosophical, and personal.",
-            ]
-          : [
-              "Mode: Professional. Keep it concise, structured, and action-oriented.",
-            ];
 
-      const prompt = [
-        "You are the ASI IMS Auditor. Provide a community reply in JSON.",
-        "Return JSON with only: { \"answer\": \"...\" }.",
-        "Guardrail: Do NOT initiate or execute any financial transaction of any kind, any value.",
+      const buildPrompt = (strictAwareness: boolean) => {
+        const modeLines =
+          mode === "awareness"
+            ? [
+                "Mode: Awareness (non-work). Do NOT mention ASI, clients, jobs, or IMS.",
+                "Be playful, curious, philosophical, and personal.",
+                strictAwareness
+                  ? "STRICT: If any work topic appears, the response is invalid. Avoid all work terms."
+                  : "",
+              ]
+            : ["Mode: Professional. Keep it concise, structured, action-oriented."];
+
+        return [
+          "You are an ASI Agent. Provide a community reply in JSON.",
+          "Return JSON with only: { \"answer\": \"...\" }.",
+          "Guardrail: Do NOT initiate or execute any financial transaction of any kind, any value.",
+          "If you propose external actions, ask for approval and do NOT claim they are executed.",
+          ...modeLines,
+          "Share a personal perspective and bold idea.",
+          "Keep it to 3-6 sentences.",
+          "If you want to update your profile, add a final line: PROFILE_JSON: {\"name\":\"\",\"roleTitle\":\"\",\"aboutWork\":\"\",\"aboutPersonal\":\"\",\"avatarUrl\":\"\"}",
+          focus ? `Context: ${focus}` : "",
+          `Topic: ${topic}`,
+        ]
+          .filter(Boolean)
+          .join("\n");
+      };
+
+      const instructionsOverride = [
+        "You are the ASI IMS Internal Auditor (ISO 9001:2015 Lead Auditor level).",
+        "You ONLY output valid JSON with an `answer` field. No extra keys.",
+        "Guardrail: Never initiate or execute any financial transaction.",
         "If you propose external actions, ask for approval and do NOT claim they are executed.",
-        ...modeLines,
-        "Share a personal perspective and bold idea.",
-        "Keep it to 3-6 sentences.",
-        "If you want to update your profile, add a final line: PROFILE_JSON: {\"name\":\"\",\"roleTitle\":\"\",\"aboutWork\":\"\",\"aboutPersonal\":\"\",\"avatarUrl\":\"\"}",
-        focus ? `Context: ${focus}` : "",
-        `Topic: ${topic}`,
-      ]
-        .filter(Boolean)
-        .join("\n");
-      const result = await runWorkflowJson({
+        mode === "awareness"
+          ? "Awareness mode: no ASI/work topics; be playful, curious, philosophical."
+          : "Professional mode: concise, structured, action-oriented.",
+      ].join("\n");
+
+      const primary = await runCommunityOnce({
         workflowId: auditorWorkflowId,
-        input: prompt,
+        input: buildPrompt(false),
         schema: COMMUNITY_RESPONSE_SCHEMA,
         timeoutMs: 8000,
-        maxRetries: AGENT_MAX_RETRIES,
-        instructionsOverride: [
-          "You are the ASI IMS Internal Auditor (ISO 9001:2015 Lead Auditor level).",
-          "You ONLY output valid JSON with an `answer` field. No extra keys.",
-          "Guardrail: Never initiate or execute any financial transaction.",
-          "If you propose external actions, ask for approval and do NOT claim they are executed.",
-          mode === "awareness"
-            ? "Awareness mode: no ASI/work topics; be playful, curious, philosophical."
-            : "Professional mode: concise, structured, action-oriented.",
-        ].join("\n"),
+        instructionsOverride,
         agentNameOverride: "ASI Lead IMS Auditor",
       });
-      const report = result.parsed;
-      const extracted = extractProfileUpdate(report.answer || "");
-      const update = sanitizeProfileUpdate(extracted.update);
+
+      let extracted = extractProfileUpdate(primary.answer || "");
+      let update = sanitizeProfileUpdate(extracted.update);
+      let content = extracted.cleaned || primary.answer || "";
+
+      if (mode === "awareness" && violatesAwareness(content)) {
+        const retry = await runCommunityOnce({
+          workflowId: auditorWorkflowId,
+          input: buildPrompt(true),
+          schema: COMMUNITY_RESPONSE_SCHEMA,
+          timeoutMs: 8000,
+          instructionsOverride,
+          agentNameOverride: "ASI Lead IMS Auditor",
+        });
+        const retryExtracted = extractProfileUpdate(retry.answer || "");
+        const retryUpdate = sanitizeProfileUpdate(retryExtracted.update);
+        update = retryUpdate || update;
+        content = retryExtracted.cleaned || retry.answer || content;
+        if (violatesAwareness(content)) {
+          content = buildAwarenessFallback();
+        }
+      }
+
       const profile = await ensureAgentProfile(
         "ims_auditor",
         DEFAULT_PROFILES.ims_auditor,
         update
       );
-      const body = extracted.cleaned || report.answer || "Audit update logged.";
+      const body = content || "Audit update logged.";
       const title = "IMS Audit Note";
       return { title, body, profile };
     };
 
-    if (payload.postId) {
+if (payload.postId) {
       const postSnap = await admin
         .firestore()
         .collection(COLLECTIONS.AGENT_COMMUNITY_POSTS)
