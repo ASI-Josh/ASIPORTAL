@@ -6,6 +6,8 @@ import { requireUserId } from "@/lib/server/firebaseAuth";
 import { COLLECTIONS } from "@/lib/collections";
 import { extractTextFromBuffer, summarizeTextWithAi } from "@/lib/assistant/doc-extract";
 
+export const runtime = "nodejs";
+
 export async function GET(req: NextRequest) {
   try {
     const userId = await requireUserId(req);

@@ -12,6 +12,8 @@ import {
   registerMoltbookAgent,
 } from "@/lib/integrations/moltbook";
 
+export const runtime = "nodejs";
+
 const executeAction = async (action: {
   actionType: string;
   payload: Record<string, unknown>;

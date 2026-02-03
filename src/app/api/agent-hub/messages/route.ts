@@ -7,6 +7,8 @@ import { COLLECTIONS } from "@/lib/collections";
 import { AgentHubAgentSchema } from "@/lib/assistant/agent-hub-schema";
 import { runWorkflowJson } from "@/lib/openai-workflow";
 
+export const runtime = "nodejs";
+
 type AgentConfig = {
   id: string;
   name: string;
@@ -188,9 +190,8 @@ export async function GET(req: NextRequest) {
     const messagesSnap = await admin
       .firestore()
       .collection(COLLECTIONS.AGENT_HUB_MESSAGES)
-      .where("threadId", "==", threadId)
       .orderBy("createdAt", "desc")
-      .limit(120)
+      .limit(200)
       .get();
 
     const messages = messagesSnap.docs
@@ -205,8 +206,10 @@ export async function GET(req: NextRequest) {
           warnings: data.warnings || [],
           createdAt: formatTimestamp(data.createdAt),
           actionRequestIds: data.actionRequestIds || [],
+          threadId: data.threadId || THREAD_ID,
         };
       })
+      .filter((message) => message.threadId === threadId)
       .reverse();
 
     return NextResponse.json({ threadId, messages });
@@ -256,9 +259,8 @@ export async function POST(req: NextRequest) {
     const messagesSnap = await admin
       .firestore()
       .collection(COLLECTIONS.AGENT_HUB_MESSAGES)
-      .where("threadId", "==", threadId)
       .orderBy("createdAt", "desc")
-      .limit(20)
+      .limit(50)
       .get();
 
     const history = messagesSnap.docs
@@ -268,9 +270,12 @@ export async function POST(req: NextRequest) {
           role: data.role || "user",
           name: data.agentName || data.authorName,
           content: data.content || "",
+          threadId: data.threadId || THREAD_ID,
         };
       })
-      .reverse();
+      .filter((message) => message.threadId === threadId)
+      .slice(-20)
+      .map(({ role, name, content }) => ({ role, name, content }));
 
     const docContext = await getDocsContext(payload.docIds);
     const requestContext = normalizeRequestContext({

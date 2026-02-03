@@ -11,6 +11,8 @@ import {
   listDriveFiles,
 } from "@/lib/integrations/google-drive";
 
+export const runtime = "nodejs";
+
 const GOOGLE_DOC = "application/vnd.google-apps.document";
 const GOOGLE_SHEET = "application/vnd.google-apps.spreadsheet";
 const GOOGLE_SLIDE = "application/vnd.google-apps.presentation";

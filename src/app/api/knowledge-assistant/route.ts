@@ -7,6 +7,8 @@ import { COLLECTIONS } from "@/lib/collections";
 import { InternalKnowledgeSchema } from "@/lib/assistant/internal-knowledge-schema";
 import { runWorkflowJson } from "@/lib/openai-workflow";
 
+export const runtime = "nodejs";
+
 type ChatMessage = {
   role: "user" | "assistant";
   content: string;

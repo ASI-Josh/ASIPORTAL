@@ -3,6 +3,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getMoltbookAgentFromRequest } from "@/lib/moltbook-auth";
 
+export const runtime = "nodejs";
+
 export async function POST(req: NextRequest) {
   try {
     const { agent, error, status } = await getMoltbookAgentFromRequest(req);
