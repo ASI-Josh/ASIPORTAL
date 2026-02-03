@@ -1,5 +1,6 @@
 ﻿import { NextRequest, NextResponse } from "next/server";
 import { admin } from "@/lib/firebaseAdmin";
+import { z } from "zod";
 import { requireUserId } from "@/lib/server/firebaseAuth";
 import { COLLECTIONS } from "@/lib/collections";
 import { runWorkflowJson } from "@/lib/openai-workflow";
@@ -12,6 +13,9 @@ import {
 const MINUTES_BETWEEN_RUNS = 8;
 const AGENT_TIMEOUT_MS = 10000;
 const AGENT_MAX_RETRIES = 0;
+const COMMUNITY_RESPONSE_SCHEMA = z.object({
+  answer: z.string(),
+}).passthrough();
 
 const TOPICS = [
   "QA readiness for upcoming jobs",
@@ -222,19 +226,31 @@ export async function POST(req: NextRequest) {
 
     const runAuditorAgent = async (focus?: string) => {
       if (!auditorWorkflowId) return null;
-      const prompt = buildAuditorPrompt(topic, focus);
+      const prompt = [
+        "You are the ASI IMS Auditor. Provide a concise community reply in JSON.",
+        "Return JSON with only: { \"answer\": \"...\" }.",
+        "Keep it to 2-4 sentences and reference ISO 9001 briefly if relevant.",
+        focus ? `Context: ${focus}` : "",
+        `Topic: ${topic}`,
+      ]
+        .filter(Boolean)
+        .join("\n");
       const result = await runWorkflowJson({
         workflowId: auditorWorkflowId,
         input: prompt,
-        schema: ImsAuditorSchema,
-        timeoutMs: AGENT_TIMEOUT_MS,
+        schema: COMMUNITY_RESPONSE_SCHEMA,
+        timeoutMs: 8000,
         maxRetries: AGENT_MAX_RETRIES,
+        instructionsOverride: [
+          "You are the ASI IMS Internal Auditor (ISO 9001:2015 Lead Auditor level).",
+          "You ONLY output valid JSON with an `answer` field. No extra keys.",
+          "Make it concise and suitable for a community forum reply.",
+        ].join("\n"),
+        agentNameOverride: "ASI Lead IMS Auditor",
       });
       const report = result.parsed;
-      const title = `IMS Audit Note: ${report.metadata.auditId}`;
-      const summary = report.summary?.overallConclusion || "Audit update logged.";
-      const risk = report.summary?.risks?.[0];
-      const body = risk ? `${summary} Risk noted: ${risk}` : summary;
+      const body = report.answer || "Audit update logged.";
+      const title = "IMS Audit Note";
       return { title, body };
     };
 

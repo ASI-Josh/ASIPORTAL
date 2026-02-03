@@ -14,6 +14,8 @@ type RunWorkflowParams<T extends z.ZodObject<any>> = {
   schema: T;
   timeoutMs?: number;
   maxRetries?: number;
+  instructionsOverride?: string;
+  agentNameOverride?: string;
 };
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -24,6 +26,8 @@ export async function runWorkflowJson<T extends z.ZodObject<any>>({
   schema,
   timeoutMs = 30000,
   maxRetries = 2,
+  instructionsOverride,
+  agentNameOverride,
 }: RunWorkflowParams<T>) {
   const apiKey = process.env.OPENAI_API_KEY;
   const model = process.env.OPENAI_WORKFLOW_MODEL || "gpt-5.2";
@@ -48,7 +52,9 @@ export async function runWorkflowJson<T extends z.ZodObject<any>>({
     return { name: "ASI Agent", instructions: FALLBACK_AGENT_INSTRUCTIONS };
   };
 
-  const { name, instructions } = resolveInstructions();
+  const resolved = resolveInstructions();
+  const name = agentNameOverride || resolved.name;
+  const instructions = instructionsOverride || resolved.instructions;
   const inputItems: AgentInputItem[] = [
     { role: "user", content: [{ type: "input_text", text: input }] },
   ];
