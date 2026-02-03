@@ -224,6 +224,27 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    match /agentHubMessages/{messageId} {
+      allow read: if isAdmin();
+      allow create: if isAdmin();
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    match /agentHubActions/{actionId} {
+      allow read: if isAdmin();
+      allow create: if isAdmin();
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    match /agentHubDocs/{docId} {
+      allow read: if isAdmin();
+      allow create: if isAdmin();
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }

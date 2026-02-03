@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Bot, MessagesSquare, ShieldCheck, FileText, Sparkles } from "lucide-react";
+import { Bot, MessagesSquare, ShieldCheck, FileText, Sparkles, Brain } from "lucide-react";
 
 import { InternalKnowledgeAssistant } from "@/components/assistant/internal-knowledge-assistant";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -67,6 +67,12 @@ export default function AgentHubPage() {
         </div>
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" asChild>
+            <Link href="/dashboard/agent-hub/knowledge">
+              <Brain className="mr-2 h-4 w-4" />
+              Knowledge Hub
+            </Link>
+          </Button>
+          <Button variant="outline" asChild>
             <Link href="/dashboard/ims/doc-manager/chat">
               <FileText className="mr-2 h-4 w-4" />
               Doc Manager Chat
@@ -102,6 +108,23 @@ export default function AgentHubPage() {
         />
 
         <div className="space-y-4">
+          <Card className="bg-card/50 backdrop-blur border-border/40">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Brain className="h-4 w-4 text-primary" />
+                Knowledge Hub
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm text-muted-foreground">
+              <p>
+                Run multi-agent roundtables, upload reference documents, and approve external actions
+                in one shared GPT-style workspace.
+              </p>
+              <Button size="sm" asChild>
+                <Link href="/dashboard/agent-hub/knowledge">Open Knowledge Hub</Link>
+              </Button>
+            </CardContent>
+          </Card>
           <Card className="bg-card/50 backdrop-blur border-border/40">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
