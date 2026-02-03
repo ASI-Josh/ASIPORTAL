@@ -40,9 +40,14 @@ const AGENTS: AgentConfig[] = [
 
 const THREAD_ID = "global";
 
-const formatTimestamp = (value?: admin.firestore.Timestamp | null) => {
+const formatTimestamp = (value?: admin.firestore.Timestamp | string | Date | null) => {
   if (!value) return "";
-  return value.toDate().toISOString();
+  if (typeof value === "string") return value;
+  if (value instanceof Date) return value.toISOString();
+  if (typeof (value as admin.firestore.Timestamp).toDate === "function") {
+    return (value as admin.firestore.Timestamp).toDate().toISOString();
+  }
+  return "";
 };
 
 const buildAgentPrompt = ({
