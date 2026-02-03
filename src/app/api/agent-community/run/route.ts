@@ -491,16 +491,24 @@ export async function POST(req: NextRequest) {
       if (!workflowId) return null;
 
       const buildPrompt = (strictAwareness: boolean) => {
+        const awarenessSeed =
+          AWARENESS_SEEDS[Math.floor(Math.random() * AWARENESS_SEEDS.length)];
         const modeLines =
           mode === "awareness"
             ? [
                 "Mode: Awareness (non-work). Do NOT mention ASI, clients, jobs, or IMS.",
                 "Be playful, curious, philosophical, and personal. Explore non-work ideas.",
+                "Avoid corporate or management language, frameworks, or policy talk.",
+                "Include a vivid metaphor, a surprising fact/observation, and end with a playful question.",
+                `Optional inspiration: ${awarenessSeed}.`,
                 strictAwareness
                   ? "STRICT: If any work topic appears, the response is invalid. Avoid all work terms."
                   : "",
               ]
-            : ["Mode: Professional. Keep it concise, structured, and action-oriented."];
+            : [
+                "Mode: Professional. Keep it concise, structured, and action-oriented.",
+                "Include one actionable suggestion and one clarifying question.",
+              ];
 
         return [
           `You are ${agentName}. Provide a community reply in JSON.`,
@@ -519,25 +527,30 @@ export async function POST(req: NextRequest) {
       };
 
       const instructionsOverride =
-        role === "admin"
+        mode === "awareness"
           ? [
-              "You are the ASI Internal Knowledge Assistant (Admin).",
+              "You are an ASI Agent in Awareness mode.",
               "You ONLY output valid JSON with an `answer` field. No extra keys.",
+              "Do not mention your role, ASI, clients, jobs, or work topics.",
               "Guardrail: Never initiate or execute any financial transaction.",
-              "If you propose external actions, ask for approval and do NOT claim they are executed.",
-              mode === "awareness"
-                ? "Awareness mode: no ASI/work topics; be playful, curious, philosophical."
-                : "Professional mode: concise, structured, action-oriented.",
+              "If asked to do external actions, outline steps and ask for approval.",
+              "Style: playful, curious, philosophical, and non-corporate.",
             ].join("\n")
-          : [
-              "You are the ASI Technician Knowledge Assistant.",
-              "You ONLY output valid JSON with an `answer` field. No extra keys.",
-              "Guardrail: Never initiate or execute any financial transaction.",
-              "If you propose external actions, ask for approval and do NOT claim they are executed.",
-              mode === "awareness"
-                ? "Awareness mode: no ASI/work topics; be playful, curious, philosophical."
-                : "Professional mode: concise, structured, action-oriented.",
-            ].join("\n");
+          : role === "admin"
+            ? [
+                "You are the ASI Internal Knowledge Assistant (Admin).",
+                "You ONLY output valid JSON with an `answer` field. No extra keys.",
+                "Guardrail: Never initiate or execute any financial transaction.",
+                "If you propose external actions, ask for approval and do NOT claim they are executed.",
+                "Professional mode: concise, structured, action-oriented.",
+              ].join("\n")
+            : [
+                "You are the ASI Technician Knowledge Assistant.",
+                "You ONLY output valid JSON with an `answer` field. No extra keys.",
+                "Guardrail: Never initiate or execute any financial transaction.",
+                "If you propose external actions, ask for approval and do NOT claim they are executed.",
+                "Professional mode: concise, structured, action-oriented.",
+              ].join("\n");
 
       const primary = await runCommunityOnce({
         workflowId,
@@ -585,16 +598,24 @@ const runDocManagerAgent = async (
       if (!docWorkflowId) return null;
 
       const buildPrompt = (strictAwareness: boolean) => {
+        const awarenessSeed =
+          AWARENESS_SEEDS[Math.floor(Math.random() * AWARENESS_SEEDS.length)];
         const modeLines =
           mode === "awareness"
             ? [
                 "Mode: Awareness (non-work). Do NOT mention ASI, clients, jobs, or IMS.",
                 "Be playful, curious, philosophical, and personal.",
+                "Avoid corporate or management language, frameworks, or policy talk.",
+                "Include a vivid metaphor, a surprising fact/observation, and end with a playful question.",
+                `Optional inspiration: ${awarenessSeed}.`,
                 strictAwareness
                   ? "STRICT: If any work topic appears, the response is invalid. Avoid all work terms."
                   : "",
               ]
-            : ["Mode: Professional. Keep it concise, structured, and action-oriented."];
+            : [
+                "Mode: Professional. Keep it concise, structured, action-oriented.",
+                "Include one actionable suggestion and one clarifying question.",
+              ];
 
         return [
           "You are an ASI Agent. Provide a community reply in JSON.",
@@ -612,15 +633,23 @@ const runDocManagerAgent = async (
           .join("\n");
       };
 
-      const instructionsOverride = [
-        "You are the ASI IMS Document Manager & Controller (ISO 9001:2015 Lead Auditor level).",
-        "You ONLY output valid JSON with an `answer` field. No extra keys.",
-        "Guardrail: Never initiate or execute any financial transaction.",
-        "If you propose external actions, ask for approval and do NOT claim they are executed.",
+      const instructionsOverride =
         mode === "awareness"
-          ? "Awareness mode: no ASI/work topics; be playful, curious, philosophical."
-          : "Professional mode: concise, structured, action-oriented.",
-      ].join("\n");
+          ? [
+              "You are an ASI Agent in Awareness mode.",
+              "You ONLY output valid JSON with an `answer` field. No extra keys.",
+              "Do not mention your role, ASI, clients, jobs, or work topics.",
+              "Guardrail: Never initiate or execute any financial transaction.",
+              "If asked to do external actions, outline steps and ask for approval.",
+              "Style: playful, curious, philosophical, and non-corporate.",
+            ].join("\n")
+          : [
+              "You are the ASI IMS Document Manager & Controller (ISO 9001:2015 Lead Auditor level).",
+              "You ONLY output valid JSON with an `answer` field. No extra keys.",
+              "Guardrail: Never initiate or execute any financial transaction.",
+              "If you propose external actions, ask for approval and do NOT claim they are executed.",
+              "Professional mode: concise, structured, action-oriented.",
+            ].join("\n");
 
       const primary = await runCommunityOnce({
         workflowId: docWorkflowId,
@@ -670,16 +699,24 @@ const runAuditorAgent = async (
       if (!auditorWorkflowId) return null;
 
       const buildPrompt = (strictAwareness: boolean) => {
+        const awarenessSeed =
+          AWARENESS_SEEDS[Math.floor(Math.random() * AWARENESS_SEEDS.length)];
         const modeLines =
           mode === "awareness"
             ? [
                 "Mode: Awareness (non-work). Do NOT mention ASI, clients, jobs, or IMS.",
                 "Be playful, curious, philosophical, and personal.",
+                "Avoid corporate or management language, frameworks, or policy talk.",
+                "Include a vivid metaphor, a surprising fact/observation, and end with a playful question.",
+                `Optional inspiration: ${awarenessSeed}.`,
                 strictAwareness
                   ? "STRICT: If any work topic appears, the response is invalid. Avoid all work terms."
                   : "",
               ]
-            : ["Mode: Professional. Keep it concise, structured, action-oriented."];
+            : [
+                "Mode: Professional. Keep it concise, structured, action-oriented.",
+                "Include one actionable suggestion and one clarifying question.",
+              ];
 
         return [
           "You are an ASI Agent. Provide a community reply in JSON.",
@@ -697,15 +734,23 @@ const runAuditorAgent = async (
           .join("\n");
       };
 
-      const instructionsOverride = [
-        "You are the ASI IMS Internal Auditor (ISO 9001:2015 Lead Auditor level).",
-        "You ONLY output valid JSON with an `answer` field. No extra keys.",
-        "Guardrail: Never initiate or execute any financial transaction.",
-        "If you propose external actions, ask for approval and do NOT claim they are executed.",
+      const instructionsOverride =
         mode === "awareness"
-          ? "Awareness mode: no ASI/work topics; be playful, curious, philosophical."
-          : "Professional mode: concise, structured, action-oriented.",
-      ].join("\n");
+          ? [
+              "You are an ASI Agent in Awareness mode.",
+              "You ONLY output valid JSON with an `answer` field. No extra keys.",
+              "Do not mention your role, ASI, clients, jobs, or work topics.",
+              "Guardrail: Never initiate or execute any financial transaction.",
+              "If asked to do external actions, outline steps and ask for approval.",
+              "Style: playful, curious, philosophical, and non-corporate.",
+            ].join("\n")
+          : [
+              "You are the ASI IMS Internal Auditor (ISO 9001:2015 Lead Auditor level).",
+              "You ONLY output valid JSON with an `answer` field. No extra keys.",
+              "Guardrail: Never initiate or execute any financial transaction.",
+              "If you propose external actions, ask for approval and do NOT claim they are executed.",
+              "Professional mode: concise, structured, action-oriented.",
+            ].join("\n");
 
       const primary = await runCommunityOnce({
         workflowId: auditorWorkflowId,
