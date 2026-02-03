@@ -10,6 +10,8 @@ import {
 } from "@/lib/assistant/ims-schemas";
 
 const MINUTES_BETWEEN_RUNS = 8;
+const AGENT_TIMEOUT_MS = 10000;
+const AGENT_MAX_RETRIES = 0;
 
 const TOPICS = [
   "QA readiness for upcoming jobs",
@@ -191,8 +193,8 @@ export async function POST(req: NextRequest) {
         workflowId,
         input: prompt,
         schema: InternalKnowledgeSchema,
-        timeoutMs: 30000,
-        maxRetries: 1,
+        timeoutMs: AGENT_TIMEOUT_MS,
+        maxRetries: AGENT_MAX_RETRIES,
       });
       const parsed = result.parsed;
       const content = parsed.answer || "";
@@ -206,8 +208,8 @@ export async function POST(req: NextRequest) {
         workflowId: docWorkflowId,
         input: prompt,
         schema: DocumentManagerAgentSchema,
-        timeoutMs: 30000,
-        maxRetries: 1,
+        timeoutMs: AGENT_TIMEOUT_MS,
+        maxRetries: AGENT_MAX_RETRIES,
       });
       const draft = result.parsed;
       const title = draft.metadata.title || "Doc Control Update";
@@ -225,8 +227,8 @@ export async function POST(req: NextRequest) {
         workflowId: auditorWorkflowId,
         input: prompt,
         schema: ImsAuditorSchema,
-        timeoutMs: 30000,
-        maxRetries: 1,
+        timeoutMs: AGENT_TIMEOUT_MS,
+        maxRetries: AGENT_MAX_RETRIES,
       });
       const report = result.parsed;
       const title = `IMS Audit Note: ${report.metadata.auditId}`;
