@@ -296,91 +296,115 @@ export async function POST(req: NextRequest) {
     for (const agent of targetAgents) {
       const workflowId = process.env[agent.workflowEnv];
       if (!workflowId) continue;
-      const prompt = buildAgentPrompt({
-        agent,
-        history: runningHistory,
-        userMessage: message,
-        docContext,
-        requestContext,
-      });
-
-      const [{ runWorkflowJson }, { AgentHubAgentSchema }] = await Promise.all([
-        import("@/lib/openai-workflow"),
-        import("@/lib/assistant/agent-hub-schema"),
-      ]);
-
-      const result = await runWorkflowJson({
-        workflowId,
-        input: prompt,
-        schema: AgentHubAgentSchema,
-        timeoutMs: 60000,
-        maxRetries: 2,
-        instructionsOverride: buildAgentInstructions(agent),
-        agentNameOverride: agent.name,
-      });
-
-      const agentOutput = result.parsed;
-      const actionIds: string[] = [];
-
-      if (Array.isArray(agentOutput.actionRequests) && agentOutput.actionRequests.length > 0) {
-        for (const action of agentOutput.actionRequests) {
-          const actionRef = await admin
-            .firestore()
-            .collection(COLLECTIONS.AGENT_HUB_ACTIONS)
-            .add({
-              threadId,
-              status: "pending",
-              actionType: action.type,
-              summary: action.summary,
-              payload: action.payload,
-              requestedBy: {
-                agentId: agent.id,
-                agentName: agent.name,
-              },
-              createdAt: now,
-              sourceMessageId: userMessageRef.id,
-            });
-          actionIds.push(actionRef.id);
-          actionRequestIds.push(actionRef.id);
-        }
-      }
-
-      if (Array.isArray(agentOutput.knowledgeUpdates) && agentOutput.knowledgeUpdates.length > 0) {
-        await Promise.all(
-          agentOutput.knowledgeUpdates.map((update) =>
-            admin.firestore().collection(COLLECTIONS.ASSISTANT_KNOWLEDGE).add({
-              summary: update.summary,
-              tags: update.tags,
-              scope: agent.role === "technician" ? "tech" : update.scope,
-              createdAt: now,
-              createdById: userId,
-              createdByName: user.name || user.email || "Admin",
-              context: "knowledge_hub",
-              jobId: null,
-            })
-          )
-        );
-      }
-
-      const messageRef = await admin
-        .firestore()
-        .collection(COLLECTIONS.AGENT_HUB_MESSAGES)
-        .add({
-          threadId,
-          role: "agent",
-          agentId: agent.id,
-          agentName: agent.name,
-          content: agentOutput.answer,
-          warnings: agentOutput.warnings || [],
-          actionRequestIds: actionIds,
-          createdAt: now,
+      try {
+        const prompt = buildAgentPrompt({
+          agent,
+          history: runningHistory,
+          userMessage: message,
+          docContext,
+          requestContext,
         });
 
-      createdMessages.push({ id: messageRef.id, role: "agent", agentId: agent.id });
-      runningHistory = [
-        ...runningHistory,
-        { role: "assistant", name: agent.name, content: agentOutput.answer },
-      ];
+        const [{ runWorkflowJson }, { AgentHubAgentSchema }] = await Promise.all([
+          import("@/lib/openai-workflow"),
+          import("@/lib/assistant/agent-hub-schema"),
+        ]);
+
+        const result = await runWorkflowJson({
+          workflowId,
+          input: prompt,
+          schema: AgentHubAgentSchema,
+          timeoutMs: 60000,
+          maxRetries: 2,
+          instructionsOverride: buildAgentInstructions(agent),
+          agentNameOverride: agent.name,
+        });
+
+        const agentOutput = result.parsed;
+        const actionIds: string[] = [];
+
+        if (Array.isArray(agentOutput.actionRequests) && agentOutput.actionRequests.length > 0) {
+          for (const action of agentOutput.actionRequests) {
+            const actionRef = await admin
+              .firestore()
+              .collection(COLLECTIONS.AGENT_HUB_ACTIONS)
+              .add({
+                threadId,
+                status: "pending",
+                actionType: action.type,
+                summary: action.summary,
+                payload: action.payload,
+                requestedBy: {
+                  agentId: agent.id,
+                  agentName: agent.name,
+                },
+                createdAt: now,
+                sourceMessageId: userMessageRef.id,
+              });
+            actionIds.push(actionRef.id);
+            actionRequestIds.push(actionRef.id);
+          }
+        }
+
+        if (Array.isArray(agentOutput.knowledgeUpdates) && agentOutput.knowledgeUpdates.length > 0) {
+          await Promise.all(
+            agentOutput.knowledgeUpdates.map((update) =>
+              admin.firestore().collection(COLLECTIONS.ASSISTANT_KNOWLEDGE).add({
+                summary: update.summary,
+                tags: update.tags,
+                scope: agent.role === "technician" ? "tech" : update.scope,
+                createdAt: now,
+                createdById: userId,
+                createdByName: user.name || user.email || "Admin",
+                context: "knowledge_hub",
+                jobId: null,
+              })
+            )
+          );
+        }
+
+        const answer = typeof agentOutput.answer === "string" ? agentOutput.answer : "Agent response unavailable.";
+        const messageRef = await admin
+          .firestore()
+          .collection(COLLECTIONS.AGENT_HUB_MESSAGES)
+          .add({
+            threadId,
+            role: "agent",
+            agentId: agent.id,
+            agentName: agent.name,
+            content: answer,
+            warnings: agentOutput.warnings || [],
+            actionRequestIds: actionIds,
+            createdAt: now,
+          });
+
+        createdMessages.push({ id: messageRef.id, role: "agent", agentId: agent.id });
+        runningHistory = [
+          ...runningHistory,
+          { role: "assistant", name: agent.name, content: answer },
+        ];
+      } catch (error) {
+        const messageText =
+          error instanceof Error ? error.message : "Agent request failed.";
+        const messageRef = await admin
+          .firestore()
+          .collection(COLLECTIONS.AGENT_HUB_MESSAGES)
+          .add({
+            threadId,
+            role: "agent",
+            agentId: agent.id,
+            agentName: agent.name,
+            content: `Agent request failed: ${messageText}`,
+            warnings: [messageText],
+            actionRequestIds: [],
+            createdAt: now,
+          });
+        createdMessages.push({ id: messageRef.id, role: "agent", agentId: agent.id });
+        runningHistory = [
+          ...runningHistory,
+          { role: "assistant", name: agent.name, content: `Agent request failed: ${messageText}` },
+        ];
+      }
     }
 
     return NextResponse.json({
