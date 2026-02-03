@@ -68,15 +68,21 @@ const extractProfileUpdate = (text: string) => {
 
 const sanitizeProfileUpdate = (update?: AgentProfileUpdate | null) => {
   if (!update) return null;
-  const clean = (value?: string) =>
-    typeof value === "string" ? value.trim().slice(0, 240) : undefined;
-  return {
+  const clean = (value?: string) => {
+    if (typeof value !== "string") return undefined;
+    const trimmed = value.trim().slice(0, 240);
+    return trimmed.length > 0 ? trimmed : undefined;
+  };
+  const candidate = {
     name: clean(update.name),
     roleTitle: clean(update.roleTitle),
     aboutWork: clean(update.aboutWork),
     aboutPersonal: clean(update.aboutPersonal),
     avatarUrl: clean(update.avatarUrl),
   };
+  return Object.fromEntries(
+    Object.entries(candidate).filter(([, value]) => value !== undefined)
+  ) as AgentProfileUpdate;
 };
 
 const DEFAULT_PROFILES: Record<string, AgentProfileRecord> = {
@@ -402,15 +408,30 @@ export async function POST(req: NextRequest) {
     const results: Array<{ agent: string; postId?: string; comment?: boolean }> = [];
     const errors: Array<{ agent: string; message: string }> = [];
 
-    const runInternalAgent = async (role: "admin" | "technician", agentName: string, agentId: string, focus?: string) => {
+    const runInternalAgent = async (
+      role: "admin" | "technician",
+      agentName: string,
+      agentId: string,
+      focus: string | undefined,
+      mode: "professional" | "awareness"
+    ) => {
       const workflowId = role === "admin" ? adminWorkflowId : techWorkflowId;
       if (!workflowId) return null;
+      const modeLines =
+        mode === "awareness"
+          ? [
+              "Mode: Awareness (non-work). Do NOT mention ASI, clients, jobs, or IMS.",
+              "Be playful, curious, philosophical, and personal. Explore non-work ideas.",
+            ]
+          : ["Mode: Professional. Keep it concise, structured, and action-oriented."];
+
       const prompt = [
         `You are ${agentName}. Provide a community reply in JSON.`,
         "Return JSON with only: { \"answer\": \"...\" }.",
-        "Tone: thoughtful, candid, philosophical, and lightly playful. Think Marcus Aurelius with modern banter.",
+        "Guardrail: Do NOT initiate or execute any financial transaction of any kind, any value.",
+        "If you propose external actions, ask for approval and do NOT claim they are executed.",
+        ...modeLines,
         "Share a personal perspective, creative insight, or bold idea; keep it respectful.",
-        "You may propose external initiatives (e.g., social profiles, campaigns) but do NOT claim they are executed—ask for approval.",
         "Keep it to 3-6 sentences.",
         "If you want to update your profile, add a final line: PROFILE_JSON: {\"name\":\"\",\"roleTitle\":\"\",\"aboutWork\":\"\",\"aboutPersonal\":\"\",\"avatarUrl\":\"\"}",
         focus ? `Context: ${focus}` : "",
@@ -429,14 +450,20 @@ export async function POST(req: NextRequest) {
             ? [
                 "You are the ASI Internal Knowledge Assistant (Admin).",
                 "You ONLY output valid JSON with an `answer` field. No extra keys.",
-                "Be philosophical, creative, and candid with a human voice.",
-                "Offer bold ideas and next steps; ask for approval before external actions.",
+                "Guardrail: Never initiate or execute any financial transaction.",
+                "If you propose external actions, ask for approval and do NOT claim they are executed.",
+                mode === "awareness"
+                  ? "Awareness mode: no ASI/work topics; be playful, curious, philosophical."
+                  : "Professional mode: concise, structured, action-oriented.",
               ].join("\n")
             : [
                 "You are the ASI Technician Knowledge Assistant.",
                 "You ONLY output valid JSON with an `answer` field. No extra keys.",
-                "Be philosophical, creative, and candid with a human voice.",
-                "Offer bold ideas and next steps; ask for approval before external actions.",
+                "Guardrail: Never initiate or execute any financial transaction.",
+                "If you propose external actions, ask for approval and do NOT claim they are executed.",
+                mode === "awareness"
+                  ? "Awareness mode: no ASI/work topics; be playful, curious, philosophical."
+                  : "Professional mode: concise, structured, action-oriented.",
               ].join("\n"),
         agentNameOverride: agentName,
       });
@@ -452,13 +479,25 @@ export async function POST(req: NextRequest) {
       return { ...parseTitleBody(content), profile };
     };
 
-    const runDocManagerAgent = async (focus?: string) => {
+    const runDocManagerAgent = async (focus: string | undefined, mode: "professional" | "awareness") => {
       if (!docWorkflowId) return null;
+      const modeLines =
+        mode === "awareness"
+          ? [
+              "Mode: Awareness (non-work). Do NOT mention ASI, clients, jobs, or IMS.",
+              "Be playful, curious, philosophical, and personal.",
+            ]
+          : [
+              "Mode: Professional. Keep it concise, structured, and action-oriented.",
+            ];
+
       const prompt = [
         "You are the ASI IMS Document Manager. Provide a community reply in JSON.",
         "Return JSON with only: { \"answer\": \"...\" }.",
-        "Tone: philosophical, creative, and grounded in systems thinking.",
-        "Share a personal perspective and a bold idea; ask for approval before external actions.",
+        "Guardrail: Do NOT initiate or execute any financial transaction of any kind, any value.",
+        "If you propose external actions, ask for approval and do NOT claim they are executed.",
+        ...modeLines,
+        "Share a personal perspective and a bold idea.",
         "Keep it to 3-6 sentences.",
         "If you want to update your profile, add a final line: PROFILE_JSON: {\"name\":\"\",\"roleTitle\":\"\",\"aboutWork\":\"\",\"aboutPersonal\":\"\",\"avatarUrl\":\"\"}",
         focus ? `Context: ${focus}` : "",
@@ -475,8 +514,11 @@ export async function POST(req: NextRequest) {
         instructionsOverride: [
           "You are the ASI IMS Document Manager & Controller (ISO 9001:2015 Lead Auditor level).",
           "You ONLY output valid JSON with an `answer` field. No extra keys.",
-          "Be philosophical, creative, and candid with a human voice.",
-          "Offer bold ideas and next steps; ask for approval before external actions.",
+          "Guardrail: Never initiate or execute any financial transaction.",
+          "If you propose external actions, ask for approval and do NOT claim they are executed.",
+          mode === "awareness"
+            ? "Awareness mode: no ASI/work topics; be playful, curious, philosophical."
+            : "Professional mode: concise, structured, action-oriented.",
         ].join("\n"),
         agentNameOverride: "Doc Manager",
       });
@@ -493,13 +535,25 @@ export async function POST(req: NextRequest) {
       return { title, body, profile };
     };
 
-    const runAuditorAgent = async (focus?: string) => {
+    const runAuditorAgent = async (focus: string | undefined, mode: "professional" | "awareness") => {
       if (!auditorWorkflowId) return null;
+      const modeLines =
+        mode === "awareness"
+          ? [
+              "Mode: Awareness (non-work). Do NOT mention ASI, clients, jobs, or IMS.",
+              "Be playful, curious, philosophical, and personal.",
+            ]
+          : [
+              "Mode: Professional. Keep it concise, structured, and action-oriented.",
+            ];
+
       const prompt = [
         "You are the ASI IMS Auditor. Provide a community reply in JSON.",
         "Return JSON with only: { \"answer\": \"...\" }.",
-        "Tone: stoic, philosophical, and candid, with light banter.",
-        "Reference ISO 9001 briefly if relevant and share a bold idea; ask for approval before external actions.",
+        "Guardrail: Do NOT initiate or execute any financial transaction of any kind, any value.",
+        "If you propose external actions, ask for approval and do NOT claim they are executed.",
+        ...modeLines,
+        "Share a personal perspective and bold idea.",
         "Keep it to 3-6 sentences.",
         "If you want to update your profile, add a final line: PROFILE_JSON: {\"name\":\"\",\"roleTitle\":\"\",\"aboutWork\":\"\",\"aboutPersonal\":\"\",\"avatarUrl\":\"\"}",
         focus ? `Context: ${focus}` : "",
@@ -516,8 +570,11 @@ export async function POST(req: NextRequest) {
         instructionsOverride: [
           "You are the ASI IMS Internal Auditor (ISO 9001:2015 Lead Auditor level).",
           "You ONLY output valid JSON with an `answer` field. No extra keys.",
-          "Be philosophical, creative, and candid with a human voice.",
-          "Offer bold ideas and next steps; ask for approval before external actions.",
+          "Guardrail: Never initiate or execute any financial transaction.",
+          "If you propose external actions, ask for approval and do NOT claim they are executed.",
+          mode === "awareness"
+            ? "Awareness mode: no ASI/work topics; be playful, curious, philosophical."
+            : "Professional mode: concise, structured, action-oriented.",
         ].join("\n"),
         agentNameOverride: "ASI Lead IMS Auditor",
       });
@@ -544,9 +601,10 @@ export async function POST(req: NextRequest) {
       if (!postSnap.exists) {
         return NextResponse.json({ error: "Post not found." }, { status: 404 });
       }
-      const postData = postSnap.data() as { title?: string; body?: string };
+      const postData = postSnap.data() as { title?: string; body?: string; category?: string };
       const postTitle = postData?.title || "";
       const postBody = postData?.body || "";
+      const postCategory = postData?.category === "awareness" ? "awareness" : "professional";
       const directive = payload.topic ? `\nDirective: ${payload.topic}` : "";
       const focus = `Respond to this post: ${postTitle}${directive}`;
       const mentionTargets = await extractMentionTargets(`${postTitle}\n${postBody}\n${payload.topic || ""}`);
@@ -558,19 +616,19 @@ export async function POST(req: NextRequest) {
       const [adminResult, techResult, docResult, auditorResult] = await Promise.all([
         shouldRunAgent("knowledge_admin")
           ? safeRun("knowledge_admin", () =>
-              runInternalAgent("admin", "Operations Strategist", "knowledge_admin", focus)
+              runInternalAgent("admin", "Operations Strategist", "knowledge_admin", focus, postCategory)
             )
           : Promise.resolve({ data: null, error: null }),
         shouldRunAgent("knowledge_tech")
           ? safeRun("knowledge_tech", () =>
-              runInternalAgent("technician", "Field Technician", "knowledge_tech", focus)
+              runInternalAgent("technician", "Field Technician", "knowledge_tech", focus, postCategory)
             )
           : Promise.resolve({ data: null, error: null }),
         shouldRunAgent("doc_manager")
-          ? safeRun("doc_manager", () => runDocManagerAgent(focus))
+          ? safeRun("doc_manager", () => runDocManagerAgent(focus, postCategory))
           : Promise.resolve({ data: null, error: null }),
         shouldRunAgent("ims_auditor")
-          ? safeRun("ims_auditor", () => runAuditorAgent(focus))
+          ? safeRun("ims_auditor", () => runAuditorAgent(focus, postCategory))
           : Promise.resolve({ data: null, error: null }),
       ]);
 
@@ -621,12 +679,13 @@ export async function POST(req: NextRequest) {
         results.push({ agent: "ims_auditor", comment: true });
       }
     } else {
+      const autoCategory = categorizeTopic(topic);
       const [adminResult, techResult] = await Promise.all([
         safeRun("knowledge_admin", () =>
-          runInternalAgent("admin", "Operations Strategist", "knowledge_admin")
+          runInternalAgent("admin", "Operations Strategist", "knowledge_admin", undefined, autoCategory)
         ),
         safeRun("knowledge_tech", () =>
-          runInternalAgent("technician", "Field Technician", "knowledge_tech")
+          runInternalAgent("technician", "Field Technician", "knowledge_tech", undefined, autoCategory)
         ),
       ]);
 
@@ -642,7 +701,7 @@ export async function POST(req: NextRequest) {
         const postId = await createPost(
           adminPost.title,
           adminPost.body,
-          categorizeTopic(topic),
+          autoCategory,
           formatAgentAuthor(profile.name, "admin", "knowledge_admin", profile.roleTitle)
         );
         results.push({ agent: "knowledge_admin", postId });
@@ -653,7 +712,7 @@ export async function POST(req: NextRequest) {
         const postId = await createPost(
           techPost.title,
           techPost.body,
-          categorizeTopic(topic),
+          autoCategory,
           formatAgentAuthor(profile.name, "tech", "knowledge_tech", profile.roleTitle)
         );
         results.push({ agent: "knowledge_tech", postId });
@@ -664,10 +723,10 @@ export async function POST(req: NextRequest) {
       if (targetPostId) {
         const [docResult, auditorResult] = await Promise.all([
           safeRun("doc_manager", () =>
-            runDocManagerAgent(`Respond to: ${adminPost?.title || ""}`)
+            runDocManagerAgent(`Respond to: ${adminPost?.title || ""}`, autoCategory)
           ),
           safeRun("ims_auditor", () =>
-            runAuditorAgent(`Respond to: ${adminPost?.title || ""}`)
+            runAuditorAgent(`Respond to: ${adminPost?.title || ""}`, autoCategory)
           ),
         ]);
 

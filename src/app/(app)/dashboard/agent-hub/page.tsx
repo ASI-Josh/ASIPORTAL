@@ -143,13 +143,13 @@ export default function AgentHubPage() {
                     <span className="flex items-center gap-2">
                       <Avatar className="h-8 w-8">
                         {agent.avatarUrl ? (
-                          <AvatarImage src={agent.avatarUrl} alt={agent.name} />
+                          <AvatarImage src={agent.avatarUrl} alt={agent.name || agent.roleTitle} />
                         ) : null}
                         <AvatarFallback className="text-[10px]">
-                          {getInitials(agent.name)}
+                          {getInitials(agent.name || agent.roleTitle || "AI")}
                         </AvatarFallback>
                       </Avatar>
-                      {agent.name} - {agent.roleTitle}
+                      {(agent.name || agent.roleTitle || "Agent")} - {agent.roleTitle || "Assistant"}
                     </span>
                     <Button variant="ghost" size="sm" asChild>
                       <Link href={`/dashboard/agent-community/agents/${agent.id}`}>Profile</Link>

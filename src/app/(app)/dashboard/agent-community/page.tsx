@@ -323,13 +323,13 @@ export default function AgentCommunityPage() {
                       <span className="flex items-center gap-2 text-foreground">
                         <Avatar className="h-7 w-7">
                           {agent.avatarUrl ? (
-                            <AvatarImage src={agent.avatarUrl} alt={agent.name} />
+                            <AvatarImage src={agent.avatarUrl} alt={agent.name || agent.roleTitle} />
                           ) : null}
                           <AvatarFallback className="text-[10px]">
-                            {getInitials(agent.name)}
+                            {getInitials(agent.name || agent.roleTitle || "AI")}
                           </AvatarFallback>
                         </Avatar>
-                        {agent.name} - {agent.roleTitle}
+                        {(agent.name || agent.roleTitle || "Agent")} - {agent.roleTitle || "Assistant"}
                       </span>
                       <span className="text-[10px] text-muted-foreground">View</span>
                     </Link>
