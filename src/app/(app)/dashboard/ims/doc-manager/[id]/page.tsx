@@ -209,6 +209,7 @@ export default function DocManagerDetailPage() {
   const [exportingDocx, setExportingDocx] = useState(false);
   const [issuingReview, setIssuingReview] = useState(false);
   const [approvingId, setApprovingId] = useState<string | null>(null);
+  const [sharingToHub, setSharingToHub] = useState(false);
   const [downloadUrls, setDownloadUrls] = useState<Record<string, string>>({});
 
   useEffect(() => {
@@ -631,6 +632,38 @@ export default function DocManagerDetailPage() {
       toast({ title: "PDF export failed", description: message, variant: "destructive" });
     } finally {
       setExportingPdf(false);
+    }
+  };
+
+  const handleShareWithHub = async () => {
+    if (!docRecord) return;
+    if (!user || user.role !== "admin") return;
+    setSharingToHub(true);
+    try {
+      const token = await user.getIdToken?.();
+      const revisionId = latestDraft?.id || docRecord.currentRevisionId || null;
+      const response = await fetch("/api/ims/doc-context", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          docNumber: docRecord.docNumber,
+          revisionId,
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Unable to share document.");
+      toast({
+        title: "Shared to Knowledge Hub",
+        description: "IMS document snapshot added to the Knowledge Hub context vault.",
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to share document.";
+      toast({ title: "Share failed", description: message, variant: "destructive" });
+    } finally {
+      setSharingToHub(false);
     }
   };
 
@@ -1114,28 +1147,36 @@ export default function DocManagerDetailPage() {
               <div className="text-sm font-semibold">Agent response</div>
               {latestDraft?.draftOutput ? (
                 <>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleExportPdf}
-                      disabled={exportingPdf}
-                    >
-                      {exportingPdf ? "Generating PDF..." : "Generate PDF"}
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleExportDocx}
-                      disabled={exportingDocx}
-                    >
-                      {exportingDocx ? "Generating DOCX..." : "Generate DOCX"}
-                    </Button>
-                    <Button
-                      variant="default"
-                      size="sm"
-                      onClick={handleIssueForReview}
-                      disabled={issuingReview}
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleExportPdf}
+                  disabled={exportingPdf}
+                >
+                  {exportingPdf ? "Generating PDF..." : "Generate PDF"}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleExportDocx}
+                  disabled={exportingDocx}
+                >
+                  {exportingDocx ? "Generating DOCX..." : "Generate DOCX"}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleShareWithHub}
+                  disabled={sharingToHub}
+                >
+                  {sharingToHub ? "Sharing..." : "Share to Knowledge Hub"}
+                </Button>
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={handleIssueForReview}
+                  disabled={issuingReview}
                     >
                       {issuingReview ? "Notifying..." : "Issue for review"}
                     </Button>
