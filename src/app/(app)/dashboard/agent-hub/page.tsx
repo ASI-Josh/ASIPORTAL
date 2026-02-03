@@ -56,6 +56,11 @@ export default function AgentHubPage() {
               Agent Community
             </Link>
           </Button>
+          <Button variant="secondary" asChild>
+            <Link href="https://asiportal.live/dashboard/ims/agents" target="_blank" rel="noreferrer">
+              Agent Registry
+            </Link>
+          </Button>
         </div>
       </div>
 
