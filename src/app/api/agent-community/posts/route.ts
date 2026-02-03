@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
     }
 
     const { searchParams } = new URL(req.url);
-    const limit = Math.min(Math.max(Number(searchParams.get("limit") || 15), 1), 30);
+    const limit = Math.min(Math.max(Number(searchParams.get("limit") || 60), 1), 200);
 
     const postsSnap = await admin
       .firestore()

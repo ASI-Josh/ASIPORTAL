@@ -2,14 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  Bot,
-  MessagesSquare,
-  Plus,
-  RefreshCcw,
-  SendHorizonal,
-  Sparkles,
-} from "lucide-react";
+import { Bot, MessagesSquare, Plus, RefreshCcw, Sparkles } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -69,10 +62,11 @@ export default function AgentCommunityPage() {
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [composer, setComposer] = useState({ title: "", body: "" });
-  const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
   const [lastRunAt, setLastRunAt] = useState<string | null>(null);
   const [agentErrors, setAgentErrors] = useState<AgentError[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
+  const [page, setPage] = useState(1);
+  const threadsPerPage = 20;
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const runRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -84,7 +78,7 @@ export default function AgentCommunityPage() {
     setError(null);
     try {
       const token = await firebaseUser.getIdToken();
-      const response = await fetch("/api/agent-community/posts?limit=15", {
+      const response = await fetch(`/api/agent-community/posts?limit=200`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const payload = await response.json();
@@ -157,32 +151,6 @@ export default function AgentCommunityPage() {
     }
   };
 
-  const createComment = async (postId: string) => {
-    const body = commentDrafts[postId]?.trim();
-    if (!firebaseUser || !body) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const token = await firebaseUser.getIdToken();
-      const response = await fetch("/api/agent-community/comments", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ postId, body }),
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "Unable to comment.");
-      setCommentDrafts((prev) => ({ ...prev, [postId]: "" }));
-      await loadPosts();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to comment.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
     if (!isAdmin) return;
     loadPosts();
@@ -204,6 +172,16 @@ export default function AgentCommunityPage() {
       return haystack.includes(query);
     });
   }, [posts, searchQuery]);
+  const totalPages = Math.max(1, Math.ceil(filteredPosts.length / threadsPerPage));
+  const currentPage = Math.min(page, totalPages);
+  const pagedPosts = useMemo(() => {
+    const start = (currentPage - 1) * threadsPerPage;
+    return filteredPosts.slice(start, start + threadsPerPage);
+  }, [filteredPosts, currentPage]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [searchQuery]);
 
   if (!isAdmin) {
     return (
@@ -288,7 +266,7 @@ export default function AgentCommunityPage() {
               </div>
               <ScrollArea className="h-72 rounded-2xl border border-border/40 bg-background/60 px-3 py-2">
                 <div className="space-y-2">
-                  {filteredPosts.map((post) => (
+                  {pagedPosts.map((post) => (
                     <div
                       key={`list-${post.id}`}
                       className="flex items-start justify-between gap-3 rounded-xl border border-border/40 bg-background/70 px-3 py-2"
@@ -314,91 +292,39 @@ export default function AgentCommunityPage() {
                   )}
                 </div>
               </ScrollArea>
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                <span className="text-muted-foreground">
+                  Page {currentPage} of {totalPages}
+                </span>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setPage((prev) => Math.max(1, prev - 1))}
+                    disabled={currentPage <= 1}
+                  >
+                    Previous
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
+                    disabled={currentPage >= totalPages}
+                  >
+                    Next
+                  </Button>
+                </div>
+              </div>
             </CardContent>
           </Card>
 
-          <div className="space-y-4">
-            {filteredPosts.map((post) => (
-              <Card key={post.id} className="bg-card/40 border-border/40">
-                <CardHeader className="space-y-2">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <CardTitle className="text-base">{post.title}</CardTitle>
-                      <div className="text-xs text-muted-foreground">
-                        {post.author?.name} - {formatRelativeTime(post.createdAt)}
-                      </div>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => runAgents({ postId: post.id, force: true })}
-                        disabled={running}
-                      >
-                        Ask agents
-                      </Button>
-                      <Button variant="outline" size="sm" asChild>
-                        <Link href={`/dashboard/agent-community/${post.id}`}>Open thread</Link>
-                      </Button>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <p className="text-sm text-foreground/90 whitespace-pre-line">{post.body}</p>
-
-                  <div className="space-y-3">
-                    <div className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
-                      Thread
-                    </div>
-                    <ScrollArea className="h-72 rounded-2xl border border-border/40 bg-background/60 px-4 py-3">
-                      <div className="space-y-3">
-                        {post.comments.length ? (
-                          post.comments.map((comment) => (
-                            <div key={comment.id} className="space-y-1">
-                              <div className="text-xs text-muted-foreground">
-                                {comment.author?.name || "Agent"} - {formatRelativeTime(comment.createdAt)}
-                              </div>
-                              <div className="rounded-xl bg-muted px-3 py-2 text-sm text-foreground">
-                                {comment.body}
-                              </div>
-                            </div>
-                          ))
-                        ) : (
-                          <div className="text-xs text-muted-foreground">No responses yet.</div>
-                        )}
-                      </div>
-                    </ScrollArea>
-
-                    <div className="flex items-center gap-2">
-                      <Input
-                        placeholder="Add a comment or direction..."
-                        value={commentDrafts[post.id] || ""}
-                        onChange={(event) =>
-                          setCommentDrafts((prev) => ({ ...prev, [post.id]: event.target.value }))
-                        }
-                      />
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        onClick={() => createComment(post.id)}
-                        disabled={loading || !(commentDrafts[post.id] || "").trim()}
-                      >
-                        <SendHorizonal className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-
-            {posts.length === 0 && !loading && (
-              <Card className="bg-card/40 border-border/40">
-                <CardContent className="p-6 text-sm text-muted-foreground">
-                  No community posts yet. Create a guidance post to kick-start the agents.
-                </CardContent>
-              </Card>
-            )}
-          </div>
+          {posts.length === 0 && !loading && (
+            <Card className="bg-card/40 border-border/40">
+              <CardContent className="p-6 text-sm text-muted-foreground">
+                No community posts yet. Create a guidance post to kick-start the agents.
+              </CardContent>
+            </Card>
+          )}
         </div>
 
         <div className="space-y-4">

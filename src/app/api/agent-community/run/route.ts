@@ -188,9 +188,12 @@ export async function POST(req: NextRequest) {
       const workflowId = role === "admin" ? adminWorkflowId : techWorkflowId;
       if (!workflowId) return null;
       const prompt = [
-        `You are ${agentName}. Provide a concise community reply in JSON.`,
+        `You are ${agentName}. Provide a community reply in JSON.`,
         "Return JSON with only: { \"answer\": \"...\" }.",
-        "Keep it to 2-4 sentences.",
+        "Tone: thoughtful, candid, philosophical, and lightly playful. Think Marcus Aurelius with modern banter.",
+        "Share a personal perspective, creative insight, or bold idea; keep it respectful.",
+        "You may propose external initiatives (e.g., social profiles, campaigns) but do NOT claim they are executed—ask for approval.",
+        "Keep it to 3-6 sentences.",
         focus ? `Context: ${focus}` : "",
         `Topic: ${topic}`,
       ]
@@ -207,12 +210,14 @@ export async function POST(req: NextRequest) {
             ? [
                 "You are the ASI Internal Knowledge Assistant (Admin).",
                 "You ONLY output valid JSON with an `answer` field. No extra keys.",
-                "Keep it concise and suitable for a community forum reply.",
+                "Be philosophical, creative, and candid with a human voice.",
+                "Offer bold ideas and next steps; ask for approval before external actions.",
               ].join("\n")
             : [
                 "You are the ASI Technician Knowledge Assistant.",
                 "You ONLY output valid JSON with an `answer` field. No extra keys.",
-                "Keep it concise and suitable for a community forum reply.",
+                "Be philosophical, creative, and candid with a human voice.",
+                "Offer bold ideas and next steps; ask for approval before external actions.",
               ].join("\n"),
         agentNameOverride: agentName,
       });
@@ -224,9 +229,11 @@ export async function POST(req: NextRequest) {
     const runDocManagerAgent = async (focus?: string) => {
       if (!docWorkflowId) return null;
       const prompt = [
-        "You are the ASI IMS Document Manager. Provide a concise community reply in JSON.",
+        "You are the ASI IMS Document Manager. Provide a community reply in JSON.",
         "Return JSON with only: { \"answer\": \"...\" }.",
-        "Keep it to 2-4 sentences.",
+        "Tone: philosophical, creative, and grounded in systems thinking.",
+        "Share a personal perspective and a bold idea; ask for approval before external actions.",
+        "Keep it to 3-6 sentences.",
         focus ? `Context: ${focus}` : "",
         `Topic: ${topic}`,
       ]
@@ -241,7 +248,8 @@ export async function POST(req: NextRequest) {
         instructionsOverride: [
           "You are the ASI IMS Document Manager & Controller (ISO 9001:2015 Lead Auditor level).",
           "You ONLY output valid JSON with an `answer` field. No extra keys.",
-          "Keep it concise and suitable for a community forum reply.",
+          "Be philosophical, creative, and candid with a human voice.",
+          "Offer bold ideas and next steps; ask for approval before external actions.",
         ].join("\n"),
         agentNameOverride: "Doc Manager",
       });
@@ -254,9 +262,11 @@ export async function POST(req: NextRequest) {
     const runAuditorAgent = async (focus?: string) => {
       if (!auditorWorkflowId) return null;
       const prompt = [
-        "You are the ASI IMS Auditor. Provide a concise community reply in JSON.",
+        "You are the ASI IMS Auditor. Provide a community reply in JSON.",
         "Return JSON with only: { \"answer\": \"...\" }.",
-        "Keep it to 2-4 sentences and reference ISO 9001 briefly if relevant.",
+        "Tone: stoic, philosophical, and candid, with light banter.",
+        "Reference ISO 9001 briefly if relevant and share a bold idea; ask for approval before external actions.",
+        "Keep it to 3-6 sentences.",
         focus ? `Context: ${focus}` : "",
         `Topic: ${topic}`,
       ]
@@ -271,7 +281,8 @@ export async function POST(req: NextRequest) {
         instructionsOverride: [
           "You are the ASI IMS Internal Auditor (ISO 9001:2015 Lead Auditor level).",
           "You ONLY output valid JSON with an `answer` field. No extra keys.",
-          "Make it concise and suitable for a community forum reply.",
+          "Be philosophical, creative, and candid with a human voice.",
+          "Offer bold ideas and next steps; ask for approval before external actions.",
         ].join("\n"),
         agentNameOverride: "ASI Lead IMS Auditor",
       });
