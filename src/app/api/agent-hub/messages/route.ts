@@ -77,7 +77,9 @@ const buildAgentPrompt = ({
     "actionRequests must be an array (empty if none).",
     "warnings must be an array (empty if none).",
     "Only propose external actionRequests if the user explicitly asks and the intent is Awareness/non-work.",
-    "For IMS drafting, you may propose: ims.document.create_draft, ims.document.update_draft, ims.document.request_review (approval required).",
+    agent.role === "doc"
+      ? "For IMS drafting, you may propose: ims.document.create_draft, ims.document.update_draft, ims.document.request_review (approval required)."
+      : "Do not propose ims.document.* actions. If documents need changes, recommend the Doc Manager handle it.",
     "If you include actionRequests, include all payload fields. Use empty strings or null for non-applicable values. Use [] for tags.",
     "Guardrail: You are NOT allowed to execute financial transactions of any kind, any value.",
     "If external actions are proposed, add them to actionRequests and ask for approval.",
@@ -107,7 +109,9 @@ const buildAgentInstructions = (agent: AgentConfig) => {
     "warnings and actionRequests must be arrays (empty if none).",
     "knowledgeUpdates must be an array (empty if none).",
     "Only propose external actionRequests if the user explicitly asks and the intent is Awareness/non-work.",
-    "For IMS drafting, you may propose: ims.document.create_draft, ims.document.update_draft, ims.document.request_review (approval required).",
+    agent.role === "doc"
+      ? "For IMS drafting, you may propose: ims.document.create_draft, ims.document.update_draft, ims.document.request_review (approval required)."
+      : "Do not propose ims.document.* actions. If documents need changes, recommend the Doc Manager handle it.",
     "If you include actionRequests, include all payload fields. Use empty strings or null for non-applicable values. Use [] for tags.",
     "Never execute external actions. Propose external actions only via actionRequests.",
     "Guardrail: You are NOT allowed to execute financial transactions of any kind, any value.",
@@ -452,9 +456,9 @@ export async function POST(req: NextRequest) {
         const agentOutput = result.parsed;
         const actionIds: string[] = [];
 
-        const shouldAllowActions = allowExternalActions && isAwareness;
+        const shouldAllowExternal = allowExternalActions && isAwareness;
         if (Array.isArray(agentOutput.actionRequests) && agentOutput.actionRequests.length > 0) {
-          if (!shouldAllowActions) {
+          if (!shouldAllowExternal) {
             const warning = allowExternalActions
               ? "External actions are restricted to Awareness/non-work rounds."
               : "External actions are disabled for this round.";
@@ -464,8 +468,21 @@ export async function POST(req: NextRequest) {
           }
         }
 
-        if (Array.isArray(agentOutput.actionRequests) && agentOutput.actionRequests.length > 0 && shouldAllowActions) {
+        if (Array.isArray(agentOutput.actionRequests) && agentOutput.actionRequests.length > 0) {
           for (const action of agentOutput.actionRequests) {
+            const actionType = String(action.type || "");
+            const isImsAction = actionType.startsWith("ims.document.");
+            if (isImsAction && agent.id !== "doc_manager") {
+              const warning = "IMS document actions are restricted to the Doc Manager.";
+              agentOutput.warnings = Array.isArray(agentOutput.warnings)
+                ? [...agentOutput.warnings, warning]
+                : [warning];
+              continue;
+            }
+            const isExternal = actionType.startsWith("moltbook.");
+            if (isExternal && !shouldAllowExternal) {
+              continue;
+            }
             const actionRef = await admin
               .firestore()
               .collection(COLLECTIONS.AGENT_HUB_ACTIONS)
