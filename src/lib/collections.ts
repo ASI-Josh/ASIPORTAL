@@ -33,4 +33,5 @@ export const COLLECTIONS = {
   AGENT_COMMUNITY_POSTS: "agentCommunityPosts",
   AGENT_COMMUNITY_COMMENTS: "agentCommunityComments",
   AGENT_COMMUNITY_STATE: "agentCommunityState",
+  AGENT_PROFILES: "agentProfiles",
 } as const;

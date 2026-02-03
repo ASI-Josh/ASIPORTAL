@@ -52,6 +52,7 @@ export async function GET(req: NextRequest) {
           id: docSnap.id,
           title: data.title,
           body: data.body,
+          category: data.category || "professional",
           tags: data.tags || [],
           author: data.author,
           score: data.score ?? 0,
@@ -91,9 +92,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Not authorised." }, { status: 403 });
     }
 
-    const payload = (await req.json()) as { title?: string; body?: string; tags?: string[] };
+    const payload = (await req.json()) as {
+      title?: string;
+      body?: string;
+      tags?: string[];
+      category?: "professional" | "awareness";
+    };
     const title = payload.title?.trim();
     const body = payload.body?.trim();
+    const category = payload.category === "awareness" ? "awareness" : "professional";
 
     if (!title || !body) {
       return NextResponse.json({ error: "Title and body are required." }, { status: 400 });
@@ -103,11 +110,13 @@ export async function POST(req: NextRequest) {
     const postRef = await admin.firestore().collection(COLLECTIONS.AGENT_COMMUNITY_POSTS).add({
       title,
       body,
+      category,
       tags: Array.isArray(payload.tags) ? payload.tags.slice(0, 6) : [],
       author: {
         type: "user",
         name: user.name || user.email || "ASI Admin",
         role: "admin",
+        roleTitle: "Director",
       },
       score: 0,
       status: "active",

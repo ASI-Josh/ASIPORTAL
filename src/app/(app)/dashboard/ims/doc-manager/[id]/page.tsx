@@ -4,13 +4,16 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   Timestamp,
+  addDoc,
   collection,
   doc,
+  getDocs,
   onSnapshot,
   orderBy,
   query,
   setDoc,
   updateDoc,
+  where,
 } from "firebase/firestore";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { ArrowLeft, FileText, Save, Upload } from "lucide-react";
@@ -118,6 +121,58 @@ const buildAgentTemplate = ({
     "Notes/constraints:",
   ].join("\n");
 
+const LOGO_URL = encodeURI("/logos/ASI BRANDING - OFFICIAL MAIN.png");
+
+const sanitizeFileName = (value: string) =>
+  value
+    .trim()
+    .replace(/[^a-z0-9-_]+/gi, "_")
+    .replace(/_{2,}/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 80) || "document";
+
+const buildFileName = (docNumber: string, revision: number, title: string, ext: string) =>
+  `${docNumber}_Rev${revision}_${sanitizeFileName(title)}.${ext}`;
+
+const buildDocContent = (doc: IMSDocument, draft?: IMSAgentDraftOutput) => {
+  const title = draft?.metadata?.title || doc.title;
+  const sections =
+    draft?.sections?.length
+      ? draft.sections
+      : [
+          {
+            title: "Overview",
+            content:
+              "Document content will be added here. This is a controlled template draft.",
+          },
+        ];
+  return { title, sections };
+};
+
+const fetchLogoBytes = async () => {
+  const response = await fetch(LOGO_URL);
+  const buffer = await response.arrayBuffer();
+  return new Uint8Array(buffer);
+};
+
+const wrapText = (text: string, maxWidth: number, font: any, size: number) => {
+  const words = text.split(/\s+/);
+  const lines: string[] = [];
+  let current = "";
+  words.forEach((word) => {
+    const test = current ? `${current} ${word}` : word;
+    const width = font.widthOfTextAtSize(test, size);
+    if (width > maxWidth && current) {
+      lines.push(current);
+      current = word;
+    } else {
+      current = test;
+    }
+  });
+  if (current) lines.push(current);
+  return lines;
+};
+
 export default function DocManagerDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -148,6 +203,9 @@ export default function DocManagerDetailPage() {
   const [agentWorking, setAgentWorking] = useState(false);
   const [latestDraft, setLatestDraft] = useState<IMSDocumentRevision | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [exportingPdf, setExportingPdf] = useState(false);
+  const [exportingDocx, setExportingDocx] = useState(false);
+  const [issuingReview, setIssuingReview] = useState(false);
   const [downloadUrls, setDownloadUrls] = useState<Record<string, string>>({});
 
   useEffect(() => {
@@ -192,18 +250,26 @@ export default function DocManagerDetailPage() {
   }, [docId]);
 
   useEffect(() => {
-    const pending = revisions.filter(
-      (revision) => revision.file?.path && !downloadUrls[revision.id]
-    );
+    const paths = revisions.flatMap((revision) => {
+      const list = [];
+      if (revision.file?.path) list.push(revision.file.path);
+      if (revision.supportingFiles?.length) {
+        revision.supportingFiles.forEach((file) => {
+          if (file.path) list.push(file.path);
+        });
+      }
+      return list;
+    });
+    const pending = paths.filter((path) => path && !downloadUrls[path]);
     if (pending.length === 0) return;
-    pending.forEach((revision) => {
-      if (!revision.file?.path) return;
-      getDownloadURL(ref(storage, revision.file.path))
+    pending.forEach((path) => {
+      if (!path) return;
+      getDownloadURL(ref(storage, path))
         .then((url) => {
-          setDownloadUrls((prev) => ({ ...prev, [revision.id]: url }));
+          setDownloadUrls((prev) => ({ ...prev, [path]: url }));
         })
         .catch(() => {
-          setDownloadUrls((prev) => ({ ...prev, [revision.id]: "" }));
+          setDownloadUrls((prev) => ({ ...prev, [path]: "" }));
         });
     });
   }, [revisions, downloadUrls]);
@@ -445,6 +511,269 @@ export default function DocManagerDetailPage() {
       });
     } finally {
       setAgentWorking(false);
+    }
+  };
+
+  const uploadGeneratedFile = async (
+    revision: IMSDocumentRevision,
+    blob: Blob,
+    fileName: string,
+    contentType: string,
+    isPrimary: boolean
+  ) => {
+    const filePath = `ims-documents/${docId}/revisions/${revision.id}/${fileName}`;
+    const storageRef = ref(storage, filePath);
+    await uploadBytes(storageRef, blob, { contentType });
+    const filePayload = {
+      name: fileName,
+      path: filePath,
+      contentType,
+      size: blob.size,
+    };
+    const revisionRef = doc(db, COLLECTIONS.IMS_DOCUMENTS, docId, "revisions", revision.id);
+    if (isPrimary) {
+      await updateDoc(revisionRef, { file: filePayload });
+    } else {
+      const existing = revision.supportingFiles || [];
+      const filtered = existing.filter((file) => file.name !== fileName);
+      await updateDoc(revisionRef, { supportingFiles: [...filtered, filePayload] });
+    }
+    return filePayload;
+  };
+
+  const handleExportPdf = async () => {
+    if (!docRecord || !latestDraft?.draftOutput) return;
+    setExportingPdf(true);
+    try {
+      const { PDFDocument, StandardFonts, rgb } = await import("pdf-lib");
+      const logoBytes = await fetchLogoBytes();
+      const pdfDoc = await PDFDocument.create();
+      const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+      const bold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+      const logoImage = await pdfDoc.embedPng(logoBytes);
+      const page = pdfDoc.addPage([595.28, 841.89]); // A4
+      const { width, height } = page.getSize();
+      const margin = 48;
+      const logoDims = logoImage.scale(0.2);
+
+      page.drawImage(logoImage, {
+        x: margin,
+        y: height - margin - logoDims.height,
+        width: logoDims.width,
+        height: logoDims.height,
+      });
+
+      const { title, sections } = buildDocContent(docRecord, latestDraft.draftOutput);
+      const revisionNumber = latestDraft.revisionNumber;
+      const issueDate = latestDraft.issueDate?.toDate?.().toLocaleDateString("en-AU") || "";
+      const metaText = `Doc ID: ${docRecord.docNumber} | Rev ${revisionNumber} | Issued ${issueDate}`;
+
+      page.drawText(title, {
+        x: margin + logoDims.width + 12,
+        y: height - margin - 12,
+        size: 14,
+        font: bold,
+        color: rgb(0.1, 0.1, 0.1),
+      });
+      page.drawText(metaText, {
+        x: margin + logoDims.width + 12,
+        y: height - margin - 30,
+        size: 9,
+        font,
+        color: rgb(0.35, 0.35, 0.35),
+      });
+
+      let cursorY = height - margin - 70;
+      const contentWidth = width - margin * 2;
+
+      sections.forEach((section) => {
+        const titleLines = wrapText(section.title, contentWidth, bold, 12);
+        titleLines.forEach((line) => {
+          if (cursorY < margin + 80) return;
+          page.drawText(line, { x: margin, y: cursorY, size: 12, font: bold });
+          cursorY -= 16;
+        });
+        const bodyLines = wrapText(section.content || "", contentWidth, font, 10);
+        bodyLines.forEach((line) => {
+          if (cursorY < margin + 60) return;
+          page.drawText(line, { x: margin, y: cursorY, size: 10, font });
+          cursorY -= 14;
+        });
+        cursorY -= 10;
+      });
+
+      page.drawText("Controlled document. Uncontrolled if printed.", {
+        x: margin,
+        y: margin - 20,
+        size: 8,
+        font,
+        color: rgb(0.5, 0.5, 0.5),
+      });
+
+      const pdfBytes = await pdfDoc.save();
+      const blob = new Blob([pdfBytes], { type: "application/pdf" });
+      const fileName = buildFileName(
+        docRecord.docNumber,
+        latestDraft.revisionNumber,
+        docRecord.title,
+        "pdf"
+      );
+      await uploadGeneratedFile(latestDraft, blob, fileName, "application/pdf", true);
+      toast({
+        title: "PDF generated",
+        description: `${fileName} uploaded to storage.`,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to generate PDF.";
+      toast({ title: "PDF export failed", description: message, variant: "destructive" });
+    } finally {
+      setExportingPdf(false);
+    }
+  };
+
+  const handleExportDocx = async () => {
+    if (!docRecord || !latestDraft?.draftOutput) return;
+    setExportingDocx(true);
+    try {
+      const { Document, Packer, Paragraph, TextRun, Header, Footer, ImageRun, AlignmentType } =
+        await import("docx");
+      const logoBytes = await fetchLogoBytes();
+      const { title, sections } = buildDocContent(docRecord, latestDraft.draftOutput);
+      const revisionNumber = latestDraft.revisionNumber;
+      const issueDate = latestDraft.issueDate?.toDate?.().toLocaleDateString("en-AU") || "";
+
+      const header = new Header({
+        children: [
+          new Paragraph({
+            children: [
+              new ImageRun({
+                data: logoBytes,
+                transformation: { width: 120, height: 48 },
+                type: "png",
+              }),
+              new TextRun({ text: "  " }),
+              new TextRun({ text: title, bold: true }),
+            ],
+          }),
+          new Paragraph({
+            children: [
+              new TextRun({
+                text: `Doc ID: ${docRecord.docNumber} | Rev ${revisionNumber} | Issued ${issueDate}`,
+                size: 18,
+              }),
+            ],
+          }),
+        ],
+      });
+
+      const footer = new Footer({
+        children: [
+          new Paragraph({
+            alignment: AlignmentType.CENTER,
+            children: [
+              new TextRun({ text: "Controlled document. Uncontrolled if printed.", size: 16 }),
+            ],
+          }),
+        ],
+      });
+
+      const body = sections.flatMap((section) => [
+        new Paragraph({
+          children: [new TextRun({ text: section.title, bold: true, size: 26 })],
+          spacing: { after: 120 },
+        }),
+        new Paragraph({
+          children: [new TextRun({ text: section.content || "", size: 22 })],
+          spacing: { after: 200 },
+        }),
+      ]);
+
+      const docx = new Document({
+        sections: [
+          {
+            headers: { default: header },
+            footers: { default: footer },
+            children: body,
+          },
+        ],
+      });
+
+      const blob = await Packer.toBlob(docx);
+      const fileName = buildFileName(
+        docRecord.docNumber,
+        latestDraft.revisionNumber,
+        docRecord.title,
+        "docx"
+      );
+      await uploadGeneratedFile(
+        latestDraft,
+        blob,
+        fileName,
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        false
+      );
+      toast({
+        title: "DOCX generated",
+        description: `${fileName} uploaded to storage.`,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to generate DOCX.";
+      toast({ title: "DOCX export failed", description: message, variant: "destructive" });
+    } finally {
+      setExportingDocx(false);
+    }
+  };
+
+  const handleIssueForReview = async () => {
+    if (!docRecord || !latestDraft) return;
+    setIssuingReview(true);
+    try {
+      const revisionRef = doc(db, COLLECTIONS.IMS_DOCUMENTS, docId, "revisions", latestDraft.id);
+      await updateDoc(revisionRef, {
+        status: "issued",
+      });
+
+      const usersRef = collection(db, COLLECTIONS.USERS);
+      const adminQuery = query(usersRef, where("role", "==", "admin"));
+      const adminSnap = await getDocs(adminQuery);
+      const emails: string[] = [];
+
+      await Promise.all(
+        adminSnap.docs.map(async (docSnap) => {
+          const data = docSnap.data() as { email?: string; name?: string };
+          if (data.email) emails.push(data.email);
+          await addDoc(collection(db, COLLECTIONS.NOTIFICATIONS), {
+            userId: docSnap.id,
+            type: "ims_review",
+            title: "IMS document ready for review",
+            message: `${docRecord.docNumber} - ${docRecord.title} is ready for review.`,
+            read: false,
+            relatedEntityId: docRecord.docNumber,
+            relatedEntityType: "ims_document",
+            createdAt: Timestamp.now(),
+          });
+        })
+      );
+
+      if (emails.length > 0) {
+        await addDoc(collection(db, COLLECTIONS.MAIL), {
+          to: emails,
+          message: {
+            subject: `IMS Document Review: ${docRecord.docNumber}`,
+            text: `${docRecord.docNumber} - ${docRecord.title} is ready for review in ASI Portal.`,
+          },
+        });
+      }
+
+      toast({
+        title: "Review requested",
+        description: "Admins have been notified for review.",
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to request review.";
+      toast({ title: "Review request failed", description: message, variant: "destructive" });
+    } finally {
+      setIssuingReview(false);
     }
   };
 
@@ -725,6 +1054,32 @@ export default function DocManagerDetailPage() {
               <div className="text-sm font-semibold">Agent response</div>
               {latestDraft?.draftOutput ? (
                 <>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleExportPdf}
+                      disabled={exportingPdf}
+                    >
+                      {exportingPdf ? "Generating PDF..." : "Generate PDF"}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleExportDocx}
+                      disabled={exportingDocx}
+                    >
+                      {exportingDocx ? "Generating DOCX..." : "Generate DOCX"}
+                    </Button>
+                    <Button
+                      variant="default"
+                      size="sm"
+                      onClick={handleIssueForReview}
+                      disabled={issuingReview}
+                    >
+                      {issuingReview ? "Notifying..." : "Issue for review"}
+                    </Button>
+                  </div>
                   {latestDraft.draftPrompt ? (
                     <div className="space-y-2">
                       <div className="text-xs uppercase text-muted-foreground">You</div>
@@ -799,17 +1154,34 @@ export default function DocManagerDetailPage() {
                       variant="outline"
                       size="sm"
                       asChild
-                      disabled={!downloadUrls[revision.id]}
+                      disabled={!downloadUrls[revision.file.path]}
                     >
                       <a
-                        href={downloadUrls[revision.id] || "#"}
+                        href={downloadUrls[revision.file.path] || "#"}
                         target="_blank"
                         rel="noreferrer"
                       >
-                        Download
+                        Download PDF
                       </a>
                     </Button>
                   ) : null}
+                  {revision.supportingFiles?.map((file) => (
+                    <Button
+                      key={file.path}
+                      variant="outline"
+                      size="sm"
+                      asChild
+                      disabled={!downloadUrls[file.path]}
+                    >
+                      <a
+                        href={downloadUrls[file.path] || "#"}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Download {file.name.toLowerCase().endsWith(".docx") ? "DOCX" : "File"}
+                      </a>
+                    </Button>
+                  ))}
                 </div>
               </div>
             ))

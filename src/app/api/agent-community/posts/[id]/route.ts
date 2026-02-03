@@ -55,6 +55,7 @@ export async function GET(
         id: postSnap.id,
         title: postData.title,
         body: postData.body,
+        category: postData.category || "professional",
         tags: postData.tags || [],
         author: postData.author,
         score: postData.score ?? 0,

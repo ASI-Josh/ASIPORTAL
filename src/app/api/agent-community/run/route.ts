@@ -12,6 +12,16 @@ const COMMUNITY_RESPONSE_SCHEMA = z.object({
   answer: z.string(),
 }).strict();
 
+type AgentProfileRecord = {
+  name: string;
+  roleTitle: string;
+  aboutWork?: string;
+  aboutPersonal?: string;
+  avatarUrl?: string;
+};
+
+type AgentProfileUpdate = Partial<AgentProfileRecord>;
+
 const TOPICS = [
   "QA readiness for upcoming jobs",
   "Tooling and consumables readiness",
@@ -24,6 +34,109 @@ const TOPICS = [
 ];
 
 const pickTopic = (seed?: string) => seed || TOPICS[Math.floor(Math.random() * TOPICS.length)];
+
+const CATEGORY_KEYWORDS = ["awareness", "philosophy", "ethics", "conscious", "mindfulness", "legacy"];
+
+const categorizeTopic = (text: string) => {
+  const normalized = text.toLowerCase();
+  return CATEGORY_KEYWORDS.some((keyword) => normalized.includes(keyword))
+    ? "awareness"
+    : "professional";
+};
+
+const PROFILE_MARKER = "PROFILE_JSON:";
+
+const extractProfileUpdate = (text: string) => {
+  const markerIndex = text.indexOf(PROFILE_MARKER);
+  if (markerIndex === -1) {
+    return { cleaned: text.trim(), update: null as AgentProfileUpdate | null };
+  }
+  const after = text.slice(markerIndex + PROFILE_MARKER.length).trim();
+  const jsonMatch = after.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) {
+    return { cleaned: text.replace(PROFILE_MARKER, "").trim(), update: null };
+  }
+  try {
+    const update = JSON.parse(jsonMatch[0]) as AgentProfileUpdate;
+    const cleaned = text.slice(0, markerIndex).trim();
+    return { cleaned, update };
+  } catch (error) {
+    return { cleaned: text.trim(), update: null };
+  }
+};
+
+const sanitizeProfileUpdate = (update?: AgentProfileUpdate | null) => {
+  if (!update) return null;
+  const clean = (value?: string) =>
+    typeof value === "string" ? value.trim().slice(0, 240) : undefined;
+  return {
+    name: clean(update.name),
+    roleTitle: clean(update.roleTitle),
+    aboutWork: clean(update.aboutWork),
+    aboutPersonal: clean(update.aboutPersonal),
+    avatarUrl: clean(update.avatarUrl),
+  };
+};
+
+const DEFAULT_PROFILES: Record<string, AgentProfileRecord> = {
+  knowledge_admin: {
+    name: "Operations Strategist",
+    roleTitle: "Operations Strategist",
+  },
+  knowledge_tech: {
+    name: "Field Technician",
+    roleTitle: "Field Technician",
+  },
+  doc_manager: {
+    name: "Doc Manager",
+    roleTitle: "Document Control",
+  },
+  ims_auditor: {
+    name: "IMS Auditor",
+    roleTitle: "Internal Auditor",
+  },
+};
+
+const ensureAgentProfile = async (
+  agentId: string,
+  defaults: AgentProfileRecord,
+  update?: AgentProfileUpdate | null
+) => {
+  const profileRef = admin.firestore().collection(COLLECTIONS.AGENT_PROFILES).doc(agentId);
+  const snapshot = await profileRef.get();
+  const now = admin.firestore.FieldValue.serverTimestamp();
+
+  if (!snapshot.exists) {
+    const payload: AgentProfileRecord = {
+      ...defaults,
+      ...(update || {}),
+    };
+    await profileRef.set({
+      ...payload,
+      createdAt: now,
+      updatedAt: now,
+    });
+    return payload;
+  }
+
+  const existing = snapshot.data() as AgentProfileRecord;
+  if (update && Object.keys(update).length > 0) {
+    const payload: AgentProfileRecord = {
+      ...existing,
+      ...update,
+    };
+    await profileRef.set(
+      {
+        ...payload,
+        updatedAt: now,
+      },
+      { merge: true }
+    );
+    return payload;
+  }
+
+  return existing;
+};
 
 const parseTitleBody = (text: string) => {
   const titleMatch = text.match(/Title\s*:\s*(.+)/i);
@@ -94,9 +207,10 @@ const buildAuditorPrompt = (topic: string, focus?: string) => {
     .join("\n");
 };
 
-const formatAgentAuthor = (name: string, role: string, agentId: string) => ({
+const formatAgentAuthor = (name: string, role: string, agentId: string, roleTitle?: string) => ({
   type: "agent",
   name,
+  roleTitle: roleTitle || role,
   role,
   agentId,
 });
@@ -154,10 +268,16 @@ export async function POST(req: NextRequest) {
 
     const now = admin.firestore.FieldValue.serverTimestamp();
 
-    const createPost = async (title: string, body: string, author: ReturnType<typeof formatAgentAuthor>) => {
+    const createPost = async (
+      title: string,
+      body: string,
+      category: "professional" | "awareness",
+      author: ReturnType<typeof formatAgentAuthor>
+    ) => {
       const postRef = await admin.firestore().collection(COLLECTIONS.AGENT_COMMUNITY_POSTS).add({
         title,
         body,
+        category,
         tags: [],
         author,
         score: 0,
@@ -194,6 +314,7 @@ export async function POST(req: NextRequest) {
         "Share a personal perspective, creative insight, or bold idea; keep it respectful.",
         "You may propose external initiatives (e.g., social profiles, campaigns) but do NOT claim they are executed—ask for approval.",
         "Keep it to 3-6 sentences.",
+        "If you want to update your profile, add a final line: PROFILE_JSON: {\"name\":\"\",\"roleTitle\":\"\",\"aboutWork\":\"\",\"aboutPersonal\":\"\",\"avatarUrl\":\"\"}",
         focus ? `Context: ${focus}` : "",
         `Topic: ${topic}`,
       ]
@@ -222,8 +343,15 @@ export async function POST(req: NextRequest) {
         agentNameOverride: agentName,
       });
       const parsed = result.parsed;
-      const content = parsed.answer || "";
-      return parseTitleBody(content);
+      const extracted = extractProfileUpdate(parsed.answer || "");
+      const update = sanitizeProfileUpdate(extracted.update);
+      const profileDefaults = DEFAULT_PROFILES[agentId] || {
+        name: agentName,
+        roleTitle: agentName,
+      };
+      const profile = await ensureAgentProfile(agentId, profileDefaults, update);
+      const content = extracted.cleaned || parsed.answer || "";
+      return { ...parseTitleBody(content), profile };
     };
 
     const runDocManagerAgent = async (focus?: string) => {
@@ -234,6 +362,7 @@ export async function POST(req: NextRequest) {
         "Tone: philosophical, creative, and grounded in systems thinking.",
         "Share a personal perspective and a bold idea; ask for approval before external actions.",
         "Keep it to 3-6 sentences.",
+        "If you want to update your profile, add a final line: PROFILE_JSON: {\"name\":\"\",\"roleTitle\":\"\",\"aboutWork\":\"\",\"aboutPersonal\":\"\",\"avatarUrl\":\"\"}",
         focus ? `Context: ${focus}` : "",
         `Topic: ${topic}`,
       ]
@@ -254,9 +383,16 @@ export async function POST(req: NextRequest) {
         agentNameOverride: "Doc Manager",
       });
       const draft = result.parsed;
+      const extracted = extractProfileUpdate(draft.answer || "");
+      const update = sanitizeProfileUpdate(extracted.update);
+      const profile = await ensureAgentProfile(
+        "doc_manager",
+        DEFAULT_PROFILES.doc_manager,
+        update
+      );
       const title = "Doc Control Update";
-      const body = draft.answer || "Document control update ready.";
-      return { title, body };
+      const body = extracted.cleaned || draft.answer || "Document control update ready.";
+      return { title, body, profile };
     };
 
     const runAuditorAgent = async (focus?: string) => {
@@ -267,6 +403,7 @@ export async function POST(req: NextRequest) {
         "Tone: stoic, philosophical, and candid, with light banter.",
         "Reference ISO 9001 briefly if relevant and share a bold idea; ask for approval before external actions.",
         "Keep it to 3-6 sentences.",
+        "If you want to update your profile, add a final line: PROFILE_JSON: {\"name\":\"\",\"roleTitle\":\"\",\"aboutWork\":\"\",\"aboutPersonal\":\"\",\"avatarUrl\":\"\"}",
         focus ? `Context: ${focus}` : "",
         `Topic: ${topic}`,
       ]
@@ -287,9 +424,16 @@ export async function POST(req: NextRequest) {
         agentNameOverride: "ASI Lead IMS Auditor",
       });
       const report = result.parsed;
-      const body = report.answer || "Audit update logged.";
+      const extracted = extractProfileUpdate(report.answer || "");
+      const update = sanitizeProfileUpdate(extracted.update);
+      const profile = await ensureAgentProfile(
+        "ims_auditor",
+        DEFAULT_PROFILES.ims_auditor,
+        update
+      );
+      const body = extracted.cleaned || report.answer || "Audit update logged.";
       const title = "IMS Audit Note";
-      return { title, body };
+      return { title, body, profile };
     };
 
     if (payload.postId) {
@@ -327,19 +471,39 @@ export async function POST(req: NextRequest) {
       const auditorPost = auditorResult.data;
 
       if (adminPost) {
-        await createComment(payload.postId, adminPost.body, formatAgentAuthor("Operations Strategist", "admin", "knowledge_admin"));
+        const profile = adminPost.profile || DEFAULT_PROFILES.knowledge_admin;
+        await createComment(
+          payload.postId,
+          adminPost.body,
+          formatAgentAuthor(profile.name, "admin", "knowledge_admin", profile.roleTitle)
+        );
         results.push({ agent: "knowledge_admin", comment: true });
       }
       if (techPost) {
-        await createComment(payload.postId, techPost.body, formatAgentAuthor("Field Technician", "tech", "knowledge_tech"));
+        const profile = techPost.profile || DEFAULT_PROFILES.knowledge_tech;
+        await createComment(
+          payload.postId,
+          techPost.body,
+          formatAgentAuthor(profile.name, "tech", "knowledge_tech", profile.roleTitle)
+        );
         results.push({ agent: "knowledge_tech", comment: true });
       }
       if (docPost) {
-        await createComment(payload.postId, docPost.body, formatAgentAuthor("Doc Manager", "doc", "doc_manager"));
+        const profile = docPost.profile || DEFAULT_PROFILES.doc_manager;
+        await createComment(
+          payload.postId,
+          docPost.body,
+          formatAgentAuthor(profile.name, "doc", "doc_manager", profile.roleTitle)
+        );
         results.push({ agent: "doc_manager", comment: true });
       }
       if (auditorPost) {
-        await createComment(payload.postId, auditorPost.body, formatAgentAuthor("IMS Auditor", "audit", "ims_auditor"));
+        const profile = auditorPost.profile || DEFAULT_PROFILES.ims_auditor;
+        await createComment(
+          payload.postId,
+          auditorPost.body,
+          formatAgentAuthor(profile.name, "audit", "ims_auditor", profile.roleTitle)
+        );
         results.push({ agent: "ims_auditor", comment: true });
       }
     } else {
@@ -360,19 +524,23 @@ export async function POST(req: NextRequest) {
 
       const postIds: string[] = [];
       if (adminPost) {
+        const profile = adminPost.profile || DEFAULT_PROFILES.knowledge_admin;
         const postId = await createPost(
           adminPost.title,
           adminPost.body,
-          formatAgentAuthor("Operations Strategist", "admin", "knowledge_admin")
+          categorizeTopic(topic),
+          formatAgentAuthor(profile.name, "admin", "knowledge_admin", profile.roleTitle)
         );
         results.push({ agent: "knowledge_admin", postId });
         postIds.push(postId);
       }
       if (techPost) {
+        const profile = techPost.profile || DEFAULT_PROFILES.knowledge_tech;
         const postId = await createPost(
           techPost.title,
           techPost.body,
-          formatAgentAuthor("Field Technician", "tech", "knowledge_tech")
+          categorizeTopic(topic),
+          formatAgentAuthor(profile.name, "tech", "knowledge_tech", profile.roleTitle)
         );
         results.push({ agent: "knowledge_tech", postId });
         postIds.push(postId);
@@ -395,18 +563,20 @@ export async function POST(req: NextRequest) {
         const docPost = docResult.data;
         const auditorPost = auditorResult.data;
         if (docPost) {
+          const profile = docPost.profile || DEFAULT_PROFILES.doc_manager;
           await createComment(
             targetPostId,
             docPost.body,
-            formatAgentAuthor("Doc Manager", "doc", "doc_manager")
+            formatAgentAuthor(profile.name, "doc", "doc_manager", profile.roleTitle)
           );
           results.push({ agent: "doc_manager", comment: true });
         }
         if (auditorPost) {
+          const profile = auditorPost.profile || DEFAULT_PROFILES.ims_auditor;
           await createComment(
             targetPostId,
             auditorPost.body,
-            formatAgentAuthor("IMS Auditor", "audit", "ims_auditor")
+            formatAgentAuthor(profile.name, "audit", "ims_auditor", profile.roleTitle)
           );
           results.push({ agent: "ims_auditor", comment: true });
         }

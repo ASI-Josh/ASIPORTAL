@@ -623,6 +623,7 @@ export interface IMSDocumentRevision {
   status: IMSRevisionStatus;
   summary?: string;
   file?: IMSDocumentFile;
+  supportingFiles?: IMSDocumentFile[];
   draftOutput?: IMSAgentDraftOutput;
   draftPrompt?: string;
   source?: "agent" | "manual";
@@ -712,6 +713,19 @@ export interface IMSAuditReport {
   createdByName: string;
   createdByEmail?: string;
   updatedAt: Timestamp;
+}
+
+export type AgentCommunityCategory = "professional" | "awareness";
+
+export interface AgentProfile {
+  id: string;
+  name: string;
+  roleTitle: string;
+  aboutWork?: string;
+  aboutPersonal?: string;
+  avatarUrl?: string;
+  createdAt?: Timestamp;
+  updatedAt?: Timestamp;
 }
 
 // ============================================

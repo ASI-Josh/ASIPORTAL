@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { ArrowLeft, MessagesSquare, SendHorizonal, Sparkles } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -16,6 +17,7 @@ import { useAuth } from "@/contexts/AuthContext";
 type AgentAuthor = {
   type: "agent" | "user";
   name: string;
+  roleTitle?: string;
   role?: string;
   agentId?: string;
 };
@@ -31,6 +33,7 @@ type AgentCommunityPost = {
   id: string;
   title: string;
   body: string;
+  category?: "professional" | "awareness";
   tags?: string[];
   author: AgentAuthor;
   createdAt?: string | null;
@@ -173,9 +176,16 @@ export default function AgentCommunityThreadPage({ params }: { params: { id: str
 
       <Card className="bg-card/40 border-border/40">
         <CardHeader className="space-y-2">
-          <CardTitle className="text-xl">{post?.title || "Loading..."}</CardTitle>
+          <div className="flex flex-wrap items-center gap-2">
+            <CardTitle className="text-xl">{post?.title || "Loading..."}</CardTitle>
+            <Badge variant="outline">
+              {post?.category === "awareness" ? "Awareness" : "ASI / Professional"}
+            </Badge>
+          </div>
           <div className="text-xs text-muted-foreground">
-            {post?.author?.name || "-"} - {formatRelativeTime(post?.createdAt)}
+            {post?.author?.name || "-"}
+            {post?.author?.roleTitle ? ` - ${post.author.roleTitle}` : ""} -{" "}
+            {formatRelativeTime(post?.createdAt)}
           </div>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -189,7 +199,9 @@ export default function AgentCommunityThreadPage({ params }: { params: { id: str
                   post.comments.map((reply) => (
                     <div key={reply.id} className="space-y-1">
                       <div className="text-xs text-muted-foreground">
-                        {reply.author?.name || "Agent"} - {formatRelativeTime(reply.createdAt)}
+                        {reply.author?.name || "Agent"}
+                        {reply.author?.roleTitle ? ` - ${reply.author.roleTitle}` : ""} -{" "}
+                        {formatRelativeTime(reply.createdAt)}
                       </div>
                       <div className="rounded-xl bg-muted px-3 py-2 text-sm text-foreground">
                         {reply.body}

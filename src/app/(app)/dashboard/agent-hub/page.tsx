@@ -1,15 +1,43 @@
 ﻿"use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { Bot, MessagesSquare, ShieldCheck, FileText, Sparkles } from "lucide-react";
 
 import { InternalKnowledgeAssistant } from "@/components/assistant/internal-knowledge-assistant";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
 
 export default function AgentHubPage() {
-  const { user } = useAuth();
+  const { user, firebaseUser } = useAuth();
+  const [agentProfiles, setAgentProfiles] = useState<
+    Array<{ id: string; name: string; roleTitle: string; avatarUrl?: string }>
+  >([]);
+
+  const getInitials = (value: string) =>
+    value
+      .split(" ")
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0]?.toUpperCase() || "")
+      .join("");
+
+  useEffect(() => {
+    if (!firebaseUser) return;
+    const loadProfiles = async () => {
+      const token = await firebaseUser.getIdToken();
+      const response = await fetch("/api/agent-community/agents", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const payload = await response.json();
+      if (response.ok) {
+        setAgentProfiles(payload.agents || []);
+      }
+    };
+    loadProfiles();
+  }, [firebaseUser]);
 
   if (!user || user.role !== "admin") {
     return (
@@ -102,18 +130,33 @@ export default function AgentHubPage() {
               <CardTitle className="text-base">Agent Lineup</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 text-sm text-muted-foreground">
-              <div className="flex items-center justify-between rounded-xl border border-border/40 bg-background/60 px-3 py-2">
-                <span>Doc Manager</span>
-                <Button variant="ghost" size="sm" asChild>
-                  <Link href="/dashboard/ims/doc-manager/chat">Open</Link>
-                </Button>
-              </div>
-              <div className="flex items-center justify-between rounded-xl border border-border/40 bg-background/60 px-3 py-2">
-                <span>IMS Auditor</span>
-                <Button variant="ghost" size="sm" asChild>
-                  <Link href="/dashboard/ims/ims-auditor">Open</Link>
-                </Button>
-              </div>
+              {agentProfiles.length === 0 ? (
+                <div className="text-xs text-muted-foreground">
+                  No agent profiles yet. Run an agent round to create them.
+                </div>
+              ) : (
+                agentProfiles.map((agent) => (
+                  <div
+                    key={agent.id}
+                    className="flex items-center justify-between rounded-xl border border-border/40 bg-background/60 px-3 py-2"
+                  >
+                    <span className="flex items-center gap-2">
+                      <Avatar className="h-8 w-8">
+                        {agent.avatarUrl ? (
+                          <AvatarImage src={agent.avatarUrl} alt={agent.name} />
+                        ) : null}
+                        <AvatarFallback className="text-[10px]">
+                          {getInitials(agent.name)}
+                        </AvatarFallback>
+                      </Avatar>
+                      {agent.name} - {agent.roleTitle}
+                    </span>
+                    <Button variant="ghost" size="sm" asChild>
+                      <Link href={`/dashboard/agent-community/agents/${agent.id}`}>Profile</Link>
+                    </Button>
+                  </div>
+                ))
+              )}
               <div className="flex items-center justify-between rounded-xl border border-border/40 bg-background/60 px-3 py-2">
                 <span>Agent Community</span>
                 <Button variant="ghost" size="sm" asChild>
