@@ -12,10 +12,56 @@ type ChatMessage = {
   content: string;
 };
 
+const DEFAULT_TIMEZONE = process.env.ASI_TIMEZONE || "Australia/Melbourne";
+
 const formatTimestamp = (value?: admin.firestore.Timestamp | null) => {
   if (!value) return "";
   const date = value.toDate();
   return date.toISOString();
+};
+
+const getTimeZoneOffset = (date: Date, timeZone: string) => {
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+  const parts = formatter.formatToParts(date);
+  const lookup = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  const asUtc = Date.UTC(
+    Number(lookup.year),
+    Number(lookup.month) - 1,
+    Number(lookup.day),
+    Number(lookup.hour),
+    Number(lookup.minute),
+    Number(lookup.second)
+  );
+  return (asUtc - date.getTime()) / 60000;
+};
+
+const getDayRange = (timeZone: string) => {
+  const now = new Date();
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const parts = formatter.formatToParts(now);
+  const lookup = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  const year = Number(lookup.year);
+  const month = Number(lookup.month);
+  const day = Number(lookup.day);
+  const utcMidnight = new Date(Date.UTC(year, month - 1, day, 0, 0, 0));
+  const offsetMinutes = getTimeZoneOffset(utcMidnight, timeZone);
+  const start = new Date(utcMidnight.getTime() - offsetMinutes * 60000);
+  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+  return { start, end, dateKey: `${year}-${lookup.month}-${lookup.day}`, timeZone };
 };
 
 const summarizeJob = (job: FirebaseFirestore.DocumentData, includeFinancial: boolean) => {
@@ -161,6 +207,10 @@ export async function POST(req: NextRequest) {
     };
 
     if (role === "admin") {
+      const { start, end, dateKey, timeZone } = getDayRange(DEFAULT_TIMEZONE);
+      const startTs = admin.firestore.Timestamp.fromDate(start);
+      const endTs = admin.firestore.Timestamp.fromDate(end);
+
       const jobsSnap = await admin
         .firestore()
         .collection(COLLECTIONS.JOBS)
@@ -227,6 +277,107 @@ export async function POST(req: NextRequest) {
       liveContext.pendingInspections = pendingInspections;
       liveContext.activeImsDocs = activeDocs;
       liveContext.recentWorks = worksRecent;
+
+      const [completedTodaySnap, closedTodaySnap, inspectionsApprovedSnap] = await Promise.all([
+        admin
+          .firestore()
+          .collection(COLLECTIONS.JOBS)
+          .where("completedDate", ">=", startTs)
+          .where("completedDate", "<", endTs)
+          .get(),
+        admin
+          .firestore()
+          .collection(COLLECTIONS.JOBS)
+          .where("closedAt", ">=", startTs)
+          .where("closedAt", "<", endTs)
+          .get(),
+        admin
+          .firestore()
+          .collection(COLLECTIONS.INSPECTIONS)
+          .where("approvedAt", ">=", startTs)
+          .where("approvedAt", "<", endTs)
+          .get(),
+      ]);
+
+      const completedToday = completedTodaySnap.docs.map((docSnap) => {
+        const data = docSnap.data();
+        return {
+          id: docSnap.id,
+          jobNumber: data.jobNumber,
+          clientName: data.clientName,
+          completedDate: formatTimestamp(data.completedDate),
+          status: data.status,
+        };
+      });
+      const closedToday = closedTodaySnap.docs.map((docSnap) => {
+        const data = docSnap.data();
+        return {
+          id: docSnap.id,
+          jobNumber: data.jobNumber,
+          clientName: data.clientName,
+          closedAt: formatTimestamp(data.closedAt),
+          status: data.status,
+        };
+      });
+      const inspectionsApprovedToday = inspectionsApprovedSnap.docs.map((docSnap) => {
+        const data = docSnap.data();
+        return {
+          id: docSnap.id,
+          inspectionNumber: data.inspectionNumber,
+          clientName: data.clientName,
+          approvedAt: formatTimestamp(data.approvedAt),
+          convertedToJobId: data.convertedToJobId || null,
+        };
+      });
+      const inspectionsApprovedAndConverted = inspectionsApprovedToday.filter(
+        (inspection) => inspection.convertedToJobId
+      );
+
+      const recentInspectionsSnap = await admin
+        .firestore()
+        .collection(COLLECTIONS.INSPECTIONS)
+        .orderBy("updatedAt", "desc")
+        .limit(12)
+        .get();
+      const recentInspections = recentInspectionsSnap.docs.map((docSnap) => {
+        const data = docSnap.data();
+        return {
+          id: docSnap.id,
+          inspectionNumber: data.inspectionNumber,
+          clientName: data.clientName,
+          status: data.status,
+          updatedAt: formatTimestamp(data.updatedAt),
+        };
+      });
+
+      const knowledgeDocsSnap = await admin
+        .firestore()
+        .collection(COLLECTIONS.AGENT_HUB_DOCS)
+        .orderBy("createdAt", "desc")
+        .limit(6)
+        .get();
+      const knowledgeVault = knowledgeDocsSnap.docs.map((docSnap) => {
+        const data = docSnap.data();
+        return {
+          id: docSnap.id,
+          title: data.title || data.fileName,
+          summary: data.summary || "",
+          sourceUrl: data.sourceUrl || null,
+        };
+      });
+
+      liveContext.today = {
+        dateKey,
+        timeZone,
+        start: start.toISOString(),
+        end: end.toISOString(),
+        jobsCompleted: completedToday,
+        jobsClosed: closedToday,
+        inspectionsApproved: inspectionsApprovedToday,
+        inspectionsApprovedAndConverted,
+      };
+      liveContext.recentInspections = recentInspections;
+      liveContext.knowledgeVault = knowledgeVault;
     } else {
       const techJobsSnap = await admin
         .firestore()

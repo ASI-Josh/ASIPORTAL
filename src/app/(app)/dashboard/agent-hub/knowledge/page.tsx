@@ -83,6 +83,13 @@ export default function KnowledgeHubPage() {
     website: "",
   });
   const [linkForm, setLinkForm] = useState({ title: "", url: "", summary: "" });
+  const [driveFolderId, setDriveFolderId] = useState("");
+  const [driveSyncing, setDriveSyncing] = useState(false);
+  const [driveResult, setDriveResult] = useState<{
+    synced: number;
+    skipped: number;
+    errors: string[];
+  } | null>(null);
 
   const isAdmin = user?.role === "admin";
 
@@ -224,6 +231,32 @@ export default function KnowledgeHubPage() {
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to add link.";
       toast({ title: "Link failed", description: message, variant: "destructive" });
+    }
+  };
+
+  const syncDrive = async () => {
+    if (!firebaseUser || !driveFolderId.trim()) return;
+    setDriveSyncing(true);
+    try {
+      const token = await firebaseUser.getIdToken();
+      const response = await fetch("/api/agent-hub/drive-sync", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ folderId: driveFolderId.trim() }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Drive sync failed.");
+      setDriveResult(payload.results);
+      await loadDocs();
+      toast({ title: "Drive synced", description: "Google Drive folder ingested." });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Drive sync failed.";
+      toast({ title: "Drive sync failed", description: message, variant: "destructive" });
+    } finally {
+      setDriveSyncing(false);
     }
   };
 
@@ -496,6 +529,30 @@ export default function KnowledgeHubPage() {
                 </Button>
               </div>
 
+              <div className="grid gap-2">
+                <Label>Sync Google Drive folder</Label>
+                <Input
+                  placeholder="Folder ID"
+                  value={driveFolderId}
+                  onChange={(event) => setDriveFolderId(event.target.value)}
+                />
+                <Button variant="outline" size="sm" onClick={syncDrive} disabled={driveSyncing}>
+                  {driveSyncing ? "Syncing..." : "Sync Drive"}
+                </Button>
+                {driveResult && (
+                  <div className="text-xs text-muted-foreground">
+                    Synced {driveResult.synced}, skipped {driveResult.skipped}
+                    {driveResult.errors.length > 0 && (
+                      <div className="mt-1 text-[11px] text-destructive">
+                        {driveResult.errors.slice(0, 3).map((error) => (
+                          <div key={error}>- {error}</div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
               <div className="space-y-2">
                 <div className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
                   Available sources
@@ -692,9 +749,9 @@ export default function KnowledgeHubPage() {
                     {action.execution?.error && (
                       <div className="mt-1 text-[11px] text-destructive">{action.execution.error}</div>
                     )}
-                    {action.execution?.output && (
+                    {Boolean(action.execution?.output) && (
                       <div className="mt-1 text-[11px] text-muted-foreground">
-                        {JSON.stringify(action.execution.output).slice(0, 220)}...
+                        {String(JSON.stringify(action.execution?.output)).slice(0, 220)}...
                       </div>
                     )}
                   </div>

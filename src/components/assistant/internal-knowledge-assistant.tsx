@@ -27,9 +27,9 @@ type InternalKnowledgeAssistantProps = {
 };
 
 const DASHBOARD_PROMPTS = [
-  "Summarise today’s workload for my role.",
+  "Summarise today's workload for my role.",
   "List open inspections or approvals I should review.",
-  "Give me IMS or QA reminders for today’s work.",
+  "Give me IMS or QA reminders for today's work.",
 ];
 
 const JOB_PROMPTS = [
@@ -53,7 +53,7 @@ export function InternalKnowledgeAssistant({
       id: "welcome",
       role: "assistant",
       content:
-        "Hey! I’m your internal ASI knowledge assistant. Ask me about procedures, QA support, or operational guidance.",
+        "Hey! I'm your internal ASI knowledge assistant. Ask me about procedures, QA support, or operational guidance.",
     },
   ]);
   const [input, setInput] = useState("");
@@ -114,7 +114,7 @@ export function InternalKnowledgeAssistant({
       if (!response.ok) {
         throw new Error(payload.error || "Assistant request failed.");
       }
-      const answer = payload.answer || "I’m ready for another question.";
+      const answer = payload.answer || "I'm ready for another question.";
       setMessages((prev) => [
         ...prev,
         { id: `${Date.now()}-assistant`, role: "assistant", content: answer },
