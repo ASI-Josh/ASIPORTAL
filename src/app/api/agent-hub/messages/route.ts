@@ -215,7 +215,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ threadId, messages });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to load messages.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    const status = message.toLowerCase().includes("authorization") ? 401 : 500;
+    return NextResponse.json({ error: message }, { status });
   }
 }
 
@@ -390,6 +391,7 @@ export async function POST(req: NextRequest) {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to run Knowledge Hub.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    const status = message.toLowerCase().includes("authorization") ? 401 : 500;
+    return NextResponse.json({ error: message }, { status });
   }
 }
