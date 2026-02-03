@@ -320,6 +320,10 @@ export default function KnowledgeHubPage() {
     () => actions.filter((action) => action.status === "pending"),
     [actions]
   );
+  const recentActions = useMemo(
+    () => actions.filter((action) => action.status !== "pending").slice(0, 6),
+    [actions]
+  );
 
   if (!isAdmin) {
     return (
@@ -670,6 +674,31 @@ export default function KnowledgeHubPage() {
                 <Button variant="outline" size="sm" onClick={createManualAction}>
                   Create action request
                 </Button>
+              </div>
+
+              <div className="space-y-2">
+                <div className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Recent actions</div>
+                {recentActions.length === 0 && (
+                  <div className="text-xs text-muted-foreground">No executed actions yet.</div>
+                )}
+                {recentActions.map((action) => (
+                  <div key={`recent-${action.id}`} className="rounded-xl border border-border/40 bg-background/60 px-3 py-2 text-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-foreground">{action.summary}</span>
+                      <span className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+                        {action.status}
+                      </span>
+                    </div>
+                    {action.execution?.error && (
+                      <div className="mt-1 text-[11px] text-destructive">{action.execution.error}</div>
+                    )}
+                    {action.execution?.output && (
+                      <div className="mt-1 text-[11px] text-muted-foreground">
+                        {JSON.stringify(action.execution.output).slice(0, 220)}...
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
             </CardContent>
           </Card>
