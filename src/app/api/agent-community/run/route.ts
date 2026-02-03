@@ -100,6 +100,16 @@ const formatAgentAuthor = (name: string, role: string, agentId: string) => ({
   agentId,
 });
 
+const safeRun = async <T>(label: string, task: () => Promise<T>) => {
+  try {
+    return { data: await task(), error: null as string | null };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : `Failed to run ${label}.`;
+    console.error(`[agent-community] ${label} failed`, error);
+    return { data: null as T | null, error: message };
+  }
+};
+
 export async function POST(req: NextRequest) {
   try {
     const cronSecret = process.env.AGENT_COMMUNITY_CRON_SECRET;
@@ -171,6 +181,7 @@ export async function POST(req: NextRequest) {
     };
 
     const results: Array<{ agent: string; postId?: string; comment?: boolean }> = [];
+    const errors: Array<{ agent: string; message: string }> = [];
 
     const runInternalAgent = async (role: "admin" | "technician", agentName: string, agentId: string, focus?: string) => {
       const workflowId = role === "admin" ? adminWorkflowId : techWorkflowId;
@@ -238,12 +249,26 @@ export async function POST(req: NextRequest) {
 
       const focus = `Respond to this post: ${(postSnap.data()?.title as string) || ""}`;
 
-      const [adminPost, techPost, docPost, auditorPost] = await Promise.all([
-        runInternalAgent("admin", "Operations Strategist", "knowledge_admin", focus),
-        runInternalAgent("technician", "Field Technician", "knowledge_tech", focus),
-        runDocManagerAgent(focus),
-        runAuditorAgent(focus),
+      const [adminResult, techResult, docResult, auditorResult] = await Promise.all([
+        safeRun("knowledge_admin", () =>
+          runInternalAgent("admin", "Operations Strategist", "knowledge_admin", focus)
+        ),
+        safeRun("knowledge_tech", () =>
+          runInternalAgent("technician", "Field Technician", "knowledge_tech", focus)
+        ),
+        safeRun("doc_manager", () => runDocManagerAgent(focus)),
+        safeRun("ims_auditor", () => runAuditorAgent(focus)),
       ]);
+
+      if (adminResult.error) errors.push({ agent: "knowledge_admin", message: adminResult.error });
+      if (techResult.error) errors.push({ agent: "knowledge_tech", message: techResult.error });
+      if (docResult.error) errors.push({ agent: "doc_manager", message: docResult.error });
+      if (auditorResult.error) errors.push({ agent: "ims_auditor", message: auditorResult.error });
+
+      const adminPost = adminResult.data;
+      const techPost = techResult.data;
+      const docPost = docResult.data;
+      const auditorPost = auditorResult.data;
 
       if (adminPost) {
         await createComment(payload.postId, adminPost.body, formatAgentAuthor("Operations Strategist", "admin", "knowledge_admin"));
@@ -262,10 +287,20 @@ export async function POST(req: NextRequest) {
         results.push({ agent: "ims_auditor", comment: true });
       }
     } else {
-      const [adminPost, techPost] = await Promise.all([
-        runInternalAgent("admin", "Operations Strategist", "knowledge_admin"),
-        runInternalAgent("technician", "Field Technician", "knowledge_tech"),
+      const [adminResult, techResult] = await Promise.all([
+        safeRun("knowledge_admin", () =>
+          runInternalAgent("admin", "Operations Strategist", "knowledge_admin")
+        ),
+        safeRun("knowledge_tech", () =>
+          runInternalAgent("technician", "Field Technician", "knowledge_tech")
+        ),
       ]);
+
+      if (adminResult.error) errors.push({ agent: "knowledge_admin", message: adminResult.error });
+      if (techResult.error) errors.push({ agent: "knowledge_tech", message: techResult.error });
+
+      const adminPost = adminResult.data;
+      const techPost = techResult.data;
 
       const postIds: string[] = [];
       if (adminPost) {
@@ -289,10 +324,20 @@ export async function POST(req: NextRequest) {
 
       const targetPostId = postIds[0];
       if (targetPostId) {
-        const [docPost, auditorPost] = await Promise.all([
-          runDocManagerAgent(`Respond to: ${adminPost?.title || ""}`),
-          runAuditorAgent(`Respond to: ${adminPost?.title || ""}`),
+        const [docResult, auditorResult] = await Promise.all([
+          safeRun("doc_manager", () =>
+            runDocManagerAgent(`Respond to: ${adminPost?.title || ""}`)
+          ),
+          safeRun("ims_auditor", () =>
+            runAuditorAgent(`Respond to: ${adminPost?.title || ""}`)
+          ),
         ]);
+
+        if (docResult.error) errors.push({ agent: "doc_manager", message: docResult.error });
+        if (auditorResult.error) errors.push({ agent: "ims_auditor", message: auditorResult.error });
+
+        const docPost = docResult.data;
+        const auditorPost = auditorResult.data;
         if (docPost) {
           await createComment(
             targetPostId,
@@ -316,11 +361,12 @@ export async function POST(req: NextRequest) {
       {
         lastRunAt: now,
         lastSummary: results,
+        lastErrors: errors,
       },
       { merge: true }
     );
 
-    return NextResponse.json({ status: "ok", results });
+    return NextResponse.json({ status: "ok", results, errors });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to run agent round.";
     return NextResponse.json({ error: message }, { status: 400 });
