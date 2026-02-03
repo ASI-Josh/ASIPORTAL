@@ -65,9 +65,7 @@ export async function runWorkflowJson<T extends z.ZodObject<any>>({
         outputType: schema,
       });
       const runner = new Runner({
-        traceMetadata: workflowId
-          ? { __trace_source__: "agent-builder", workflow_id: workflowId }
-          : undefined,
+        traceMetadata: { __trace_source__: "agent-builder" },
       });
 
       const result = await Promise.race([
