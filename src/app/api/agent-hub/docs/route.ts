@@ -70,19 +70,43 @@ export async function POST(req: NextRequest) {
     let extractedText = "";
     let summary = payload.summary ? { summary: payload.summary, keyPoints: [] as string[] } : null;
 
+    let extractionError: string | null = null;
     if (payload.storagePath) {
-      const bucketName = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET;
-      const bucket = bucketName ? admin.storage().bucket(bucketName) : admin.storage().bucket();
-      const file = bucket.file(payload.storagePath);
-      const [buffer] = await file.download();
-      const { extractTextFromBuffer, summarizeTextWithAi } = await import("@/lib/assistant/doc-extract");
-      extractedText = await extractTextFromBuffer(
-        buffer,
-        payload.contentType || null,
-        payload.fileName
-      );
-      if (!summary) {
-        summary = await summarizeTextWithAi(extractedText);
+      try {
+        const bucketName = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET;
+        const bucket = bucketName ? admin.storage().bucket(bucketName) : admin.storage().bucket();
+        const file = bucket.file(payload.storagePath);
+        const [buffer] = await file.download();
+        const { extractTextFromBuffer, summarizeTextWithAi } = await import("@/lib/assistant/doc-extract");
+        extractedText = await extractTextFromBuffer(
+          buffer,
+          payload.contentType || null,
+          payload.fileName
+        );
+        if (!summary) {
+          summary = await summarizeTextWithAi(extractedText);
+        }
+      } catch (error) {
+        extractionError = error instanceof Error ? error.message : "Unable to extract document text.";
+      }
+    }
+
+    if (!extractedText && payload.downloadUrl && !summary) {
+      try {
+        const response = await fetch(payload.downloadUrl);
+        if (response.ok) {
+          const arrayBuffer = await response.arrayBuffer();
+          const buffer = Buffer.from(arrayBuffer);
+          const { extractTextFromBuffer, summarizeTextWithAi } = await import("@/lib/assistant/doc-extract");
+          extractedText = await extractTextFromBuffer(
+            buffer,
+            payload.contentType || null,
+            payload.fileName
+          );
+          summary = await summarizeTextWithAi(extractedText);
+        }
+      } catch (error) {
+        extractionError = extractionError || (error instanceof Error ? error.message : "Unable to fetch document.");
       }
     }
 
@@ -102,12 +126,13 @@ export async function POST(req: NextRequest) {
         summary: summary?.summary || "",
         keyPoints: summary?.keyPoints || [],
         extractedText: extractedText ? extractedText.slice(0, 12000) : "",
+        extractionError,
         createdAt: now,
         createdById: userId,
         createdByName: user.name || user.email || "Admin",
       });
 
-    return NextResponse.json({ id: docRef.id });
+    return NextResponse.json({ id: docRef.id, warning: extractionError });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to add document.";
     return NextResponse.json({ error: message }, { status: 500 });
