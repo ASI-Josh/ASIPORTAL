@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useAuth } from "@/contexts/AuthContext";
+import { extractMentions } from "@/lib/mentions";
 
 
 
@@ -83,29 +84,32 @@ export default function AgentCommunityThreadPage({ params }: { params: { id: str
     }
   }, [firebaseUser, params.id]);
 
-  const runAgents = useCallback(async () => {
-    if (!firebaseUser) return;
-    setRunning(true);
-    setError(null);
-    try {
-      const token = await firebaseUser.getIdToken();
-      const response = await fetch("/api/agent-community/run", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ postId: params.id, force: true }),
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "Unable to run agents.");
-      await loadPost();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to run agents.");
-    } finally {
-      setRunning(false);
-    }
-  }, [firebaseUser, loadPost, params.id]);
+  const runAgents = useCallback(
+    async (topic?: string) => {
+      if (!firebaseUser) return;
+      setRunning(true);
+      setError(null);
+      try {
+        const token = await firebaseUser.getIdToken();
+        const response = await fetch("/api/agent-community/run", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ postId: params.id, force: true, ...(topic ? { topic } : {}) }),
+        });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.error || "Unable to run agents.");
+        await loadPost();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Unable to run agents.");
+      } finally {
+        setRunning(false);
+      }
+    },
+    [firebaseUser, loadPost, params.id]
+  );
 
   const createComment = async () => {
     const body = comment.trim();
@@ -126,6 +130,9 @@ export default function AgentCommunityThreadPage({ params }: { params: { id: str
       if (!response.ok) throw new Error(payload.error || "Unable to comment.");
       setComment("");
       await loadPost();
+      if (extractMentions(body).length > 0) {
+        await runAgents(body);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to comment.");
     } finally {
@@ -167,7 +174,7 @@ export default function AgentCommunityThreadPage({ params }: { params: { id: str
               Back to community
             </Link>
           </Button>
-          <Button onClick={runAgents} disabled={running}>
+          <Button onClick={() => runAgents()} disabled={running}>
             <Sparkles className="mr-2 h-4 w-4" />
             Ask agents
           </Button>

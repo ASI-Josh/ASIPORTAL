@@ -55,6 +55,7 @@ export default function JobLifecyclePage() {
   const { jobs } = useJobs();
   const [selectedOrganisation, setSelectedOrganisation] = useState("all");
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  const [activeStage, setActiveStage] = useState<JobLifecycleStage>("job_scheduled");
 
   const getServiceType = (notes?: string) => {
     const match = notes?.match(/^Service: (.+)$/m);
@@ -110,23 +111,10 @@ export default function JobLifecyclePage() {
     });
   }, [listJobs]);
 
-  const recentJobs = useMemo(() => sortedJobs.slice(0, 10), [sortedJobs]);
-
-  useEffect(() => {
-    if (recentJobs.length === 0) {
-      setSelectedJobId(null);
-      return;
-    }
-    if (!selectedJobId || !recentJobs.some((job) => job.id === selectedJobId)) {
-      setSelectedJobId(recentJobs[0].id);
-    }
-  }, [recentJobs, selectedJobId]);
-
   const selectedJob = useMemo(
     () => jobs.find((job) => job.id === selectedJobId) || null,
     [jobs, selectedJobId]
   );
-  const selectedStage = selectedJob ? getLifecycleStageFromStatus(selectedJob.status) : null;
 
   const stageCounts = useMemo(() => {
     const counts = stages.reduce(
@@ -142,6 +130,19 @@ export default function JobLifecyclePage() {
     });
     return counts;
   }, [pipelineJobs]);
+
+  const activeStageJobs = useMemo(
+    () => sortedJobs.filter((job) => getLifecycleStageFromStatus(job.status) === activeStage),
+    [sortedJobs, activeStage]
+  );
+
+  useEffect(() => {
+    if (stageCounts[activeStage] > 0) return;
+    const nextStage = stages.find((stage) => stageCounts[stage] > 0);
+    if (nextStage) {
+      setActiveStage(nextStage);
+    }
+  }, [activeStage, stageCounts]);
 
   return (
     <div className="min-h-screen p-6">
@@ -196,15 +197,16 @@ export default function JobLifecyclePage() {
         <div className="space-y-6">
           <div className="grid gap-4 md:grid-cols-5">
             {stages.map((stage) => {
-              const isSelected = selectedStage === stage;
+              const isSelected = activeStage === stage;
               return (
                 <Card
                   key={stage}
                   className={cn(
-                    "bg-background/60 backdrop-blur-sm border-t-4",
+                    "bg-background/60 backdrop-blur-sm border-t-4 cursor-pointer transition",
                     COLUMN_BORDERS[stage],
                     isSelected && "ring-2 ring-primary/60"
                   )}
+                  onClick={() => setActiveStage(stage)}
                 >
                   <CardHeader className="pb-2">
                     <div className="flex items-center justify-between">
@@ -212,32 +214,13 @@ export default function JobLifecyclePage() {
                       <Badge className={STAGE_COLORS[stage]}>{stageCounts[stage]}</Badge>
                     </div>
                     <CardDescription className="text-xs">
-                      {isSelected && selectedJob
-                        ? "Selected job"
-                        : "Select a job below"}
+                      {isSelected ? "Showing jobs below" : "Click to view stage"}
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
-                    {isSelected && selectedJob ? (
-                      <div className="space-y-2">
-                        <p className="font-mono text-sm text-primary">{selectedJob.jobNumber}</p>
-                        <p className="text-sm font-medium">{selectedJob.clientName}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {getServiceType(selectedJob.notes)}
-                        </p>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => router.push(`/dashboard/jobs/${selectedJob.id}`)}
-                        >
-                          Open job card
-                        </Button>
-                      </div>
-                    ) : (
-                      <p className="text-xs text-muted-foreground">
-                        Select a job below to see details here.
-                      </p>
-                    )}
+                    <p className="text-xs text-muted-foreground">
+                      {stageCounts[stage]} jobs in this stage.
+                    </p>
                   </CardContent>
                 </Card>
               );
@@ -247,16 +230,16 @@ export default function JobLifecyclePage() {
           <Card className="bg-card/50 backdrop-blur-lg border-border/20">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                Recent jobs
+                {JOB_LIFECYCLE_LABELS[activeStage]} jobs
               </CardTitle>
               <CardDescription>
-                Showing the 10 most recent jobs from booked/scheduled onwards.
+                Showing all jobs currently in this pipeline stage.
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {recentJobs.length === 0 ? (
+              {activeStageJobs.length === 0 ? (
                 <div className="py-8 text-center text-muted-foreground">
-                  No jobs match this organisation yet.
+                  No jobs are currently in this stage.
                 </div>
               ) : (
                 <Table>
@@ -271,7 +254,7 @@ export default function JobLifecyclePage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {recentJobs.map((job) => {
+                    {activeStageJobs.map((job) => {
                       const stage = getLifecycleStageFromStatus(job.status);
                       const isSelected = job.id === selectedJobId;
                       return (
@@ -281,7 +264,10 @@ export default function JobLifecyclePage() {
                             "cursor-pointer hover:bg-muted/20",
                             isSelected && "bg-primary/5"
                           )}
-                          onClick={() => setSelectedJobId(job.id)}
+                          onClick={() => {
+                            setSelectedJobId(job.id);
+                            setActiveStage(stage);
+                          }}
                         >
                           <TableCell className="font-medium text-primary">
                             {job.jobNumber}

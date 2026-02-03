@@ -2003,7 +2003,7 @@ export default function JobCardPage() {
                                   </div>
 
                                 {/* Cost Entry */}
-                                <div className="grid grid-cols-3 gap-4 pt-2 border-t">
+                                <div className="grid grid-cols-1 gap-4 pt-2 border-t">
                                   <div className="space-y-1">
                                     <Label className="text-xs">Total Cost</Label>
                                     <div className="flex items-center gap-1">
@@ -2021,22 +2021,6 @@ export default function JobCardPage() {
                                         className="h-8"
                                       />
                                     </div>
-                                  </div>
-                                  <div className="space-y-1">
-                                    <Label className="text-xs text-blue-400">
-                                      Labour (70%)
-                                    </Label>
-                                    <p className="font-medium text-blue-400">
-                                      ${repair.labourCost.toFixed(2)}
-                                    </p>
-                                  </div>
-                                  <div className="space-y-1">
-                                    <Label className="text-xs text-amber-400">
-                                      Materials (30%)
-                                    </Label>
-                                    <p className="font-medium text-amber-400">
-                                      ${repair.materialsCost.toFixed(2)}
-                                    </p>
                                   </div>
                                 </div>
                                 </CardContent>

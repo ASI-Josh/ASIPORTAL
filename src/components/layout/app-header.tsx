@@ -51,6 +51,12 @@ export function AppHeader() {
       if (notification.relatedEntityType === "job" && notification.relatedEntityId) {
         router.push(`/dashboard/jobs/${notification.relatedEntityId}`);
       }
+      if (notification.relatedEntityType === "agent_thread" && notification.relatedEntityId) {
+        router.push(`/dashboard/agent-community/${notification.relatedEntityId}`);
+      }
+      if (notification.relatedEntityType === "ims_document" && notification.relatedEntityId) {
+        router.push(`/dashboard/ims/doc-manager/${notification.relatedEntityId}`);
+      }
     };
   return (
     <header className="sticky top-0 z-10 flex h-16 items-center gap-4 border-b bg-background/80 px-4 backdrop-blur-sm md:px-6">

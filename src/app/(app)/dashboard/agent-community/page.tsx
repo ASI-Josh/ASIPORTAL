@@ -291,7 +291,7 @@ export default function AgentCommunityPage() {
               </Button>
             </div>
             <span className="text-xs text-muted-foreground">
-              Agents will respond automatically to new guidance.
+              Agents will respond automatically to new guidance. Use @Name to tag agents or admins.
             </span>
           </CardContent>
         </Card>

@@ -586,7 +586,7 @@ export type IMSDocumentType =
   | "register";
 
 export type IMSDocumentStatus = "draft" | "active" | "obsolete";
-export type IMSRevisionStatus = "draft" | "issued" | "obsolete";
+export type IMSRevisionStatus = "draft" | "review" | "issued" | "obsolete";
 
 export interface IMSDocumentFile {
   name: string;
@@ -632,6 +632,13 @@ export interface IMSDocumentRevision {
   createdById: string;
   createdByName: string;
   createdByEmail?: string;
+  submittedForReviewAt?: Timestamp;
+  submittedForReviewById?: string;
+  submittedForReviewByName?: string;
+  approvedAt?: Timestamp;
+  approvedById?: string;
+  approvedByName?: string;
+  approvedByEmail?: string;
   approvedBy?: string;
 }
 
@@ -1033,7 +1040,9 @@ export type NotificationType =
   | "job_completed"
   | "quote_approved"
   | "inspection_submitted"
-  | "booking_received";
+  | "booking_received"
+  | "agent_mention"
+  | "ims_review";
 
 export interface Notification {
   id: string;
@@ -1043,7 +1052,7 @@ export interface Notification {
   message: string;
   read: boolean;
   relatedEntityId?: string;
-  relatedEntityType?: "job" | "inspection" | "lead" | "quote";
+  relatedEntityType?: "job" | "inspection" | "lead" | "quote" | "agent_thread" | "ims_document";
   createdAt: Timestamp;
 }
 

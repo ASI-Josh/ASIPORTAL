@@ -4,6 +4,7 @@ import { z } from "zod";
 import { requireUserId } from "@/lib/server/firebaseAuth";
 import { COLLECTIONS } from "@/lib/collections";
 import { runWorkflowJson } from "@/lib/openai-workflow";
+import { extractMentions, mentionMatches } from "@/lib/mentions";
 
 const MINUTES_BETWEEN_RUNS = 8;
 const AGENT_TIMEOUT_MS = 10000;
@@ -96,6 +97,101 @@ const DEFAULT_PROFILES: Record<string, AgentProfileRecord> = {
     roleTitle: "Internal Auditor",
   },
 };
+
+const extractMentionTargets = async (text: string) => {
+  const mentions = extractMentions(text);
+  const mentionAll = mentions.some((mention) =>
+    ["all", "everyone", "admins", "team"].some((keyword) => mentionMatches(mention, keyword))
+  );
+  if (mentions.length === 0) {
+    return { agentIds: new Set<string>(), mentionAll };
+  }
+
+  const profilesSnap = await admin
+    .firestore()
+    .collection(COLLECTIONS.AGENT_PROFILES)
+    .get();
+
+  const profileMap: Record<string, AgentProfileRecord> = { ...DEFAULT_PROFILES };
+  profilesSnap.docs.forEach((docSnap) => {
+    const data = docSnap.data() as Partial<AgentProfileRecord>;
+    profileMap[docSnap.id] = {
+      ...DEFAULT_PROFILES[docSnap.id],
+      ...(data || {}),
+    };
+  });
+
+  const candidates = Object.entries(profileMap).map(([id, profile]) => ({
+    id,
+    names: [profile.name, profile.roleTitle, id].filter(Boolean),
+  }));
+
+  const agentIds = new Set<string>();
+  mentions.forEach((mention) => {
+    candidates.forEach((candidate) => {
+      if (candidate.names.some((name) => mentionMatches(mention, name))) {
+        agentIds.add(candidate.id);
+      }
+    });
+  });
+
+  return { agentIds, mentionAll };
+};
+
+const notifyMentionedAdmins = async (
+  text: string,
+  postId: string,
+  actorName: string
+) => {
+  const mentions = extractMentions(text);
+  if (mentions.length === 0) return;
+
+  const notifyAllAdmins = mentions.some((mention) =>
+    ["all", "admins", "everyone", "team"].some((keyword) => mentionMatches(mention, keyword))
+  );
+
+  const adminsSnap = await admin
+    .firestore()
+    .collection(COLLECTIONS.USERS)
+    .where("role", "==", "admin")
+    .get();
+
+  const notifications = adminsSnap.docs
+    .map((docSnap) => {
+      if (!docSnap.id) return null;
+      const data = docSnap.data() as { name?: string; email?: string };
+      const aliases = [
+        data.name || "",
+        data.email || "",
+        (data.email || "").split("@")[0] || "",
+      ];
+      const isMentioned = notifyAllAdmins
+        ? true
+        : mentions.some((mention) => aliases.some((alias) => mentionMatches(mention, alias)));
+      if (!isMentioned) return null;
+      return {
+        userId: docSnap.id,
+        type: "agent_mention",
+        title: "You were mentioned",
+        message: `${actorName} mentioned you in an agent thread.`,
+        read: false,
+        relatedEntityId: postId,
+        relatedEntityType: "agent_thread",
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      };
+    })
+    .filter(Boolean);
+
+  if (notifications.length > 0) {
+    const batch = admin.firestore().batch();
+    notifications.forEach((payload) => {
+      const ref = admin.firestore().collection(COLLECTIONS.NOTIFICATIONS).doc();
+      batch.set(ref, payload);
+    });
+    await batch.commit();
+  }
+};
+
 
 const ensureAgentProfile = async (
   agentId: string,
@@ -285,6 +381,7 @@ export async function POST(req: NextRequest) {
         createdAt: now,
         updatedAt: now,
       });
+      await notifyMentionedAdmins(`${title}\n${body}`, postRef.id, author.name);
       return postRef.id;
     };
 
@@ -299,6 +396,7 @@ export async function POST(req: NextRequest) {
         author,
         createdAt: now,
       });
+      await notifyMentionedAdmins(body, postId, author.name);
     };
 
     const results: Array<{ agent: string; postId?: string; comment?: boolean }> = [];
@@ -446,18 +544,34 @@ export async function POST(req: NextRequest) {
       if (!postSnap.exists) {
         return NextResponse.json({ error: "Post not found." }, { status: 404 });
       }
-
-      const focus = `Respond to this post: ${(postSnap.data()?.title as string) || ""}`;
+      const postData = postSnap.data() as { title?: string; body?: string };
+      const postTitle = postData?.title || "";
+      const postBody = postData?.body || "";
+      const directive = payload.topic ? `\nDirective: ${payload.topic}` : "";
+      const focus = `Respond to this post: ${postTitle}${directive}`;
+      const mentionTargets = await extractMentionTargets(`${postTitle}\n${postBody}\n${payload.topic || ""}`);
+      const shouldRunAgent = (agentId: string) =>
+        mentionTargets.mentionAll ||
+        mentionTargets.agentIds.size === 0 ||
+        mentionTargets.agentIds.has(agentId);
 
       const [adminResult, techResult, docResult, auditorResult] = await Promise.all([
-        safeRun("knowledge_admin", () =>
-          runInternalAgent("admin", "Operations Strategist", "knowledge_admin", focus)
-        ),
-        safeRun("knowledge_tech", () =>
-          runInternalAgent("technician", "Field Technician", "knowledge_tech", focus)
-        ),
-        safeRun("doc_manager", () => runDocManagerAgent(focus)),
-        safeRun("ims_auditor", () => runAuditorAgent(focus)),
+        shouldRunAgent("knowledge_admin")
+          ? safeRun("knowledge_admin", () =>
+              runInternalAgent("admin", "Operations Strategist", "knowledge_admin", focus)
+            )
+          : Promise.resolve({ data: null, error: null }),
+        shouldRunAgent("knowledge_tech")
+          ? safeRun("knowledge_tech", () =>
+              runInternalAgent("technician", "Field Technician", "knowledge_tech", focus)
+            )
+          : Promise.resolve({ data: null, error: null }),
+        shouldRunAgent("doc_manager")
+          ? safeRun("doc_manager", () => runDocManagerAgent(focus))
+          : Promise.resolve({ data: null, error: null }),
+        shouldRunAgent("ims_auditor")
+          ? safeRun("ims_auditor", () => runAuditorAgent(focus))
+          : Promise.resolve({ data: null, error: null }),
       ]);
 
       if (adminResult.error) errors.push({ agent: "knowledge_admin", message: adminResult.error });

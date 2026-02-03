@@ -49,3 +49,46 @@ export async function GET(
     return NextResponse.json({ error: message }, { status: 400 });
   }
 }
+
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const userId = await requireUserId(req);
+    const userSnap = await admin.firestore().collection(COLLECTIONS.USERS).doc(userId).get();
+    const role = userSnap.data()?.role;
+    if (role !== "admin") {
+      return NextResponse.json({ error: "Not authorised." }, { status: 403 });
+    }
+
+    const payload = (await req.json()) as {
+      name?: string;
+      roleTitle?: string;
+      aboutWork?: string;
+      aboutPersonal?: string;
+      avatarUrl?: string;
+    };
+
+    const update: Record<string, unknown> = {
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+
+    if (typeof payload.name === "string") update.name = payload.name.trim();
+    if (typeof payload.roleTitle === "string") update.roleTitle = payload.roleTitle.trim();
+    if (typeof payload.aboutWork === "string") update.aboutWork = payload.aboutWork.trim();
+    if (typeof payload.aboutPersonal === "string") update.aboutPersonal = payload.aboutPersonal.trim();
+    if (typeof payload.avatarUrl === "string") update.avatarUrl = payload.avatarUrl.trim();
+
+    await admin
+      .firestore()
+      .collection(COLLECTIONS.AGENT_PROFILES)
+      .doc(params.id)
+      .set(update, { merge: true });
+
+    return NextResponse.json({ status: "ok" });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unable to update agent profile.";
+    return NextResponse.json({ error: message }, { status: 400 });
+  }
+}

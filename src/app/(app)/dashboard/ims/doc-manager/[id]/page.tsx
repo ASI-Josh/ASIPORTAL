@@ -56,7 +56,7 @@ const DOC_TYPE_OPTIONS: Array<{ value: IMSDocumentType; label: string }> = [
 ];
 
 const DOC_STATUS_OPTIONS: IMSDocumentStatus[] = ["draft", "active", "obsolete"];
-const REVISION_STATUS_OPTIONS: IMSRevisionStatus[] = ["draft", "issued", "obsolete"];
+const REVISION_STATUS_OPTIONS: IMSRevisionStatus[] = ["draft", "review", "issued", "obsolete"];
 
 const buildLocalDateString = () => {
   const now = new Date();
@@ -179,6 +179,8 @@ export default function DocManagerDetailPage() {
   const { user } = useAuth();
   const { toast } = useToast();
   const docId = params.id as string;
+  const approverEmail = "joshua@asi-australia.com.au";
+  const isApprover = user?.email === approverEmail;
 
   const [docRecord, setDocRecord] = useState<IMSDocument | null>(null);
   const [revisions, setRevisions] = useState<IMSDocumentRevision[]>([]);
@@ -206,6 +208,7 @@ export default function DocManagerDetailPage() {
   const [exportingPdf, setExportingPdf] = useState(false);
   const [exportingDocx, setExportingDocx] = useState(false);
   const [issuingReview, setIssuingReview] = useState(false);
+  const [approvingId, setApprovingId] = useState<string | null>(null);
   const [downloadUrls, setDownloadUrls] = useState<Record<string, string>>({});
 
   useEffect(() => {
@@ -728,9 +731,13 @@ export default function DocManagerDetailPage() {
     if (!docRecord || !latestDraft) return;
     setIssuingReview(true);
     try {
+      const now = Timestamp.now();
       const revisionRef = doc(db, COLLECTIONS.IMS_DOCUMENTS, docId, "revisions", latestDraft.id);
       await updateDoc(revisionRef, {
-        status: "issued",
+        status: "review",
+        submittedForReviewAt: now,
+        submittedForReviewById: user?.uid || "",
+        submittedForReviewByName: user?.name || user?.email || "Admin",
       });
 
       const usersRef = collection(db, COLLECTIONS.USERS);
@@ -741,7 +748,8 @@ export default function DocManagerDetailPage() {
       await Promise.all(
         adminSnap.docs.map(async (docSnap) => {
           const data = docSnap.data() as { email?: string; name?: string };
-          if (data.email) emails.push(data.email);
+          if (!data.email || data.email.toLowerCase() !== approverEmail) return;
+          emails.push(data.email);
           await addDoc(collection(db, COLLECTIONS.NOTIFICATIONS), {
             userId: docSnap.id,
             type: "ims_review",
@@ -750,7 +758,7 @@ export default function DocManagerDetailPage() {
             read: false,
             relatedEntityId: docRecord.docNumber,
             relatedEntityType: "ims_document",
-            createdAt: Timestamp.now(),
+            createdAt: now,
           });
         })
       );
@@ -774,6 +782,58 @@ export default function DocManagerDetailPage() {
       toast({ title: "Review request failed", description: message, variant: "destructive" });
     } finally {
       setIssuingReview(false);
+    }
+  };
+
+  const handleApproveRevision = async (revision: IMSDocumentRevision) => {
+    if (!docRecord || !user || !isApprover) return;
+    setApprovingId(revision.id);
+    try {
+      const now = Timestamp.now();
+      const revisionRef = doc(db, COLLECTIONS.IMS_DOCUMENTS, docId, "revisions", revision.id);
+      await updateDoc(revisionRef, {
+        status: "issued",
+        isCurrent: true,
+        approvedAt: now,
+        approvedById: user.uid,
+        approvedByName: user.name || user.email || "Approver",
+        approvedByEmail: user.email || undefined,
+      });
+
+      if (docRecord.currentRevisionId && docRecord.currentRevisionId !== revision.id) {
+        await updateDoc(
+          doc(
+            db,
+            COLLECTIONS.IMS_DOCUMENTS,
+            docRecord.id,
+            "revisions",
+            docRecord.currentRevisionId
+          ),
+          {
+            isCurrent: false,
+            status: "obsolete",
+          }
+        );
+      }
+
+      await updateDoc(doc(db, COLLECTIONS.IMS_DOCUMENTS, docRecord.id), {
+        currentRevisionId: revision.id,
+        currentRevisionNumber: revision.revisionNumber,
+        currentIssueDate: revision.issueDate,
+        currentFile: revision.file || docRecord.currentFile || undefined,
+        status: "active",
+        updatedAt: now,
+      });
+
+      toast({
+        title: "Revision approved",
+        description: `Rev ${revision.revisionNumber} is now active.`,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to approve revision.";
+      toast({ title: "Approval failed", description: message, variant: "destructive" });
+    } finally {
+      setApprovingId(null);
     }
   };
 
@@ -1132,6 +1192,11 @@ export default function DocManagerDetailPage() {
                   <div className="text-xs text-muted-foreground">
                     Issued {revision.issueDate?.toDate?.().toLocaleDateString("en-AU")}
                   </div>
+                  {revision.status === "review" && revision.submittedForReviewByName ? (
+                    <div className="text-xs text-amber-200">
+                      Pending approval · submitted by {revision.submittedForReviewByName}
+                    </div>
+                  ) : null}
                   {revision.summary ? (
                     <div className="text-sm text-muted-foreground">{revision.summary}</div>
                   ) : null}
@@ -1149,6 +1214,16 @@ export default function DocManagerDetailPage() {
                   >
                     {revision.status}
                   </Badge>
+                  {revision.status === "review" && isApprover ? (
+                    <Button
+                      variant="default"
+                      size="sm"
+                      onClick={() => handleApproveRevision(revision)}
+                      disabled={approvingId === revision.id}
+                    >
+                      {approvingId === revision.id ? "Approving..." : "Approve & issue"}
+                    </Button>
+                  ) : null}
                   {revision.file?.name ? (
                     <Button
                       variant="outline"

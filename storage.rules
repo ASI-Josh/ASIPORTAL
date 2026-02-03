@@ -55,5 +55,10 @@ service firebase.storage {
               .data.isCurrent == true));
       allow write: if signedIn() && (isAdminEmail() || userRole() == "admin");
     }
+
+    match /agent-avatars/{agentId}/{fileName} {
+      allow read: if isStaff();
+      allow write: if signedIn() && (isAdminEmail() || userRole() == "admin");
+    }
   }
 }
