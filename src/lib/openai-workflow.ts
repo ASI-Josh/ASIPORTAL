@@ -59,6 +59,7 @@ export async function runWorkflowJson<T>({
   maxRetries = 2,
 }: RunWorkflowParams<T>) {
   const apiKey = process.env.OPENAI_API_KEY;
+  const model = process.env.OPENAI_WORKFLOW_MODEL || "gpt-5.2";
 
   if (!apiKey) {
     throw new Error("Missing OPENAI_API_KEY.");
@@ -80,6 +81,7 @@ export async function runWorkflowJson<T>({
         body: JSON.stringify({
           workflow_id: workflowId,
           input,
+          model,
         }),
         signal: controller.signal,
       });
