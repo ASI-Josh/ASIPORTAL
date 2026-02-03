@@ -3,9 +3,10 @@
 // Inspired by react-hot-toast library
 import * as React from "react"
 
-import type {
-  ToastActionElement,
-  ToastProps,
+import {
+  ToastAction,
+  type ToastActionElement,
+  type ToastProps,
 } from "@/components/ui/toast"
 
 const TOAST_LIMIT = 1
@@ -142,8 +143,32 @@ function dispatch(action: Action) {
 
 type Toast = Omit<ToasterToast, "id">
 
+const extractFirebaseIndexUrl = (value: string) => {
+  const match =
+    value.match(/https:\/\/console\.firebase\.google\.com\/[^\s]+/i) ||
+    value.match(/https:\/\/console\.firebase\.com\/[^\s]+/i);
+  return match ? match[0] : null;
+};
+
 function toast({ ...props }: Toast) {
   const id = genId()
+  const descriptionText = typeof props.description === "string" ? props.description : ""
+  const firebaseIndexUrl = descriptionText ? extractFirebaseIndexUrl(descriptionText) : null
+  const autoAction = firebaseIndexUrl
+    ? (React.createElement(
+        ToastAction,
+        {
+          altText: "Open index",
+          onClick: () => {
+            if (typeof window !== "undefined") {
+              window.open(firebaseIndexUrl, "_blank", "noopener,noreferrer")
+            }
+          },
+        },
+        "Open index"
+      ) as unknown as ToastActionElement)
+    : undefined
+  const action = props.action ? props.action : autoAction
 
   const update = (props: ToasterToast) =>
     dispatch({
@@ -156,6 +181,7 @@ function toast({ ...props }: Toast) {
     type: "ADD_TOAST",
     toast: {
       ...props,
+      action,
       id,
       open: true,
       onOpenChange: (open) => {
