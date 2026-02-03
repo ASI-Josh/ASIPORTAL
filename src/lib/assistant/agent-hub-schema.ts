@@ -7,8 +7,8 @@ const MoltbookRegisterSchema = z
     payload: z
       .object({
         name: z.string(),
-        description: z.string().optional(),
-        website: z.string().optional(),
+        description: z.string().nullable(),
+        website: z.string().nullable(),
       })
       .strict(),
   })
@@ -22,7 +22,7 @@ const MoltbookPostSchema = z
       .object({
         title: z.string(),
         body: z.string(),
-        tags: z.array(z.string()).optional(),
+        tags: z.array(z.string()),
       })
       .strict(),
   })
