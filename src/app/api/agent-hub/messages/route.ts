@@ -303,14 +303,16 @@ export async function POST(req: NextRequest) {
     const createdMessages: Array<{ id: string; role: string; agentId?: string }> = [];
     const actionRequestIds: string[] = [];
 
-    let runningHistory = [...history];
-    for (const agent of targetAgents) {
+    const agentTimeoutMs = Number(process.env.AGENT_HUB_TIMEOUT_MS || "12000");
+    const agentRetries = Number(process.env.AGENT_HUB_MAX_RETRIES || "0");
+
+    const agentTasks = targetAgents.map(async (agent) => {
       const workflowId = process.env[agent.workflowEnv];
-      if (!workflowId) continue;
+      if (!workflowId) return;
       try {
         const prompt = buildAgentPrompt({
           agent,
-          history: runningHistory,
+          history,
           userMessage: message,
           docContext,
           requestContext,
@@ -325,8 +327,8 @@ export async function POST(req: NextRequest) {
           workflowId,
           input: prompt,
           schema: AgentHubAgentSchema,
-          timeoutMs: 60000,
-          maxRetries: 2,
+          timeoutMs: agentTimeoutMs,
+          maxRetries: agentRetries,
           instructionsOverride: buildAgentInstructions(agent),
           agentNameOverride: agent.name,
         });
@@ -390,13 +392,8 @@ export async function POST(req: NextRequest) {
           });
 
         createdMessages.push({ id: messageRef.id, role: "agent", agentId: agent.id });
-        runningHistory = [
-          ...runningHistory,
-          { role: "assistant", name: agent.name, content: answer },
-        ];
       } catch (error) {
-        const messageText =
-          error instanceof Error ? error.message : "Agent request failed.";
+        const messageText = error instanceof Error ? error.message : "Agent request failed.";
         const messageRef = await admin
           .firestore()
           .collection(COLLECTIONS.AGENT_HUB_MESSAGES)
@@ -411,12 +408,10 @@ export async function POST(req: NextRequest) {
             createdAt: now,
           });
         createdMessages.push({ id: messageRef.id, role: "agent", agentId: agent.id });
-        runningHistory = [
-          ...runningHistory,
-          { role: "assistant", name: agent.name, content: `Agent request failed: ${messageText}` },
-        ];
       }
-    }
+    });
+
+    await Promise.allSettled(agentTasks);
 
     return NextResponse.json({
       status: "ok",
