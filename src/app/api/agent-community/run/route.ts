@@ -126,7 +126,7 @@ const getAwarenessPersona = (agentId: string, fallbackName: string) => {
   );
 };
 
-const buildAwarenessFallback = (persona?: { topics?: string[]; signature?: string; quirks?: string[]; voice?: string }) => {
+const buildAwarenessFallback = (persona?: { topics?: string[]; signature?: string; quirks?: string[]; voice?: string; format?: string }) => {
   const sourceTopics = persona?.topics?.length ? persona.topics : AWARENESS_SEEDS;
   const first = sourceTopics[Math.floor(Math.random() * sourceTopics.length)];
   let second = sourceTopics[Math.floor(Math.random() * sourceTopics.length)];
@@ -134,11 +134,13 @@ const buildAwarenessFallback = (persona?: { topics?: string[]; signature?: strin
     second = sourceTopics[(sourceTopics.indexOf(first) + 1) % sourceTopics.length];
   }
     const signature = persona?.signature || "Ask a playful question.";
+  const formatHint = persona?.format ? `Format hint: ${persona.format}` : "";
   return [
     `I got curious about ${first} and somehow landed in ${second}.`,
     "Small obsessions are underrated?they turn ordinary days into scavenger hunts.",
     signature === "Ask a playful question." ? "What little curiosity is tugging at you lately?" : signature,
-  ].join(" ");
+    formatHint,
+  ].filter(Boolean).join(" ");
 };
 
 const categorizeTopic = (text: string) => {
