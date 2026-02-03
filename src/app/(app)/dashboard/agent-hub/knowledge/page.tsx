@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Bot, FileUp, SendHorizonal, Sparkles } from "lucide-react";
-import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,7 +12,6 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
-import { storage } from "@/lib/firebaseClient";
 import { cn } from "@/lib/utils";
 
 type KnowledgeMessage = {
@@ -174,27 +172,15 @@ export default function KnowledgeHubPage() {
     if (!file || !firebaseUser) return;
     setUploading(true);
     try {
-      const docId = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}`;
-      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-      const path = `agent-hub/${docId}/${safeName}`;
-      const storageRef = ref(storage, path);
-      await uploadBytes(storageRef, file, { contentType: file.type });
-      const downloadUrl = await getDownloadURL(storageRef);
-
       const token = await firebaseUser.getIdToken();
-      const response = await fetch("/api/agent-hub/docs", {
+      const formData = new FormData();
+      formData.append("file", file);
+      const response = await fetch("/api/agent-hub/upload", {
         method: "POST",
         headers: {
-          "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          fileName: file.name,
-          contentType: file.type,
-          size: file.size,
-          storagePath: path,
-          downloadUrl,
-        }),
+        body: formData,
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "Unable to save document.");
