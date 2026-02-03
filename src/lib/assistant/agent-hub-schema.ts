@@ -59,6 +59,69 @@ export const AgentHubActionRequestSchema = z.discriminatedUnion("type", [
   MoltbookPostSchema,
   MoltbookCommentSchema,
   MoltbookReactSchema,
+  z
+    .object({
+      type: z.literal("ims.document.create_draft"),
+      summary: z.string(),
+      payload: z
+        .object({
+          title: z.string(),
+          docType: z.enum([
+            "policy",
+            "manual",
+            "ims_procedure",
+            "technical_procedure",
+            "work_instruction",
+            "form",
+            "register",
+          ]),
+          isoClauses: z.array(z.string()),
+          processOwner: z.string(),
+          relatedDocs: z.array(z.string()),
+          brief: z.string(),
+          revision: z.string(),
+        })
+        .strict(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("ims.document.update_draft"),
+      summary: z.string(),
+      payload: z
+        .object({
+          docNumber: z.string(),
+          title: z.string(),
+          docType: z.enum([
+            "policy",
+            "manual",
+            "ims_procedure",
+            "technical_procedure",
+            "work_instruction",
+            "form",
+            "register",
+          ]),
+          isoClauses: z.array(z.string()),
+          processOwner: z.string(),
+          relatedDocs: z.array(z.string()),
+          brief: z.string(),
+          revision: z.string(),
+        })
+        .strict(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("ims.document.request_review"),
+      summary: z.string(),
+      payload: z
+        .object({
+          docNumber: z.string(),
+          revisionId: z.string().nullable(),
+        })
+        .strict(),
+    })
+    .strict(),
 ]);
 
 export const AgentHubAgentSchema = z

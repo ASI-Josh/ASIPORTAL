@@ -100,6 +100,27 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    if (!extractedText && payload.sourceUrl && !summary) {
+      try {
+        const response = await fetch(payload.sourceUrl);
+        if (response.ok) {
+          const html = await response.text();
+          const text = html
+            .replace(/<script[\s\S]*?<\/script>/gi, " ")
+            .replace(/<style[\s\S]*?<\/style>/gi, " ")
+            .replace(/<[^>]+>/g, " ")
+            .replace(/\s+/g, " ")
+            .trim();
+          extractedText = text.slice(0, 20000);
+          const { summarizeTextWithAi } = await import("@/lib/assistant/doc-extract");
+          summary = await summarizeTextWithAi(extractedText);
+        }
+      } catch (error) {
+        extractionError =
+          extractionError || (error instanceof Error ? error.message : "Unable to fetch source URL.");
+      }
+    }
+
     const now = admin.firestore.FieldValue.serverTimestamp();
     const docRef = await admin
       .firestore()

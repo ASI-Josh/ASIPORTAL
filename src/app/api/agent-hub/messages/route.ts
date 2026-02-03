@@ -56,12 +56,14 @@ const buildAgentPrompt = ({
   userMessage,
   docContext,
   requestContext,
+  imsContext,
 }: {
   agent: AgentConfig;
   history: Array<{ role: string; name?: string; content: string }>;
   userMessage: string;
   docContext: string;
   requestContext: string;
+  imsContext: string;
 }) => {
   const historyText = history
     .slice(-10)
@@ -75,6 +77,7 @@ const buildAgentPrompt = ({
     "actionRequests must be an array (empty if none).",
     "warnings must be an array (empty if none).",
     "Only propose external actionRequests if the user explicitly asks and the intent is Awareness/non-work.",
+    "For IMS drafting, you may propose: ims.document.create_draft, ims.document.update_draft, ims.document.request_review (approval required).",
     "If you include actionRequests, include all payload fields. Use empty strings or null for non-applicable values. Use [] for tags.",
     "Guardrail: You are NOT allowed to execute financial transactions of any kind, any value.",
     "If external actions are proposed, add them to actionRequests and ask for approval.",
@@ -85,6 +88,9 @@ const buildAgentPrompt = ({
     "",
     "Knowledge base context:",
     docContext || "No uploaded documents yet.",
+    "",
+    "IMS register context:",
+    imsContext || "No IMS register data loaded.",
     "",
     "Request context:",
     requestContext,
@@ -101,6 +107,7 @@ const buildAgentInstructions = (agent: AgentConfig) => {
     "warnings and actionRequests must be arrays (empty if none).",
     "knowledgeUpdates must be an array (empty if none).",
     "Only propose external actionRequests if the user explicitly asks and the intent is Awareness/non-work.",
+    "For IMS drafting, you may propose: ims.document.create_draft, ims.document.update_draft, ims.document.request_review (approval required).",
     "If you include actionRequests, include all payload fields. Use empty strings or null for non-applicable values. Use [] for tags.",
     "Never execute external actions. Propose external actions only via actionRequests.",
     "Guardrail: You are NOT allowed to execute financial transactions of any kind, any value.",
@@ -172,6 +179,96 @@ const getDocsContext = async (docIds?: string[]) => {
         .join("\n");
     })
     .join("\n\n");
+};
+
+const IMS_POLICIES = ["Quality Policy", "Environmental Policy", "Safety Policy"];
+
+const IMS_PROCEDURES = [
+  "Context & Interested Parties",
+  "Scope & Process Mapping",
+  "Leadership & Commitment",
+  "Risk & Opportunity Management",
+  "Quality Objectives & Planning",
+  "Document Control",
+  "Control of Records",
+  "Competence, Training & Awareness",
+  "Communication",
+  "Operational Planning & Control",
+  "Customer Requirements Review",
+  "Design & Development (if applicable)",
+  "Control of External Providers",
+  "Production & Service Provision",
+  "Identification & Traceability",
+  "Property Belonging to Customers",
+  "Preservation & Handling",
+  "Monitoring & Measurement Resources",
+  "Release of Products & Services",
+  "Nonconforming Outputs",
+  "Performance Evaluation & KPI Review",
+  "Internal Audit",
+  "Management Review",
+  "Corrective Action",
+  "Continual Improvement",
+  "Change Management",
+];
+
+const TECHNICAL_PROCEDURES = [
+  "Crack Repair",
+  "Scratch Removal",
+  "Trim Repair",
+  "Film Installation",
+  "Lens Restoration",
+];
+
+const getImsContext = async () => {
+  const docsSnap = await admin
+    .firestore()
+    .collection(COLLECTIONS.IMS_DOCUMENTS)
+    .orderBy("docNumber", "asc")
+    .get();
+
+  const docs = docsSnap.docs.map((doc) => doc.data() as any);
+  const counts = {
+    total: docs.length,
+    draft: docs.filter((d) => d.status === "draft").length,
+    active: docs.filter((d) => d.status === "active").length,
+    obsolete: docs.filter((d) => d.status === "obsolete").length,
+  };
+
+  const registeredTitles = new Set(
+    docs.map((doc) => String(doc.title || "").toLowerCase().trim())
+  );
+
+  const expected = [
+    ...IMS_POLICIES.map((title) => ({ type: "policy", title })),
+    ...IMS_PROCEDURES.map((title) => ({ type: "ims_procedure", title })),
+    ...TECHNICAL_PROCEDURES.map((title) => ({ type: "technical_procedure", title })),
+  ];
+
+  const missing = expected.filter(
+    (item) => !registeredTitles.has(item.title.toLowerCase())
+  );
+
+  const registerLines = docs.slice(0, 60).map((doc) => {
+    const iso = Array.isArray(doc.isoClauses) ? doc.isoClauses.join(", ") : "";
+    const owner = doc.owner?.name || doc.owner?.email || "";
+    const revision = doc.currentRevisionNumber ?? "-";
+    return `- ${doc.docNumber} | ${doc.title} | ${doc.docType} | ${doc.status} | Rev ${revision} | Owner: ${owner} | ISO: ${iso}`;
+  });
+
+  return [
+    `IMS Register summary: total ${counts.total}, draft ${counts.draft}, active ${counts.active}, obsolete ${counts.obsolete}.`,
+    "Existing documents:",
+    registerLines.length ? registerLines.join("\n") : "None yet.",
+    "",
+    "Expected (from IMS hub structure):",
+    expected.map((item) => `- ${item.type}: ${item.title}`).join("\n"),
+    "",
+    "Missing (not found in register):",
+    missing.length ? missing.map((item) => `- ${item.type}: ${item.title}`).join("\n") : "None.",
+    "",
+    "IMS Doc Manager location: /dashboard/ims/doc-manager",
+  ].join("\n");
 };
 
 const normalizeRequestContext = (payload: { meetingNotes?: string; intent?: string }) => {
@@ -307,6 +404,7 @@ export async function POST(req: NextRequest) {
       .map(({ role, name, content }) => ({ role, name, content }));
 
     const docContext = await getDocsContext(payload.docIds);
+    const imsContext = await getImsContext();
     const requestContext = normalizeRequestContext({
       meetingNotes: payload.meetingNotes,
       intent: payload.intent,
@@ -333,6 +431,7 @@ export async function POST(req: NextRequest) {
           userMessage: message,
           docContext,
           requestContext,
+          imsContext,
         });
 
         const [{ runWorkflowJson }, { AgentHubAgentSchema }] = await Promise.all([
