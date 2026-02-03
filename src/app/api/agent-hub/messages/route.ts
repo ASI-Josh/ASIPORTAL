@@ -2,9 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { admin } from "@/lib/firebaseAdmin";
 import { requireUserId } from "@/lib/server/firebaseAuth";
 import { COLLECTIONS } from "@/lib/collections";
-import { AgentHubAgentSchema } from "@/lib/assistant/agent-hub-schema";
-import { runWorkflowJson } from "@/lib/openai-workflow";
-
 export const runtime = "nodejs";
 
 type AgentConfig = {
@@ -300,6 +297,11 @@ export async function POST(req: NextRequest) {
         docContext,
         requestContext,
       });
+
+      const [{ runWorkflowJson }, { AgentHubAgentSchema }] = await Promise.all([
+        import("@/lib/openai-workflow"),
+        import("@/lib/assistant/agent-hub-schema"),
+      ]);
 
       const result = await runWorkflowJson({
         workflowId,

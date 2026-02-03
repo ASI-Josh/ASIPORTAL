@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { admin } from "@/lib/firebaseAdmin";
 import { requireUserId } from "@/lib/server/firebaseAuth";
 import { COLLECTIONS } from "@/lib/collections";
-import { extractTextFromBuffer, summarizeTextWithAi } from "@/lib/assistant/doc-extract";
 import {
   downloadDriveFile,
   exportDriveFile,
@@ -83,6 +82,7 @@ export async function POST(req: NextRequest) {
           results.errors.push(`Unable to read file ${file.name || file.id}`);
           continue;
         }
+        const { extractTextFromBuffer, summarizeTextWithAi } = await import("@/lib/assistant/doc-extract");
         const extractedText = await extractTextFromBuffer(
           resolved.buffer,
           resolved.contentType,

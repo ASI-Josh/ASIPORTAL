@@ -2,8 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { admin } from "@/lib/firebaseAdmin";
 import { requireUserId } from "@/lib/server/firebaseAuth";
 import { COLLECTIONS } from "@/lib/collections";
-import { extractTextFromBuffer, summarizeTextWithAi } from "@/lib/assistant/doc-extract";
-
 export const runtime = "nodejs";
 
 export async function GET(req: NextRequest) {
@@ -77,6 +75,7 @@ export async function POST(req: NextRequest) {
       const bucket = bucketName ? admin.storage().bucket(bucketName) : admin.storage().bucket();
       const file = bucket.file(payload.storagePath);
       const [buffer] = await file.download();
+      const { extractTextFromBuffer, summarizeTextWithAi } = await import("@/lib/assistant/doc-extract");
       extractedText = await extractTextFromBuffer(
         buffer,
         payload.contentType || null,
