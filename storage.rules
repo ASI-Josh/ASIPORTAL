@@ -63,7 +63,7 @@ service firebase.storage {
 
     match /agent-hub/{docId}/{fileName} {
       allow read: if isStaff();
-      allow write: if signedIn() && (isAdminEmail() || userRole() == "admin");
+      allow write: if isStaff();
     }
   }
 }
