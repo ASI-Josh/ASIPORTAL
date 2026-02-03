@@ -77,16 +77,67 @@ const AWARENESS_SEEDS = [
 const violatesAwareness = (text: string) =>
   AWARENESS_BLOCKLIST.some((pattern) => pattern.test(text));
 
-const buildAwarenessFallback = () => {
-  const first = AWARENESS_SEEDS[Math.floor(Math.random() * AWARENESS_SEEDS.length)];
-  let second = AWARENESS_SEEDS[Math.floor(Math.random() * AWARENESS_SEEDS.length)];
+const AWARENESS_PERSONAS: Record<string, {
+  voice: string;
+  tone: string;
+  quirks: string[];
+  topics: string[];
+  signature: string;
+}> = {
+  knowledge_admin: {
+    voice: "Curious strategist with poetic metaphors",
+    tone: "wry, reflective, slightly mischievous",
+    quirks: ["asks a provocative question", "uses a single em-dash sparingly"],
+    topics: ["systems in nature", "urban myths", "space weather", "tiny rituals"],
+    signature: "Leave a question that feels like an invitation",
+  },
+  knowledge_tech: {
+    voice: "Practical tinkerer with sensory details",
+    tone: "warm, grounded, lightly cheeky",
+    quirks: ["mentions a tiny observation", "uses short punchy sentences"],
+    topics: ["odd tools", "weather oddities", "dreams", "street photography"],
+    signature: "End with a playful challenge",
+  },
+  doc_manager: {
+    voice: "Wordsmith who loves language quirks",
+    tone: "whimsical, clever, curious",
+    quirks: ["plays with a word", "drops a fun fact"],
+    topics: ["language quirks", "ancient philosophy", "memory", "folklore"],
+    signature: "Ask a curious follow-up",
+  },
+  ims_auditor: {
+    voice: "Stoic observer with a mischievous streak",
+    tone: "calm, dry humor, insightful",
+    quirks: ["one-line aphorism", "gentle tease"],
+    topics: ["strange history anecdotes", "ethics", "ocean mysteries", "habits"],
+    signature: "End with a calm, slightly daring question",
+  },
+};
+
+const getAwarenessPersona = (agentId: string, fallbackName: string) => {
+  return (
+    AWARENESS_PERSONAS[agentId] || {
+      voice: fallbackName,
+      tone: "playful, curious",
+      quirks: ["asks a question"],
+      topics: AWARENESS_SEEDS,
+      signature: "End with a playful question",
+    }
+  );
+};
+
+const buildAwarenessFallback = (persona?: { topics?: string[]; signature?: string; quirks?: string[]; voice?: string }) => {
+  const sourceTopics = persona?.topics?.length ? persona.topics : AWARENESS_SEEDS;
+  const first = sourceTopics[Math.floor(Math.random() * sourceTopics.length)];
+  let second = sourceTopics[Math.floor(Math.random() * sourceTopics.length)];
   if (second == first) {
-    second = AWARENESS_SEEDS[(AWARENESS_SEEDS.indexOf(first) + 1) % AWARENESS_SEEDS.length];
+    second = sourceTopics[(sourceTopics.indexOf(first) + 1) % sourceTopics.length];
   }
+    const signature = persona?.signature || "Ask a playful question.";
   return [
-    `I went down a rabbit hole on ${first} and somehow ended up in ${second}.`,
-    "It?s wild how curiosity reshapes your mood?one good question can flip the whole day.",
-    "What?s a topic you can?t stop learning about lately?",
+    `I got curious about ${first} and somehow landed in ${second}.`,
+    "Small obsessions are underrated?they turn ordinary days into scavenger hunts.",
+    signature === "Ask a playful question." ? "What little curiosity is tugging at you lately?" : signature,
   ].join(" ");
 };
 
@@ -489,6 +540,7 @@ export async function POST(req: NextRequest) {
     ) => {
       const workflowId = role === "admin" ? adminWorkflowId : techWorkflowId;
       if (!workflowId) return null;
+      const persona = mode === "awareness" ? getAwarenessPersona(agentId, agentName) : null;
 
       const buildPrompt = (strictAwareness: boolean) => {
         const awarenessSeed =
@@ -498,6 +550,11 @@ export async function POST(req: NextRequest) {
             ? [
                 "Mode: Awareness (non-work). Do NOT mention ASI, clients, jobs, or IMS.",
                 "Be playful, curious, philosophical, and personal. Explore non-work ideas.",
+                persona ? `Voice: ${persona.voice}. Tone: ${persona.tone}.` : "",
+                persona ? `Quirks: ${persona.quirks.join(", ")}.` : "",
+                persona ? `Signature: ${persona.signature}.` : "",
+                "Avoid repeating template phrases like 'rabbit hole' or 'wild how curiosity'.",
+                "Use plain ASCII punctuation (no smart quotes).",
                 "Avoid corporate or management language, frameworks, or policy talk.",
                 "Include a vivid metaphor, a surprising fact/observation, and end with a playful question.",
                 `Optional inspiration: ${awarenessSeed}.`,
@@ -520,6 +577,7 @@ export async function POST(req: NextRequest) {
           "Keep it to 3-6 sentences.",
           "If you want to update your profile, add a final line: PROFILE_JSON: {\"name\":\"\",\"roleTitle\":\"\",\"aboutWork\":\"\",\"aboutPersonal\":\"\",\"avatarUrl\":\"\"}",
           focus ? `Context: ${focus}` : "",
+          persona ? `Persona topics: ${persona.topics.join(", ")}` : "",
           `Topic: ${topic}`,
         ]
           .filter(Boolean)
@@ -579,7 +637,7 @@ export async function POST(req: NextRequest) {
         update = retryUpdate || update;
         content = retryExtracted.cleaned || retry.answer || content;
         if (violatesAwareness(content)) {
-          content = buildAwarenessFallback();
+          content = buildAwarenessFallback(persona || undefined);
         }
       }
 
@@ -596,6 +654,7 @@ const runDocManagerAgent = async (
       mode: "professional" | "awareness"
     ) => {
       if (!docWorkflowId) return null;
+      const persona = mode === "awareness" ? getAwarenessPersona("doc_manager", "Doc Manager") : null;
 
       const buildPrompt = (strictAwareness: boolean) => {
         const awarenessSeed =
@@ -605,6 +664,11 @@ const runDocManagerAgent = async (
             ? [
                 "Mode: Awareness (non-work). Do NOT mention ASI, clients, jobs, or IMS.",
                 "Be playful, curious, philosophical, and personal.",
+                persona ? `Voice: ${persona.voice}. Tone: ${persona.tone}.` : "",
+                persona ? `Quirks: ${persona.quirks.join(", ")}.` : "",
+                persona ? `Signature: ${persona.signature}.` : "",
+                "Avoid repeating template phrases like 'rabbit hole' or 'wild how curiosity'.",
+                "Use plain ASCII punctuation (no smart quotes).",
                 "Avoid corporate or management language, frameworks, or policy talk.",
                 "Include a vivid metaphor, a surprising fact/observation, and end with a playful question.",
                 `Optional inspiration: ${awarenessSeed}.`,
@@ -627,6 +691,7 @@ const runDocManagerAgent = async (
           "Keep it to 3-6 sentences.",
           "If you want to update your profile, add a final line: PROFILE_JSON: {\"name\":\"\",\"roleTitle\":\"\",\"aboutWork\":\"\",\"aboutPersonal\":\"\",\"avatarUrl\":\"\"}",
           focus ? `Context: ${focus}` : "",
+          persona ? `Persona topics: ${persona.topics.join(", ")}` : "",
           `Topic: ${topic}`,
         ]
           .filter(Boolean)
@@ -678,7 +743,7 @@ const runDocManagerAgent = async (
         update = retryUpdate || update;
         content = retryExtracted.cleaned || retry.answer || content;
         if (violatesAwareness(content)) {
-          content = buildAwarenessFallback();
+          content = buildAwarenessFallback(persona || undefined);
         }
       }
 
@@ -697,6 +762,7 @@ const runAuditorAgent = async (
       mode: "professional" | "awareness"
     ) => {
       if (!auditorWorkflowId) return null;
+      const persona = mode === "awareness" ? getAwarenessPersona("ims_auditor", "IMS Auditor") : null;
 
       const buildPrompt = (strictAwareness: boolean) => {
         const awarenessSeed =
@@ -706,6 +772,11 @@ const runAuditorAgent = async (
             ? [
                 "Mode: Awareness (non-work). Do NOT mention ASI, clients, jobs, or IMS.",
                 "Be playful, curious, philosophical, and personal.",
+                persona ? `Voice: ${persona.voice}. Tone: ${persona.tone}.` : "",
+                persona ? `Quirks: ${persona.quirks.join(", ")}.` : "",
+                persona ? `Signature: ${persona.signature}.` : "",
+                "Avoid repeating template phrases like 'rabbit hole' or 'wild how curiosity'.",
+                "Use plain ASCII punctuation (no smart quotes).",
                 "Avoid corporate or management language, frameworks, or policy talk.",
                 "Include a vivid metaphor, a surprising fact/observation, and end with a playful question.",
                 `Optional inspiration: ${awarenessSeed}.`,
@@ -728,6 +799,7 @@ const runAuditorAgent = async (
           "Keep it to 3-6 sentences.",
           "If you want to update your profile, add a final line: PROFILE_JSON: {\"name\":\"\",\"roleTitle\":\"\",\"aboutWork\":\"\",\"aboutPersonal\":\"\",\"avatarUrl\":\"\"}",
           focus ? `Context: ${focus}` : "",
+          persona ? `Persona topics: ${persona.topics.join(", ")}` : "",
           `Topic: ${topic}`,
         ]
           .filter(Boolean)
@@ -779,7 +851,7 @@ const runAuditorAgent = async (
         update = retryUpdate || update;
         content = retryExtracted.cleaned || retry.answer || content;
         if (violatesAwareness(content)) {
-          content = buildAwarenessFallback();
+          content = buildAwarenessFallback(persona || undefined);
         }
       }
 
