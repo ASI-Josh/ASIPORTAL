@@ -80,6 +80,7 @@ const buildAgentPrompt = ({
     agent.role === "doc"
       ? "For IMS drafting, you may propose: ims.document.create_draft, ims.document.update_draft, ims.document.request_review (approval required)."
       : "Do not propose ims.document.* actions. If documents need changes, recommend the Doc Manager handle it.",
+    "If you identify a system issue or nonconformity, propose ims.corrective_action.raise (approval required). Use this instead of document edits unless you are the Doc Manager.",
     "If you include actionRequests, include all payload fields. Use empty strings or null for non-applicable values. Use [] for tags.",
     "Guardrail: You are NOT allowed to execute financial transactions of any kind, any value.",
     "If external actions are proposed, add them to actionRequests and ask for approval.",
@@ -112,6 +113,7 @@ const buildAgentInstructions = (agent: AgentConfig) => {
     agent.role === "doc"
       ? "For IMS drafting, you may propose: ims.document.create_draft, ims.document.update_draft, ims.document.request_review (approval required)."
       : "Do not propose ims.document.* actions. If documents need changes, recommend the Doc Manager handle it.",
+    "If you identify a system issue or nonconformity, propose ims.corrective_action.raise (approval required). Use this instead of document edits unless you are the Doc Manager.",
     "If you include actionRequests, include all payload fields. Use empty strings or null for non-applicable values. Use [] for tags.",
     "Never execute external actions. Propose external actions only via actionRequests.",
     "Guardrail: You are NOT allowed to execute financial transactions of any kind, any value.",
@@ -471,13 +473,17 @@ export async function POST(req: NextRequest) {
         if (Array.isArray(agentOutput.actionRequests) && agentOutput.actionRequests.length > 0) {
           for (const action of agentOutput.actionRequests) {
             const actionType = String(action.type || "");
-            const isImsAction = actionType.startsWith("ims.document.");
+            const isDocAction = actionType.startsWith("ims.document.");
+            const isCorrectiveAction = actionType === "ims.corrective_action.raise";
+            const isImsAction = isDocAction || isCorrectiveAction;
             if (isImsAction && agent.id !== "doc_manager") {
-              const warning = "IMS document actions are restricted to the Doc Manager.";
-              agentOutput.warnings = Array.isArray(agentOutput.warnings)
-                ? [...agentOutput.warnings, warning]
-                : [warning];
-              continue;
+              if (isDocAction) {
+                const warning = "IMS document actions are restricted to the Doc Manager.";
+                agentOutput.warnings = Array.isArray(agentOutput.warnings)
+                  ? [...agentOutput.warnings, warning]
+                  : [warning];
+                continue;
+              }
             }
             const isExternal = actionType.startsWith("moltbook.");
             if (isExternal && !shouldAllowExternal) {

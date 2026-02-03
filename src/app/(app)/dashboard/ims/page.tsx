@@ -136,14 +136,17 @@ export default function ImsHubPage() {
                     <ClipboardCheck className="h-4 w-4 text-primary" />
                     Prestart Register
                   </Link>
+                  <Link
+                    href="/dashboard/ims/corrective-actions"
+                    className="flex items-center gap-2"
+                  >
+                    <FileText className="h-4 w-4 text-primary" />
+                    Corrective Action Register
+                  </Link>
                   <Link href="/dashboard/goods-received" className="flex items-center gap-2">
                     <FileText className="h-4 w-4 text-primary" />
                     Goods Received Register
                   </Link>
-                  <div className="flex items-center justify-between">
-                    <span>Corrective Action Register</span>
-                    <Badge variant="secondary">Draft</Badge>
-                  </div>
                 </CardContent>
               </Card>
 

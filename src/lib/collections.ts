@@ -38,4 +38,5 @@ export const COLLECTIONS = {
   AGENT_HUB_ACTIONS: "agentHubActions",
   AGENT_HUB_DOCS: "agentHubDocs",
   AGENT_HUB_THREADS: "agentHubThreads",
+  IMS_CORRECTIVE_ACTIONS: "imsCorrectiveActions",
 } as const;

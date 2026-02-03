@@ -23,10 +23,13 @@ type ImsDocType =
 
 export const runtime = "nodejs";
 
-const executeAction = async (action: {
-  actionType: string;
-  payload: Record<string, unknown>;
-}) => {
+const executeAction = async (
+  action: {
+    actionType: string;
+    payload: Record<string, unknown>;
+  },
+  context: { userId: string; userName: string }
+) => {
   switch (action.actionType) {
     case "moltbook.register":
       return registerMoltbookAgent({
@@ -58,6 +61,8 @@ const executeAction = async (action: {
       return createImsDraft(action.payload, false);
     case "ims.document.request_review":
       return issueImsReview(action.payload);
+    case "ims.corrective_action.raise":
+      return createCorrectiveAction(action.payload, context);
     default:
       throw new Error(`Unsupported action type: ${action.actionType}`);
   }
@@ -292,6 +297,43 @@ const issueImsReview = async (payload: Record<string, unknown>) => {
   return { docNumber, revisionId: targetRevisionId, status: "review" };
 };
 
+const createCorrectiveAction = async (
+  payload: Record<string, unknown>,
+  context: { userId: string; userName: string }
+) => {
+  const title = String(payload.title || "");
+  const description = String(payload.description || "");
+  const severity = String(payload.severity || "minor");
+  const relatedDocs = Array.isArray(payload.relatedDocs)
+    ? payload.relatedDocs.map((doc) => String(doc))
+    : [];
+  const evidence = String(payload.evidence || "");
+  const suggestedAction = String(payload.suggestedAction || "");
+  const dueDate = String(payload.dueDate || "");
+
+  if (!title || !description) {
+    throw new Error("Corrective action requires title and description.");
+  }
+
+  const now = admin.firestore.FieldValue.serverTimestamp();
+  const ref = await admin.firestore().collection(COLLECTIONS.IMS_CORRECTIVE_ACTIONS).add({
+    title,
+    description,
+    severity,
+    relatedDocs,
+    evidence,
+    suggestedAction,
+    dueDate,
+    status: "open",
+    createdAt: now,
+    createdById: context.userId,
+    createdByName: context.userName,
+    source: "knowledge_hub",
+  });
+
+  return { id: ref.id, status: "open" };
+};
+
 export async function GET(req: NextRequest) {
   try {
     await requireAdminUser(req);
@@ -402,10 +444,16 @@ export async function POST(req: NextRequest) {
       }
 
       try {
-        const output = await executeAction({
-          actionType: data.actionType,
-          payload: data.payload,
-        });
+        const output = await executeAction(
+          {
+            actionType: data.actionType,
+            payload: data.payload,
+          },
+          {
+            userId,
+            userName: user?.name || user?.email || "Admin",
+          }
+        );
         await actionRef.set(
           {
             status: "executed",

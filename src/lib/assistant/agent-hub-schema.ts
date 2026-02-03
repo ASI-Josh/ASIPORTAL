@@ -122,6 +122,23 @@ export const AgentHubActionRequestSchema = z.discriminatedUnion("type", [
         .strict(),
     })
     .strict(),
+  z
+    .object({
+      type: z.literal("ims.corrective_action.raise"),
+      summary: z.string(),
+      payload: z
+        .object({
+          title: z.string(),
+          description: z.string(),
+          severity: z.enum(["minor", "major", "ofi"]),
+          relatedDocs: z.array(z.string()),
+          evidence: z.string(),
+          suggestedAction: z.string(),
+          dueDate: z.string(),
+        })
+        .strict(),
+    })
+    .strict(),
 ]);
 
 export const AgentHubAgentSchema = z
