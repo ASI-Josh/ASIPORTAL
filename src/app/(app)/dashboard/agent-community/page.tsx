@@ -1,5 +1,6 @@
 ﻿"use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Bot,
@@ -71,6 +72,7 @@ export default function AgentCommunityPage() {
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
   const [lastRunAt, setLastRunAt] = useState<string | null>(null);
   const [agentErrors, setAgentErrors] = useState<AgentError[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const runRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -194,6 +196,14 @@ export default function AgentCommunityPage() {
   }, [isAdmin, loadPosts, runAgents]);
 
   const lastRunLabel = useMemo(() => formatRelativeTime(lastRunAt), [lastRunAt]);
+  const filteredPosts = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return posts;
+    return posts.filter((post) => {
+      const haystack = `${post.title} ${post.body}`.toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [posts, searchQuery]);
 
   if (!isAdmin) {
     return (
@@ -261,8 +271,54 @@ export default function AgentCommunityPage() {
             </CardContent>
           </Card>
 
+          <Card className="bg-card/50 backdrop-blur border-border/40">
+            <CardHeader>
+              <CardTitle className="text-base">Thread dashboard</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <Input
+                placeholder="Search threads..."
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+              />
+              <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
+                <span>Total threads: {posts.length}</span>
+                <span>Showing: {filteredPosts.length}</span>
+                <span>Latest activity: {lastRunLabel || "-"}</span>
+              </div>
+              <ScrollArea className="h-72 rounded-2xl border border-border/40 bg-background/60 px-3 py-2">
+                <div className="space-y-2">
+                  {filteredPosts.map((post) => (
+                    <div
+                      key={`list-${post.id}`}
+                      className="flex items-start justify-between gap-3 rounded-xl border border-border/40 bg-background/70 px-3 py-2"
+                    >
+                      <div className="space-y-1">
+                        <div className="text-sm font-medium text-foreground">{post.title}</div>
+                        <div className="text-[11px] text-muted-foreground">
+                          {post.author?.name || "Agent"} - {formatRelativeTime(post.createdAt)}
+                        </div>
+                      </div>
+                      <div className="flex flex-col items-end gap-2 text-xs">
+                        <span className="rounded-full border border-border/40 px-2 py-0.5">
+                          {post.commentCount} replies
+                        </span>
+                        <Button variant="ghost" size="sm" asChild>
+                          <Link href={`/dashboard/agent-community/${post.id}`}>Open</Link>
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                  {filteredPosts.length === 0 && (
+                    <div className="text-xs text-muted-foreground">No threads match that search.</div>
+                  )}
+                </div>
+              </ScrollArea>
+            </CardContent>
+          </Card>
+
           <div className="space-y-4">
-            {posts.map((post) => (
+            {filteredPosts.map((post) => (
               <Card key={post.id} className="bg-card/40 border-border/40">
                 <CardHeader className="space-y-2">
                   <div className="flex items-start justify-between gap-4">
@@ -272,14 +328,19 @@ export default function AgentCommunityPage() {
                         {post.author?.name} - {formatRelativeTime(post.createdAt)}
                       </div>
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => runAgents({ postId: post.id, force: true })}
-                      disabled={running}
-                    >
-                      Ask agents
-                    </Button>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => runAgents({ postId: post.id, force: true })}
+                        disabled={running}
+                      >
+                        Ask agents
+                      </Button>
+                      <Button variant="outline" size="sm" asChild>
+                        <Link href={`/dashboard/agent-community/${post.id}`}>Open thread</Link>
+                      </Button>
+                    </div>
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-4">
@@ -289,7 +350,7 @@ export default function AgentCommunityPage() {
                     <div className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
                       Thread
                     </div>
-                    <ScrollArea className="max-h-64 rounded-2xl border border-border/40 bg-background/60 px-4 py-3">
+                    <ScrollArea className="h-72 rounded-2xl border border-border/40 bg-background/60 px-4 py-3">
                       <div className="space-y-3">
                         {post.comments.length ? (
                           post.comments.map((comment) => (
