@@ -125,6 +125,8 @@ export interface JobVehicle {
   repairSites: RepairSite[];
   // Consumables used (for scratch/graffiti repairs)
   microfiberDisksUsed: MicrofiberDiskUsage[];
+  // Other consumables used
+  consumablesUsed?: ConsumableUsage[];
   // Vehicle-level status
   status: "pending" | "in_progress" | "completed" | "on_hold";
   holdReason?: string; // Required if status is on_hold (e.g., "Parts on order", "Awaiting approval")
@@ -180,6 +182,11 @@ export type MicrofiberDiskSize = "2" | "3" | "5"; // inches
 export interface MicrofiberDiskUsage {
   grade: MicrofiberDiskGrade;
   size: MicrofiberDiskSize;
+  quantity: number;
+}
+
+export interface ConsumableUsage {
+  item: string;
   quantity: number;
 }
 

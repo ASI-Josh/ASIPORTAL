@@ -1,7 +1,7 @@
 "use client";
 
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Timestamp,
   addDoc,
@@ -31,6 +31,7 @@ import type {
   MicrofiberDiskUsage,
   MicrofiberDiskGrade,
   MicrofiberDiskSize,
+  ConsumableUsage,
   RepairWorkStatus,
   Job,
 } from "@/lib/types";
@@ -192,6 +193,10 @@ export default function JobCardPage() {
     null
   );
   const [uploadingPhotos, setUploadingPhotos] = useState<Record<string, boolean>>({});
+  const [consumableDrafts, setConsumableDrafts] = useState<
+    Record<string, { item: string; quantity: string }>
+  >({});
+  const saveTimeouts = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const [jobDescription, setJobDescription] = useState(() =>
     job?.jobDescription ?? extractAiDescription(job?.notes)
   );
@@ -888,13 +893,16 @@ export default function JobCardPage() {
       poWorksOrderNumber: newVehicle.poWorksOrderNumber.trim() || undefined,
       repairSites: [],
       microfiberDisksUsed: [],
+      consumablesUsed: [],
       status: "pending",
       totalCost: 0,
       totalLabourCost: 0,
       totalMaterialsCost: 0,
     };
 
-    setJobVehicles([...jobVehicles, vehicle]);
+    const updatedVehicles = [...jobVehicles, vehicle];
+    setJobVehicles(updatedVehicles);
+    scheduleJobVehiclesSave(updatedVehicles);
     setNewVehicle({
       registration: "",
       vin: "",
@@ -944,19 +952,20 @@ export default function JobCardPage() {
       workLog: [],
     };
 
-    setJobVehicles(
-      jobVehicles.map((v) =>
-        v.id === selectedVehicleId
-          ? {
-              ...v,
-              repairSites: [...v.repairSites, repairSite],
-              totalCost: v.totalCost + cost,
-              totalLabourCost: v.totalLabourCost + labourCost,
-              totalMaterialsCost: v.totalMaterialsCost + materialsCost,
-            }
-          : v
-      )
+    const updatedVehicles = jobVehicles.map((v) =>
+      v.id === selectedVehicleId
+        ? {
+            ...v,
+            repairSites: [...v.repairSites, repairSite],
+            totalCost: v.totalCost + cost,
+            totalLabourCost: v.totalLabourCost + labourCost,
+            totalMaterialsCost: v.totalMaterialsCost + materialsCost,
+          }
+        : v
     );
+
+    setJobVehicles(updatedVehicles);
+    scheduleJobVehiclesSave(updatedVehicles);
 
     setNewRepair({
       repairType: "",
@@ -969,6 +978,15 @@ export default function JobCardPage() {
       totalCost: "",
     });
     setShowAddRepairDialog(false);
+  };
+
+  const scheduleJobVehiclesSave = (updatedVehicles: JobVehicle[]) => {
+    const key = "jobVehicles";
+    const existing = saveTimeouts.current[key];
+    if (existing) clearTimeout(existing);
+    saveTimeouts.current[key] = setTimeout(() => {
+      void updateJob(job.id, { jobVehicles: updatedVehicles });
+    }, 600);
   };
 
   const handleUpdateRepairDetails = (
@@ -984,39 +1002,40 @@ export default function JobCardPage() {
       return { ...vehicle, repairSites: updatedRepairs };
     });
     setJobVehicles(updatedVehicles);
-    void updateJob(job.id, { jobVehicles: updatedVehicles });
+    scheduleJobVehiclesSave(updatedVehicles);
   };
 
   // Update repair site cost
   const handleUpdateRepairCost = (vehicleId: string, repairId: string, newCost: number) => {
     const { labourCost, materialsCost } = calculateCostBreakdown(newCost);
 
-    setJobVehicles(
-      jobVehicles.map((v) => {
-        if (v.id !== vehicleId) return v;
+    const updatedVehicles = jobVehicles.map((v) => {
+      if (v.id !== vehicleId) return v;
 
-        const updatedRepairs = v.repairSites.map((r) =>
-          r.id === repairId ? { ...r, totalCost: newCost, labourCost, materialsCost } : r
-        );
+      const updatedRepairs = v.repairSites.map((r) =>
+        r.id === repairId ? { ...r, totalCost: newCost, labourCost, materialsCost } : r
+      );
 
-        const vehicleTotals = updatedRepairs.reduce(
-          (acc, r) => ({
-            totalCost: acc.totalCost + r.totalCost,
-            totalLabour: acc.totalLabour + r.labourCost,
-            totalMaterials: acc.totalMaterials + r.materialsCost,
-          }),
-          { totalCost: 0, totalLabour: 0, totalMaterials: 0 }
-        );
+      const vehicleTotals = updatedRepairs.reduce(
+        (acc, r) => ({
+          totalCost: acc.totalCost + r.totalCost,
+          totalLabour: acc.totalLabour + r.labourCost,
+          totalMaterials: acc.totalMaterials + r.materialsCost,
+        }),
+        { totalCost: 0, totalLabour: 0, totalMaterials: 0 }
+      );
 
-        return {
-          ...v,
-          repairSites: updatedRepairs,
-          totalCost: vehicleTotals.totalCost,
-          totalLabourCost: vehicleTotals.totalLabour,
-          totalMaterialsCost: vehicleTotals.totalMaterials,
-        };
-      })
-    );
+      return {
+        ...v,
+        repairSites: updatedRepairs,
+        totalCost: vehicleTotals.totalCost,
+        totalLabourCost: vehicleTotals.totalLabour,
+        totalMaterialsCost: vehicleTotals.totalMaterials,
+      };
+    });
+
+    setJobVehicles(updatedVehicles);
+    scheduleJobVehiclesSave(updatedVehicles);
   };
 
   // Update microfiber disk usage
@@ -1026,32 +1045,78 @@ export default function JobCardPage() {
     size: MicrofiberDiskSize,
     quantity: number
   ) => {
-    setJobVehicles(
-      jobVehicles.map((v) => {
-        if (v.id !== vehicleId) return v;
+    const updatedVehicles = jobVehicles.map((v) => {
+      if (v.id !== vehicleId) return v;
 
-        const existingIndex = v.microfiberDisksUsed.findIndex(
-          (d) => d.grade === grade && d.size === size
-        );
+      const existingIndex = v.microfiberDisksUsed.findIndex(
+        (d) => d.grade === grade && d.size === size
+      );
 
-        let updatedDisks: MicrofiberDiskUsage[];
-        if (existingIndex >= 0) {
-          if (quantity === 0) {
-            updatedDisks = v.microfiberDisksUsed.filter((_, i) => i !== existingIndex);
-          } else {
-            updatedDisks = v.microfiberDisksUsed.map((d, i) =>
-              i === existingIndex ? { ...d, quantity } : d
-            );
-          }
-        } else if (quantity > 0) {
-          updatedDisks = [...v.microfiberDisksUsed, { grade, size, quantity }];
+      let updatedDisks: MicrofiberDiskUsage[];
+      if (existingIndex >= 0) {
+        if (quantity === 0) {
+          updatedDisks = v.microfiberDisksUsed.filter((_, i) => i !== existingIndex);
         } else {
-          updatedDisks = v.microfiberDisksUsed;
+          updatedDisks = v.microfiberDisksUsed.map((d, i) =>
+            i === existingIndex ? { ...d, quantity } : d
+          );
         }
+      } else if (quantity > 0) {
+        updatedDisks = [...v.microfiberDisksUsed, { grade, size, quantity }];
+      } else {
+        updatedDisks = v.microfiberDisksUsed;
+      }
 
-        return { ...v, microfiberDisksUsed: updatedDisks };
-      })
-    );
+      return { ...v, microfiberDisksUsed: updatedDisks };
+    });
+
+    setJobVehicles(updatedVehicles);
+    scheduleJobVehiclesSave(updatedVehicles);
+  };
+
+  const handleUpdateConsumable = (
+    vehicleId: string,
+    index: number,
+    updates: Partial<ConsumableUsage>
+  ) => {
+    const updatedVehicles = jobVehicles.map((vehicle) => {
+      if (vehicle.id !== vehicleId) return vehicle;
+      const consumables = vehicle.consumablesUsed ? [...vehicle.consumablesUsed] : [];
+      if (!consumables[index]) return vehicle;
+      consumables[index] = { ...consumables[index], ...updates };
+      return { ...vehicle, consumablesUsed: consumables };
+    });
+    setJobVehicles(updatedVehicles);
+    scheduleJobVehiclesSave(updatedVehicles);
+  };
+
+  const handleRemoveConsumable = (vehicleId: string, index: number) => {
+    const updatedVehicles = jobVehicles.map((vehicle) => {
+      if (vehicle.id !== vehicleId) return vehicle;
+      const consumables = vehicle.consumablesUsed ? [...vehicle.consumablesUsed] : [];
+      consumables.splice(index, 1);
+      return { ...vehicle, consumablesUsed: consumables };
+    });
+    setJobVehicles(updatedVehicles);
+    scheduleJobVehiclesSave(updatedVehicles);
+  };
+
+  const handleAddConsumable = (vehicleId: string) => {
+    const draft = consumableDrafts[vehicleId] || { item: "", quantity: "" };
+    const item = draft.item.trim();
+    const quantity = Number.parseFloat(draft.quantity);
+    if (!item || Number.isNaN(quantity)) return;
+
+    const updatedVehicles = jobVehicles.map((vehicle) => {
+      if (vehicle.id !== vehicleId) return vehicle;
+      const consumables = vehicle.consumablesUsed ? [...vehicle.consumablesUsed] : [];
+      consumables.push({ item, quantity });
+      return { ...vehicle, consumablesUsed: consumables };
+    });
+
+    setJobVehicles(updatedVehicles);
+    setConsumableDrafts((prev) => ({ ...prev, [vehicleId]: { item: "", quantity: "" } }));
+    scheduleJobVehiclesSave(updatedVehicles);
   };
 
   // Update vehicle status
@@ -1233,37 +1298,39 @@ export default function JobCardPage() {
       return { ...vehicle, repairSites: updatedRepairs };
     });
     setJobVehicles(updatedVehicles);
-    void updateJob(job.id, { jobVehicles: updatedVehicles });
+    scheduleJobVehiclesSave(updatedVehicles);
   };
 
   // Delete vehicle
   const handleDeleteVehicle = (vehicleId: string) => {
-    setJobVehicles(jobVehicles.filter((v) => v.id !== vehicleId));
+    const updatedVehicles = jobVehicles.filter((v) => v.id !== vehicleId);
+    setJobVehicles(updatedVehicles);
+    scheduleJobVehiclesSave(updatedVehicles);
   };
 
   // Delete repair site
   const handleDeleteRepair = (vehicleId: string, repairId: string) => {
-    setJobVehicles(
-      jobVehicles.map((v) => {
-        if (v.id !== vehicleId) return v;
-        const updatedRepairs = v.repairSites.filter((r) => r.id !== repairId);
-        const vehicleTotals = updatedRepairs.reduce(
-          (acc, r) => ({
-            totalCost: acc.totalCost + r.totalCost,
-            totalLabour: acc.totalLabour + r.labourCost,
-            totalMaterials: acc.totalMaterials + r.materialsCost,
-          }),
-          { totalCost: 0, totalLabour: 0, totalMaterials: 0 }
-        );
-        return {
-          ...v,
-          repairSites: updatedRepairs,
-          totalCost: vehicleTotals.totalCost,
-          totalLabourCost: vehicleTotals.totalLabour,
-          totalMaterialsCost: vehicleTotals.totalMaterials,
-        };
-      })
-    );
+    const updatedVehicles = jobVehicles.map((v) => {
+      if (v.id !== vehicleId) return v;
+      const updatedRepairs = v.repairSites.filter((r) => r.id !== repairId);
+      const vehicleTotals = updatedRepairs.reduce(
+        (acc, r) => ({
+          totalCost: acc.totalCost + r.totalCost,
+          totalLabour: acc.totalLabour + r.labourCost,
+          totalMaterials: acc.totalMaterials + r.materialsCost,
+        }),
+        { totalCost: 0, totalLabour: 0, totalMaterials: 0 }
+      );
+      return {
+        ...v,
+        repairSites: updatedRepairs,
+        totalCost: vehicleTotals.totalCost,
+        totalLabourCost: vehicleTotals.totalLabour,
+        totalMaterialsCost: vehicleTotals.totalMaterials,
+      };
+    });
+    setJobVehicles(updatedVehicles);
+    scheduleJobVehiclesSave(updatedVehicles);
   };
 
   // Check if any vehicle has scratch/graffiti repair
@@ -2258,59 +2325,150 @@ export default function JobCardPage() {
                       )}
                     </div>
 
-                    {/* Microfiber Disks - Only show for scratch/graffiti repairs */}
-                    {vehicleHasScratchGraffitiRepair(vehicle) && (
-                      <div className="space-y-3">
-                        <Label className="text-sm font-medium">Microfibre Disks Used</Label>
-                        <Card className="bg-muted/20">
-                          <CardContent className="p-4">
-                            <div className="overflow-x-auto">
-                              <table className="w-full text-sm">
-                                <thead>
-                                  <tr className="border-b">
-                                    <th className="text-left py-2 pr-4">Grade</th>
-                                    {MICROFIBER_DISK_SIZES.map((size) => (
-                                      <th key={size.value} className="text-center py-2 px-2">
-                                        {size.label}
-                                      </th>
-                                    ))}
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {MICROFIBER_DISK_GRADES.map((grade) => (
-                                    <tr key={grade.value} className="border-b last:border-0">
-                                      <td className="py-2 pr-4 font-medium">{grade.label}</td>
+                    {/* Consumables Used */}
+                    <div className="space-y-3">
+                      <Label className="text-sm font-medium">Consumables Used</Label>
+                      <Card className="bg-muted/20">
+                        <CardContent className="space-y-4 p-4">
+                          {vehicleHasScratchGraffitiRepair(vehicle) && (
+                            <div className="space-y-3">
+                              <p className="text-xs font-semibold uppercase text-muted-foreground">
+                                Microfibre Disks
+                              </p>
+                              <div className="overflow-x-auto">
+                                <table className="w-full text-sm">
+                                  <thead>
+                                    <tr className="border-b">
+                                      <th className="text-left py-2 pr-4">Grade</th>
                                       {MICROFIBER_DISK_SIZES.map((size) => (
-                                        <td key={size.value} className="py-2 px-2">
-                                          <Input
-                                            type="number"
-                                            min="0"
-                                            value={getMicrofiberQuantity(
-                                              vehicle,
-                                              grade.value,
-                                              size.value
-                                            ) || ""}
-                                            onChange={(e) =>
-                                              handleUpdateMicrofiberUsage(
-                                                vehicle.id,
-                                                grade.value,
-                                                size.value,
-                                                parseInt(e.target.value) || 0
-                                              )
-                                            }
-                                            className="h-8 w-16 text-center"
-                                          />
-                                        </td>
+                                        <th key={size.value} className="text-center py-2 px-2">
+                                          {size.label}
+                                        </th>
                                       ))}
                                     </tr>
-                                  ))}
-                                </tbody>
-                              </table>
+                                  </thead>
+                                  <tbody>
+                                    {MICROFIBER_DISK_GRADES.map((grade) => (
+                                      <tr key={grade.value} className="border-b last:border-0">
+                                        <td className="py-2 pr-4 font-medium">{grade.label}</td>
+                                        {MICROFIBER_DISK_SIZES.map((size) => (
+                                          <td key={size.value} className="py-2 px-2">
+                                            <Input
+                                              type="number"
+                                              min="0"
+                                              value={
+                                                getMicrofiberQuantity(
+                                                  vehicle,
+                                                  grade.value,
+                                                  size.value
+                                                ) || ""
+                                              }
+                                              onChange={(e) =>
+                                                handleUpdateMicrofiberUsage(
+                                                  vehicle.id,
+                                                  grade.value,
+                                                  size.value,
+                                                  parseInt(e.target.value) || 0
+                                                )
+                                              }
+                                              className="h-8 w-16 text-center"
+                                            />
+                                          </td>
+                                        ))}
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
                             </div>
-                          </CardContent>
-                        </Card>
-                      </div>
-                    )}
+                          )}
+
+                          <div className="space-y-2">
+                            <p className="text-xs font-semibold uppercase text-muted-foreground">
+                              Other Consumables
+                            </p>
+                            <div className="space-y-2">
+                              {(vehicle.consumablesUsed || []).map((consumable, index) => (
+                                <div
+                                  key={`${vehicle.id}-consumable-${index}`}
+                                  className="grid grid-cols-1 gap-2 sm:grid-cols-[2fr_1fr_auto]"
+                                >
+                                  <Input
+                                    placeholder="Item"
+                                    value={consumable.item}
+                                    onChange={(e) =>
+                                      handleUpdateConsumable(vehicle.id, index, {
+                                        item: e.target.value,
+                                      })
+                                    }
+                                    className="h-8"
+                                  />
+                                  <Input
+                                    placeholder="Qty"
+                                    value={consumable.quantity}
+                                    onChange={(e) =>
+                                      handleUpdateConsumable(vehicle.id, index, {
+                                        quantity: e.target.value,
+                                      })
+                                    }
+                                    className="h-8"
+                                  />
+                                  <Button
+                                    type="button"
+                                    size="icon"
+                                    variant="ghost"
+                                    onClick={() => handleRemoveConsumable(vehicle.id, index)}
+                                    className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                              ))}
+
+                              <div className="grid grid-cols-1 gap-2 sm:grid-cols-[2fr_1fr_auto]">
+                                <Input
+                                  placeholder="Item"
+                                  value={consumableDrafts[vehicle.id]?.item || ""}
+                                  onChange={(e) =>
+                                    setConsumableDrafts((prev) => ({
+                                      ...prev,
+                                      [vehicle.id]: {
+                                        item: e.target.value,
+                                        quantity: prev[vehicle.id]?.quantity || "",
+                                      },
+                                    }))
+                                  }
+                                  className="h-8"
+                                />
+                                <Input
+                                  placeholder="Qty"
+                                  value={consumableDrafts[vehicle.id]?.quantity || ""}
+                                  onChange={(e) =>
+                                    setConsumableDrafts((prev) => ({
+                                      ...prev,
+                                      [vehicle.id]: {
+                                        item: prev[vehicle.id]?.item || "",
+                                        quantity: e.target.value,
+                                      },
+                                    }))
+                                  }
+                                  className="h-8"
+                                />
+                                <Button
+                                  type="button"
+                                  size="icon"
+                                  variant="outline"
+                                  onClick={() => handleAddConsumable(vehicle.id)}
+                                  className="h-8 w-8"
+                                >
+                                  <Plus className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </div>
 
                     {/* Vehicle Summary */}
                     <Card className="bg-primary/5 border-primary/20">
