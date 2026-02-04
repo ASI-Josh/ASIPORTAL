@@ -2129,14 +2129,14 @@ export default function JobCardPage() {
                                             >
                                               <img
                                                 src={url}
-                                                alt=\"Pre-work\"
-                                                className=\"h-full w-full object-cover\"
-                                                loading=\"lazy\"
+                                                alt="Pre-work"
+                                                className="h-full w-full object-cover"
+                                                loading="lazy"
                                               />
                                             </button>
                                             <button
-                                              type=\"button\"
-                                              className=\"absolute -right-2 -top-2 h-5 w-5 rounded-full bg-destructive text-xs text-white\"
+                                              type="button"
+                                              className="absolute -right-2 -top-2 h-5 w-5 rounded-full bg-destructive text-xs text-white"
                                               onClick={() =>
                                                 handleRemoveRepairPhoto(vehicle.id, repair.id, "pre", url)
                                               }
@@ -2219,14 +2219,14 @@ export default function JobCardPage() {
                                             >
                                               <img
                                                 src={url}
-                                                alt=\"Post-work\"
-                                                className=\"h-full w-full object-cover\"
-                                                loading=\"lazy\"
+                                                alt="Post-work"
+                                                className="h-full w-full object-cover"
+                                                loading="lazy"
                                               />
                                             </button>
                                             <button
-                                              type=\"button\"
-                                              className=\"absolute -right-2 -top-2 h-5 w-5 rounded-full bg-destructive text-xs text-white\"
+                                              type="button"
+                                              className="absolute -right-2 -top-2 h-5 w-5 rounded-full bg-destructive text-xs text-white"
                                               onClick={() =>
                                                 handleRemoveRepairPhoto(vehicle.id, repair.id, "post", url)
                                               }
