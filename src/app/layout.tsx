@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import { Toaster } from '@/components/ui/toaster';
 import { cn } from '@/lib/utils';
@@ -9,7 +9,6 @@ export const metadata: Metadata = {
   title: 'ASI Portal',
   description: 'Glass & Surface Life-Extension Business Management Platform',
   manifest: '/manifest.webmanifest',
-  themeColor: '#0b0f1a',
   icons: {
     icon: [
       { url: '/icons/favicon.ico' },
@@ -19,6 +18,10 @@ export const metadata: Metadata = {
     shortcut: ['/icons/favicon.ico'],
     apple: [{ url: '/icons/apple-touch-icon.png', sizes: '180x180', type: 'image/png' }],
   },
+};
+
+export const viewport: Viewport = {
+  themeColor: '#0b0f1a',
 };
 
 export default function RootLayout({
