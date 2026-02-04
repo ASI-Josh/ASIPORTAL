@@ -2142,7 +2142,8 @@ export default function BookingsPage() {
                           </Dialog>
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div className="max-h-[50vh] overflow-y-auto pr-1">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                           {organisationContacts.map((contact) => (
                             <Card
                               key={contact.id}
@@ -2207,6 +2208,7 @@ export default function BookingsPage() {
                               No contacts found for this organisation. Add one to continue.
                             </p>
                           )}
+                          </div>
                         </div>
                       </div>
                     )}
@@ -2229,44 +2231,65 @@ export default function BookingsPage() {
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="space-y-2">
                           <Label>Date *</Label>
-                          <Popover>
-                            <PopoverTrigger asChild>
-                              <Button
-                                variant="outline"
-                                className={cn(
-                                  "w-full justify-start text-left font-normal",
-                                  !scheduledDate && "text-muted-foreground"
-                                )}
-                              >
-                                <CalendarIcon className="mr-2 h-4 w-4" />
-                                {scheduledDate ? format(scheduledDate, "PPP") : "Select date"}
-                              </Button>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-auto p-0" align="start">
-                              <Calendar
-                                mode="single"
-                                selected={scheduledDate}
-                                onSelect={setScheduledDate}
-                                disabled={(date) => date < startOfDay(new Date())}
-                                initialFocus
-                              />
-                            </PopoverContent>
-                          </Popover>
+                          <div className="md:hidden">
+                            <Input
+                              type="date"
+                              value={scheduledDate ? format(scheduledDate, "yyyy-MM-dd") : ""}
+                              onChange={(event) => {
+                                const value = event.target.value;
+                                setScheduledDate(value ? new Date(`${value}T00:00:00`) : undefined);
+                              }}
+                            />
+                          </div>
+                          <div className="hidden md:block">
+                            <Popover>
+                              <PopoverTrigger asChild>
+                                <Button
+                                  variant="outline"
+                                  className={cn(
+                                    "w-full justify-start text-left font-normal",
+                                    !scheduledDate && "text-muted-foreground"
+                                  )}
+                                >
+                                  <CalendarIcon className="mr-2 h-4 w-4" />
+                                  {scheduledDate ? format(scheduledDate, "PPP") : "Select date"}
+                                </Button>
+                              </PopoverTrigger>
+                              <PopoverContent className="w-auto p-0" align="start">
+                                <Calendar
+                                  mode="single"
+                                  selected={scheduledDate}
+                                  onSelect={setScheduledDate}
+                                  disabled={(date) => date < startOfDay(new Date())}
+                                  initialFocus
+                                />
+                              </PopoverContent>
+                            </Popover>
+                          </div>
                         </div>
                         <div className="space-y-2">
                           <Label>Time *</Label>
-                          <Select value={scheduledTime} onValueChange={setScheduledTime}>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select time" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {timeSlots.map((time) => (
-                                <SelectItem key={time} value={time}>
-                                  {time}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                          <div className="md:hidden">
+                            <Input
+                              type="time"
+                              value={scheduledTime || ""}
+                              onChange={(event) => setScheduledTime(event.target.value)}
+                            />
+                          </div>
+                          <div className="hidden md:block">
+                            <Select value={scheduledTime} onValueChange={setScheduledTime}>
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select time" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {timeSlots.map((time) => (
+                                  <SelectItem key={time} value={time}>
+                                    {time}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -2284,7 +2307,7 @@ export default function BookingsPage() {
                         selectedOrganization &&
                         selectedOrganization.sites.length > 0 &&
                         !useCustomSite && (
-                        <div className="space-y-3">
+                        <div className="max-h-[50vh] overflow-y-auto pr-1 space-y-3">
                           {selectedOrganization.sites.map((site) => (
                             <Card
                               key={site.id}

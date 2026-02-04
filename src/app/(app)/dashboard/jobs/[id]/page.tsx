@@ -176,6 +176,10 @@ export default function JobCardPage() {
   // New repair site form state
   const [newRepair, setNewRepair] = useState({
     repairType: "" as RepairType | "",
+    filmProduct: "" as RepairSite["filmProduct"] | "",
+    tintRemovalRequired: false,
+    substrateQaPassed: true,
+    remediationType: "" as RepairSite["remediationType"] | "",
     location: "",
     description: "",
     totalCost: "",
@@ -912,6 +916,22 @@ export default function JobCardPage() {
     const repairSite: RepairSite = {
       id: `repair-${Date.now()}`,
       repairType: newRepair.repairType as RepairType,
+      filmProduct:
+        newRepair.repairType === "film_installation" && newRepair.filmProduct
+          ? (newRepair.filmProduct as RepairSite["filmProduct"])
+          : undefined,
+      tintRemovalRequired:
+        newRepair.repairType === "film_installation"
+          ? Boolean(newRepair.tintRemovalRequired)
+          : undefined,
+      substrateQaPassed:
+        newRepair.repairType === "film_installation"
+          ? Boolean(newRepair.substrateQaPassed)
+          : undefined,
+      remediationType:
+        newRepair.repairType === "film_installation" && newRepair.remediationType
+          ? (newRepair.remediationType as RepairSite["remediationType"])
+          : undefined,
       location: newRepair.location,
       description: newRepair.description || undefined,
       preWorkPhotos: [],
@@ -938,8 +958,33 @@ export default function JobCardPage() {
       )
     );
 
-    setNewRepair({ repairType: "", location: "", description: "", totalCost: "" });
+    setNewRepair({
+      repairType: "",
+      filmProduct: "",
+      tintRemovalRequired: false,
+      substrateQaPassed: true,
+      remediationType: "",
+      location: "",
+      description: "",
+      totalCost: "",
+    });
     setShowAddRepairDialog(false);
+  };
+
+  const handleUpdateRepairDetails = (
+    vehicleId: string,
+    repairId: string,
+    updates: Partial<RepairSite>
+  ) => {
+    const updatedVehicles = jobVehicles.map((vehicle) => {
+      if (vehicle.id !== vehicleId) return vehicle;
+      const updatedRepairs = vehicle.repairSites.map((repair) =>
+        repair.id === repairId ? { ...repair, ...updates } : repair
+      );
+      return { ...vehicle, repairSites: updatedRepairs };
+    });
+    setJobVehicles(updatedVehicles);
+    void updateJob(job.id, { jobVehicles: updatedVehicles });
   };
 
   // Update repair site cost
@@ -1167,6 +1212,28 @@ export default function JobCardPage() {
     } finally {
       setUploadingPhotos((prev) => ({ ...prev, [key]: false }));
     }
+  };
+
+  const handleRemoveRepairPhoto = (
+    vehicleId: string,
+    repairId: string,
+    kind: "pre" | "post",
+    url: string
+  ) => {
+    const updatedVehicles = jobVehicles.map((vehicle) => {
+      if (vehicle.id !== vehicleId) return vehicle;
+      const updatedRepairs = vehicle.repairSites.map((repair) => {
+        if (repair.id !== repairId) return repair;
+        const photos = kind === "pre" ? repair.preWorkPhotos ?? [] : repair.postWorkPhotos ?? [];
+        const next = photos.filter((photo) => photo !== url);
+        return kind === "pre"
+          ? { ...repair, preWorkPhotos: next }
+          : { ...repair, postWorkPhotos: next };
+      });
+      return { ...vehicle, repairSites: updatedRepairs };
+    });
+    setJobVehicles(updatedVehicles);
+    void updateJob(job.id, { jobVehicles: updatedVehicles });
   };
 
   // Delete vehicle
@@ -1728,11 +1795,145 @@ export default function JobCardPage() {
                                       <Badge variant="outline" className="mb-2">
                                         {BOOKING_TYPE_LABELS[repair.repairType]}
                                       </Badge>
-                                      <p className="font-medium">{repair.location}</p>
-                                      {repair.description && (
-                                        <p className="text-sm text-muted-foreground">
-                                          {repair.description}
-                                        </p>
+                                      <div className="grid gap-2 md:grid-cols-2">
+                                        <div className="grid gap-1">
+                                          <Label className="text-xs text-muted-foreground">Repair Type</Label>
+                                          <Select
+                                            value={repair.repairType}
+                                            onValueChange={(val) =>
+                                              handleUpdateRepairDetails(vehicle.id, repair.id, {
+                                                repairType: val as RepairType,
+                                              })
+                                            }
+                                          >
+                                            <SelectTrigger className="h-8">
+                                              <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                              {Object.entries(BOOKING_TYPE_LABELS).map(([value, label]) => (
+                                                <SelectItem key={value} value={value}>
+                                                  {label}
+                                                </SelectItem>
+                                              ))}
+                                            </SelectContent>
+                                          </Select>
+                                        </div>
+                                        <div className="grid gap-1">
+                                          <Label className="text-xs text-muted-foreground">Location</Label>
+                                          <Input
+                                            value={repair.location}
+                                            onChange={(event) =>
+                                              handleUpdateRepairDetails(vehicle.id, repair.id, {
+                                                location: event.target.value,
+                                              })
+                                            }
+                                            className="h-8"
+                                          />
+                                        </div>
+                                      </div>
+                                      <div className="grid gap-1 pt-2">
+                                        <Label className="text-xs text-muted-foreground">Description</Label>
+                                        <Textarea
+                                          value={repair.description || ""}
+                                          onChange={(event) =>
+                                            handleUpdateRepairDetails(vehicle.id, repair.id, {
+                                              description: event.target.value,
+                                            })
+                                          }
+                                          rows={2}
+                                        />
+                                      </div>
+                                      {repair.repairType === "film_installation" && (
+                                        <div className="grid gap-2 pt-2 md:grid-cols-2">
+                                          <div className="grid gap-1">
+                                            <Label className="text-xs text-muted-foreground">Film product</Label>
+                                            <Select
+                                              value={repair.filmProduct || ""}
+                                              onValueChange={(val) =>
+                                                handleUpdateRepairDetails(vehicle.id, repair.id, {
+                                                  filmProduct: val as RepairSite["filmProduct"],
+                                                })
+                                              }
+                                            >
+                                              <SelectTrigger className="h-8">
+                                                <SelectValue placeholder="Select film" />
+                                              </SelectTrigger>
+                                              <SelectContent>
+                                                <SelectItem value="optishield">Optishield</SelectItem>
+                                                <SelectItem value="grafshield">Grafshield</SelectItem>
+                                                <SelectItem value="bodyshield">BodyShield</SelectItem>
+                                                <SelectItem value="radshield">Radshield</SelectItem>
+                                              </SelectContent>
+                                            </Select>
+                                          </div>
+                                          <div className="grid gap-1">
+                                            <Label className="text-xs text-muted-foreground">
+                                              Tint removal required?
+                                            </Label>
+                                            <Select
+                                              value={repair.tintRemovalRequired ? "yes" : "no"}
+                                              onValueChange={(val) =>
+                                                handleUpdateRepairDetails(vehicle.id, repair.id, {
+                                                  tintRemovalRequired: val === "yes",
+                                                })
+                                              }
+                                            >
+                                              <SelectTrigger className="h-8">
+                                                <SelectValue />
+                                              </SelectTrigger>
+                                              <SelectContent>
+                                                <SelectItem value="yes">Yes</SelectItem>
+                                                <SelectItem value="no">No</SelectItem>
+                                              </SelectContent>
+                                            </Select>
+                                          </div>
+                                          <div className="grid gap-1">
+                                            <Label className="text-xs text-muted-foreground">
+                                              Substrate QA passed?
+                                            </Label>
+                                            <Select
+                                              value={repair.substrateQaPassed ? "yes" : "no"}
+                                              onValueChange={(val) =>
+                                                handleUpdateRepairDetails(vehicle.id, repair.id, {
+                                                  substrateQaPassed: val === "yes",
+                                                })
+                                              }
+                                            >
+                                              <SelectTrigger className="h-8">
+                                                <SelectValue />
+                                              </SelectTrigger>
+                                              <SelectContent>
+                                                <SelectItem value="yes">Yes</SelectItem>
+                                                <SelectItem value="no">No</SelectItem>
+                                              </SelectContent>
+                                            </Select>
+                                          </div>
+                                          {!repair.substrateQaPassed && (
+                                            <div className="grid gap-1">
+                                              <Label className="text-xs text-muted-foreground">
+                                                Remediation type
+                                              </Label>
+                                              <Select
+                                                value={repair.remediationType || ""}
+                                                onValueChange={(val) =>
+                                                  handleUpdateRepairDetails(vehicle.id, repair.id, {
+                                                    remediationType: val as RepairSite["remediationType"],
+                                                  })
+                                                }
+                                              >
+                                                <SelectTrigger className="h-8">
+                                                  <SelectValue placeholder="Select remediation" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                  <SelectItem value="scratch_removal">Scratch Removal</SelectItem>
+                                                  <SelectItem value="decontamination">Decontamination</SelectItem>
+                                                  <SelectItem value="prep_polish">Prep-Polish</SelectItem>
+                                                  <SelectItem value="none">None</SelectItem>
+                                                </SelectContent>
+                                              </Select>
+                                            </div>
+                                          )}
+                                        </div>
                                       )}
                                     </div>
                                     <Button
@@ -1850,19 +2051,32 @@ export default function JobCardPage() {
                                       <Label className="text-xs">Pre-Work Photos</Label>
                                       <div className="flex gap-2 flex-wrap">
                                         {prePhotos.map((url, idx) => (
-                                          <button
+                                          <div
                                             key={`${url}-${idx}`}
-                                            type="button"
-                                            className="h-16 w-16 overflow-hidden rounded border border-border/50"
-                                            onClick={() => setPhotoPreview({ url, label: "Pre-Work Photo" })}
+                                            className="relative h-16 w-16 overflow-hidden rounded border border-border/50"
                                           >
-                                            <img
-                                              src={url}
-                                              alt="Pre-work"
-                                              className="h-full w-full object-cover"
-                                              loading="lazy"
-                                            />
-                                          </button>
+                                            <button
+                                              type="button"
+                                              className="h-full w-full"
+                                              onClick={() => setPhotoPreview({ url, label: "Pre-Work Photo" })}
+                                            >
+                                              <img
+                                                src={url}
+                                                alt=\"Pre-work\"
+                                                className=\"h-full w-full object-cover\"
+                                                loading=\"lazy\"
+                                              />
+                                            </button>
+                                            <button
+                                              type=\"button\"
+                                              className=\"absolute -right-2 -top-2 h-5 w-5 rounded-full bg-destructive text-xs text-white\"
+                                              onClick={() =>
+                                                handleRemoveRepairPhoto(vehicle.id, repair.id, "pre", url)
+                                              }
+                                            >
+                                              ×
+                                            </button>
+                                          </div>
                                         ))}
                                         {prePhotos.length === 0 && (
                                           <div className="h-16 w-16 rounded bg-muted flex items-center justify-center text-xs text-muted-foreground">
@@ -1927,19 +2141,32 @@ export default function JobCardPage() {
                                       <Label className="text-xs">Post-Work Photos</Label>
                                       <div className="flex gap-2 flex-wrap">
                                         {postPhotos.map((url, idx) => (
-                                          <button
+                                          <div
                                             key={`${url}-${idx}`}
-                                            type="button"
-                                            className="h-16 w-16 overflow-hidden rounded border border-border/50"
-                                            onClick={() => setPhotoPreview({ url, label: "Post-Work Photo" })}
+                                            className="relative h-16 w-16 overflow-hidden rounded border border-border/50"
                                           >
-                                            <img
-                                              src={url}
-                                              alt="Post-work"
-                                              className="h-full w-full object-cover"
-                                              loading="lazy"
-                                            />
-                                          </button>
+                                            <button
+                                              type="button"
+                                              className="h-full w-full"
+                                              onClick={() => setPhotoPreview({ url, label: "Post-Work Photo" })}
+                                            >
+                                              <img
+                                                src={url}
+                                                alt=\"Post-work\"
+                                                className=\"h-full w-full object-cover\"
+                                                loading=\"lazy\"
+                                              />
+                                            </button>
+                                            <button
+                                              type=\"button\"
+                                              className=\"absolute -right-2 -top-2 h-5 w-5 rounded-full bg-destructive text-xs text-white\"
+                                              onClick={() =>
+                                                handleRemoveRepairPhoto(vehicle.id, repair.id, "post", url)
+                                              }
+                                            >
+                                              ×
+                                            </button>
+                                          </div>
                                         ))}
                                         {postPhotos.length === 0 && (
                                           <div className="h-16 w-16 rounded bg-muted flex items-center justify-center text-xs text-muted-foreground">
@@ -2780,6 +3007,87 @@ export default function JobCardPage() {
                 </SelectContent>
               </Select>
             </div>
+            {newRepair.repairType === "film_installation" && (
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="grid gap-2">
+                  <Label>Film product *</Label>
+                  <Select
+                    value={newRepair.filmProduct}
+                    onValueChange={(val) =>
+                      setNewRepair({ ...newRepair, filmProduct: val as RepairSite["filmProduct"] })
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select film" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="optishield">Optishield</SelectItem>
+                      <SelectItem value="grafshield">Grafshield</SelectItem>
+                      <SelectItem value="bodyshield">BodyShield</SelectItem>
+                      <SelectItem value="radshield">Radshield</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid gap-2">
+                  <Label>Existing tint removal required?</Label>
+                  <Select
+                    value={newRepair.tintRemovalRequired ? "yes" : "no"}
+                    onValueChange={(val) =>
+                      setNewRepair({ ...newRepair, tintRemovalRequired: val === "yes" })
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="yes">Yes</SelectItem>
+                      <SelectItem value="no">No</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid gap-2">
+                  <Label>Substrate QA passed?</Label>
+                  <Select
+                    value={newRepair.substrateQaPassed ? "yes" : "no"}
+                    onValueChange={(val) =>
+                      setNewRepair({ ...newRepair, substrateQaPassed: val === "yes" })
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="yes">Yes</SelectItem>
+                      <SelectItem value="no">No</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {!newRepair.substrateQaPassed && (
+                  <div className="grid gap-2">
+                    <Label>Remediation type *</Label>
+                    <Select
+                      value={newRepair.remediationType}
+                      onValueChange={(val) =>
+                        setNewRepair({
+                          ...newRepair,
+                          remediationType: val as RepairSite["remediationType"],
+                        })
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select remediation" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="scratch_removal">Scratch Removal</SelectItem>
+                        <SelectItem value="decontamination">Decontamination</SelectItem>
+                        <SelectItem value="prep_polish">Prep-Polish</SelectItem>
+                        <SelectItem value="none">None</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+              </div>
+            )}
             <div className="space-y-2">
               <Label htmlFor="repairLocation">Location on Vehicle *</Label>
               <Input

@@ -149,6 +149,10 @@ export interface RepairWorkLogEntry {
 export interface RepairSite {
   id: string;
   repairType: RepairType;
+  filmProduct?: "optishield" | "grafshield" | "bodyshield" | "radshield";
+  tintRemovalRequired?: boolean;
+  substrateQaPassed?: boolean;
+  remediationType?: "scratch_removal" | "decontamination" | "prep_polish" | "none";
   location: string; // e.g., "Front windscreen - driver side", "Rear bumper - left panel"
   description?: string;
   severity?: "minor" | "moderate" | "severe";
