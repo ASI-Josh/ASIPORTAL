@@ -7,6 +7,7 @@ import {
   addDoc,
   collection,
   doc,
+  getDoc,
   getDocs,
   onSnapshot,
   query,
@@ -36,6 +37,7 @@ import type {
   Job,
   JobRiskAssessment,
   JobRiskAssessmentHazard,
+  ImsRiskRegisterEntry,
 } from "@/lib/types";
 import {
   BOOKING_TYPE_LABELS,
@@ -1131,7 +1133,10 @@ export default function JobCardPage() {
   const handleSaveRiskAssessment = async (markComplete: boolean) => {
     if (!job) return;
     const now = Timestamp.now();
-    const staffNames = job.assignedTechnicians?.map((tech) => tech.name).filter(Boolean) ?? [];
+    const staffNames =
+      job.assignedTechnicians
+        ?.map((tech) => tech.technicianName)
+        .filter((name): name is string => Boolean(name)) ?? [];
     const nextAssessment: JobRiskAssessment = {
       ...riskAssessment,
       hazards: riskAssessment.hazards.map((hazard) => ({
@@ -1156,6 +1161,49 @@ export default function JobCardPage() {
       riskAssessment: nextAssessment,
       updatedAt: now,
     });
+
+    // Sync hazards into the company Risk & Opportunities Register for traceability.
+    try {
+      const hazards = nextAssessment.hazards || [];
+      await Promise.all(
+        hazards.map(async (hazard) => {
+          const riskId = `job-${job.id}-${hazard.id}`;
+          const refDoc = doc(db, COLLECTIONS.IMS_RISK_REGISTER, riskId);
+          const existing = await getDoc(refDoc);
+
+          const payload: Omit<ImsRiskRegisterEntry, "id"> = {
+            entryType: "risk",
+            domain: "whs",
+            title: hazard.label,
+            description: `Identified from SWMS/JSA for job ${job.jobNumber}.`,
+            riskLevel: hazard.riskLevel,
+            present: hazard.present,
+            existingControls: hazard.controls,
+            additionalControls: nextAssessment.additionalControls || "",
+            status: hazard.present ? "open" : "closed",
+            source: {
+              type: "job_risk_assessment",
+              id: job.id,
+              label: job.jobNumber,
+              url: `/dashboard/jobs/${job.id}`,
+            },
+            createdAt: existing.exists() ? (existing.data()?.createdAt as Timestamp) : now,
+            createdById: existing.exists()
+              ? (existing.data()?.createdById as string)
+              : (user?.uid || "system"),
+            createdByName: existing.exists()
+              ? (existing.data()?.createdByName as string)
+              : (user?.name || user?.email || "ASI Staff"),
+            updatedAt: now,
+          };
+
+          await setDoc(refDoc, payload, { merge: true });
+        })
+      );
+    } catch (error) {
+      // Non-blocking: job should still be startable even if risk register sync fails.
+      console.warn("Risk register sync failed", error);
+    }
 
     setRiskAssessment(nextAssessment);
     setShowRiskDialog(false);
@@ -2905,10 +2953,12 @@ export default function JobCardPage() {
                                   />
                                   <Input
                                     placeholder="Qty"
+                                    type="number"
+                                    min="0"
                                     value={consumable.quantity}
                                     onChange={(e) =>
                                       handleUpdateConsumable(vehicle.id, index, {
-                                        quantity: e.target.value,
+                                        quantity: Number.parseFloat(e.target.value) || 0,
                                       })
                                     }
                                     className="h-8"
@@ -2942,6 +2992,8 @@ export default function JobCardPage() {
                                 />
                                 <Input
                                   placeholder="Qty"
+                                  type="number"
+                                  min="0"
                                   value={consumableDrafts[vehicle.id]?.quantity || ""}
                                   onChange={(e) =>
                                     setConsumableDrafts((prev) => ({

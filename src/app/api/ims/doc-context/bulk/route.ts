@@ -44,7 +44,12 @@ export async function POST(req: NextRequest) {
     const results = { synced: 0, skipped: 0, errors: [] as string[] };
 
     for (const docSnap of docsSnap.docs) {
-      const docData = docSnap.data() as { docNumber?: string; title?: string; docType?: string };
+      const docData = docSnap.data() as {
+        docNumber?: string;
+        title?: string;
+        docType?: string;
+        currentRevisionId?: string;
+      };
       const docNumber = docData.docNumber || docSnap.id;
       try {
         const docRef = admin.firestore().collection(COLLECTIONS.IMS_DOCUMENTS).doc(docNumber);

@@ -10,9 +10,10 @@ const formatTimestamp = (value?: admin.firestore.Timestamp | null) => {
 
 export async function GET(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await context.params;
     const userId = await requireUserId(req);
     const userSnap = await admin.firestore().collection(COLLECTIONS.USERS).doc(userId).get();
     const role = userSnap.data()?.role;
@@ -23,7 +24,7 @@ export async function GET(
     const profileSnap = await admin
       .firestore()
       .collection(COLLECTIONS.AGENT_PROFILES)
-      .doc(params.id)
+      .doc(id)
       .get();
 
     if (!profileSnap.exists) {
@@ -52,9 +53,10 @@ export async function GET(
 
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await context.params;
     const userId = await requireUserId(req);
     const userSnap = await admin.firestore().collection(COLLECTIONS.USERS).doc(userId).get();
     const role = userSnap.data()?.role;
@@ -83,7 +85,7 @@ export async function PATCH(
     await admin
       .firestore()
       .collection(COLLECTIONS.AGENT_PROFILES)
-      .doc(params.id)
+      .doc(id)
       .set(update, { merge: true });
 
     return NextResponse.json({ status: "ok" });

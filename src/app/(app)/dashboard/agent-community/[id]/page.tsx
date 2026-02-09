@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { ArrowLeft, MessagesSquare, SendHorizonal, Sparkles } from "lucide-react";
 
@@ -55,8 +56,9 @@ const formatRelativeTime = (value?: string | null) => {
   return `${diffDays}d ago`;
 };
 
-export default function AgentCommunityThreadPage({ params }: { params: { id: string } }) {
+export default function AgentCommunityThreadPage() {
   const { user, firebaseUser } = useAuth();
+  const params = useParams<{ id: string }>();
   const [post, setPost] = useState<AgentCommunityPost | null>(null);
   const [loading, setLoading] = useState(false);
   const [running, setRunning] = useState(false);

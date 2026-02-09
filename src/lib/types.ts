@@ -1131,6 +1131,140 @@ export interface TechnicianPerformance {
 }
 
 // ============================================
+// IMS INCIDENT MANAGEMENT (ISO 9001/14001/45001)
+// ============================================
+
+export type ImsIncidentCategory = "whs" | "environment" | "quality" | "property" | "security" | "other";
+export type ImsIncidentType =
+  | "injury"
+  | "near_miss"
+  | "hazard"
+  | "unsafe_condition"
+  | "spill"
+  | "nonconformance"
+  | "property_damage"
+  | "other";
+export type ImsIncidentSeverity = "low" | "medium" | "high" | "critical";
+export type ImsIncidentStatus =
+  | "draft"
+  | "reported"
+  | "investigating"
+  | "actions_required"
+  | "closed";
+
+export type ImsRiskDomain = "quality" | "environment" | "whs";
+export type ImsRiskRegisterEntryType = "risk" | "opportunity";
+export type ImsRiskRegisterStatus = "open" | "in_progress" | "closed";
+
+export interface ImsIncidentAttachment {
+  name: string;
+  path: string;
+  url: string;
+  contentType?: string;
+  size?: number;
+  uploadedAt: Timestamp;
+  uploadedById: string;
+  uploadedByName: string;
+}
+
+export interface ImsIncidentHazard {
+  id: string;
+  label: string;
+  present: boolean;
+  riskLevel: "low" | "medium" | "high";
+  controls: string;
+}
+
+export interface ImsIncidentInvestigation {
+  investigator?: {
+    id: string;
+    name: string;
+    email?: string;
+  };
+  startedAt?: Timestamp;
+  completedAt?: Timestamp;
+  summary?: string;
+  rootCause?: string;
+  contributingFactors?: string;
+  correctiveActions?: Array<{
+    id: string;
+    title: string;
+    description: string;
+    ownerId?: string;
+    ownerName?: string;
+    dueDate?: string;
+    status: "open" | "in_progress" | "closed";
+    closureNotes?: string;
+    closedAt?: Timestamp;
+    closedByName?: string;
+  }>;
+  verificationEvidence?: string;
+  lessonsLearned?: string;
+}
+
+export interface ImsIncident {
+  id: string;
+  incidentNumber: string;
+  category: ImsIncidentCategory;
+  incidentType: ImsIncidentType;
+  severity: ImsIncidentSeverity;
+  status: ImsIncidentStatus;
+  occurredAt: Timestamp;
+  reportedAt: Timestamp;
+  reportedById: string;
+  reportedByName: string;
+  reportedByEmail?: string;
+  jobId?: string;
+  jobNumber?: string;
+  organizationId?: string;
+  organizationName?: string;
+  siteLocation?: {
+    name: string;
+    address: string;
+  };
+  description: string;
+  immediateActions?: string;
+  hazards?: ImsIncidentHazard[];
+  attachments?: ImsIncidentAttachment[];
+  investigation?: ImsIncidentInvestigation;
+  closedAt?: Timestamp;
+  closedById?: string;
+  closedByName?: string;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
+export interface ImsRiskRegisterEntry {
+  id: string;
+  entryType: ImsRiskRegisterEntryType;
+  domain: ImsRiskDomain;
+  title: string;
+  description?: string;
+  riskLevel?: "low" | "medium" | "high" | "critical";
+  present?: boolean;
+  existingControls?: string;
+  additionalControls?: string;
+  owner?: {
+    id: string;
+    name: string;
+    email?: string;
+  };
+  status: ImsRiskRegisterStatus;
+  source: {
+    type: "incident" | "job_risk_assessment" | "inspection" | "prestart" | "other";
+    id: string;
+    label?: string;
+    url?: string;
+  };
+  linkedCorrectiveActionIds?: string[];
+  lastReviewedAt?: Timestamp;
+  createdAt: Timestamp;
+  createdById: string;
+  createdByName: string;
+  updatedAt: Timestamp;
+}
+
+// ============================================
 // HELPER TYPES
 // ============================================
 

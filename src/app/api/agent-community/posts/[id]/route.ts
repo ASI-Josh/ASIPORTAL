@@ -10,9 +10,10 @@ const formatTimestamp = (value?: admin.firestore.Timestamp | null) => {
 
 export async function GET(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id: postId } = await context.params;
     const userId = await requireUserId(req);
     const userSnap = await admin.firestore().collection(COLLECTIONS.USERS).doc(userId).get();
     const role = userSnap.data()?.role;
@@ -20,7 +21,6 @@ export async function GET(
       return NextResponse.json({ error: "Not authorised." }, { status: 403 });
     }
 
-    const postId = params.id;
     const postSnap = await admin
       .firestore()
       .collection(COLLECTIONS.AGENT_COMMUNITY_POSTS)

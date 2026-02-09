@@ -140,7 +140,7 @@ export async function POST(req: NextRequest) {
         extractionError,
         createdAt: now,
         createdById: userId,
-        createdByName: user.name || user.email || "Admin",
+        createdByName: user?.name || user?.email || "Admin",
       });
 
     return NextResponse.json({ id: docRef.id, warning: extractionError });

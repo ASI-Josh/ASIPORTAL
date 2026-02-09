@@ -258,6 +258,29 @@ export async function generateBookingNumber(): Promise<string> {
   return `BK-${year}-${nextNumber}`;
 }
 
+export async function generateIncidentNumber(): Promise<string> {
+  const year = new Date().getFullYear();
+  const incidentsRef = collection(db, COLLECTIONS.IMS_INCIDENTS);
+  const q = query(
+    incidentsRef,
+    where("incidentNumber", ">=", `INC-${year}-`),
+    where("incidentNumber", "<", `INC-${year + 1}-`),
+    orderBy("incidentNumber", "desc"),
+    limit(1)
+  );
+
+  const snapshot = await getDocs(q);
+  if (snapshot.empty) {
+    return `INC-${year}-0001`;
+  }
+
+  const lastNumber = parseInt(
+    snapshot.docs[0].data().incidentNumber.split("-")[2]
+  );
+  const nextNumber = (lastNumber + 1).toString().padStart(4, "0");
+  return `INC-${year}-${nextNumber}`;
+}
+
 // ============================================
 // ROLE-BASED QUERY HELPERS
 // ============================================

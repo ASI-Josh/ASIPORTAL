@@ -65,5 +65,9 @@ service firebase.storage {
       allow read: if isStaff();
       allow write: if isStaff();
     }
+
+    match /ims-incidents/{allPaths=**} {
+      allow read, write: if isStaff();
+    }
   }
 }

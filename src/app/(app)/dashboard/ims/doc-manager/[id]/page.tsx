@@ -176,7 +176,7 @@ const wrapText = (text: string, maxWidth: number, font: any, size: number) => {
 export default function DocManagerDetailPage() {
   const params = useParams();
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, firebaseUser } = useAuth();
   const { toast } = useToast();
   const docId = params.id as string;
   const approverEmail = "joshua@asi-australia.com.au";
@@ -640,7 +640,7 @@ export default function DocManagerDetailPage() {
     if (!user || user.role !== "admin") return;
     setSharingToHub(true);
     try {
-      const token = await user.getIdToken?.();
+      const token = await firebaseUser?.getIdToken();
       const revisionId = latestDraft?.id || docRecord.currentRevisionId || null;
       const response = await fetch("/api/ims/doc-context", {
         method: "POST",

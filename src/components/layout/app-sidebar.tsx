@@ -24,6 +24,7 @@ import {
   Layers,
   Bot,
   MessagesSquare,
+  AlertTriangle,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import {
@@ -78,6 +79,7 @@ export function AppSidebar() {
         technician: [
           { href: "/technician", label: "Technician Dashboard", icon: Wrench },
           { href: "/dashboard/daily-prestart", label: "Daily Prestart", icon: ClipboardCheck },
+          { href: "/dashboard/ims/incidents", label: "Incidents", icon: AlertTriangle },
           { href: "/dashboard/ims/library", label: "IMS Library", icon: Layers },
         ],
         client: [

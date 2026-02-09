@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { ArrowLeft, UserCircle2 } from "lucide-react";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
@@ -35,8 +36,9 @@ type AgentProfile = {
   updatedAt?: string | null;
 };
 
-export default function AgentProfilePage({ params }: { params: { id: string } }) {
+export default function AgentProfilePage() {
   const { user, firebaseUser } = useAuth();
+  const params = useParams<{ id: string }>();
   const { toast } = useToast();
   const [profile, setProfile] = useState<AgentProfile | null>(null);
   const [error, setError] = useState<string | null>(null);

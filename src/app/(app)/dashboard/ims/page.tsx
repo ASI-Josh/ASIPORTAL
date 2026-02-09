@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowDown, ClipboardCheck, FileText, Layers } from "lucide-react";
+import { ArrowDown, ClipboardCheck, FileText, Layers, ShieldAlert } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -146,6 +146,17 @@ export default function ImsHubPage() {
                   >
                     <FileText className="h-4 w-4 text-primary" />
                     Corrective Action Register
+                  </Link>
+                  <Link href="/dashboard/ims/incidents" className="flex items-center gap-2">
+                    <ShieldAlert className="h-4 w-4 text-primary" />
+                    Incident Register
+                  </Link>
+                  <Link
+                    href="/dashboard/ims/risk-register"
+                    className="flex items-center gap-2"
+                  >
+                    <ShieldAlert className="h-4 w-4 text-primary" />
+                    Risk & Opportunities Register
                   </Link>
                   <Link href="/dashboard/goods-received" className="flex items-center gap-2">
                     <FileText className="h-4 w-4 text-primary" />

@@ -65,7 +65,7 @@ const formatDocNumber = (prefix: string, value: number) =>
 
 export default function DocManagerPage() {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, firebaseUser } = useAuth();
   const { toast } = useToast();
   const [documents, setDocuments] = useState<IMSDocument[]>([]);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
@@ -212,7 +212,7 @@ export default function DocManagerPage() {
               if (!user) return;
               setSharingAll(true);
               try {
-                const token = await user.getIdToken?.();
+                const token = await firebaseUser?.getIdToken();
                 const response = await fetch("/api/ims/doc-context/bulk", {
                   method: "POST",
                   headers: {
