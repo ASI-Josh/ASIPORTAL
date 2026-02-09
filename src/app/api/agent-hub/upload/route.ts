@@ -58,8 +58,17 @@ export async function POST(req: NextRequest) {
         : "application/octet-stream";
 
     const bucketName =
-      process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || admin.storage().bucket().name;
-    const bucket = bucketName ? admin.storage().bucket(bucketName) : admin.storage().bucket();
+      process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || process.env.FIREBASE_STORAGE_BUCKET;
+    if (!bucketName) {
+      return NextResponse.json(
+        {
+          error:
+            "Firebase Storage bucket not configured. Set NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET (or FIREBASE_STORAGE_BUCKET) in your runtime env vars.",
+        },
+        { status: 500 }
+      );
+    }
+    const bucket = admin.storage().bucket(bucketName);
     const token = crypto.randomUUID();
 
     await bucket.file(storagePath).save(buffer, {

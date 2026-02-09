@@ -67,10 +67,15 @@ export async function POST(req: NextRequest) {
 
     if (!extractedText && revisionData?.file?.path) {
       try {
-        const bucketName =
-          process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || admin.storage().bucket().name;
-        const bucket = bucketName ? admin.storage().bucket(bucketName) : admin.storage().bucket();
-        const [buffer] = await bucket.file(revisionData.file.path).download();
+          const bucketName =
+            process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || process.env.FIREBASE_STORAGE_BUCKET;
+          if (!bucketName) {
+            throw new Error(
+              "Firebase Storage bucket not configured. Set NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET (or FIREBASE_STORAGE_BUCKET)."
+            );
+          }
+          const bucket = admin.storage().bucket(bucketName);
+          const [buffer] = await bucket.file(revisionData.file.path).download();
         const { extractTextFromBuffer, summarizeTextWithAi } = await import(
           "@/lib/assistant/doc-extract"
         );
