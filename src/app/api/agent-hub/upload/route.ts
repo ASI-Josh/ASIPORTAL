@@ -13,19 +13,49 @@ const buildDownloadUrl = (bucketName: string, filePath: string, token: string) =
 
 export async function POST(req: NextRequest) {
   try {
-    const { userId, user } = await requireAdminUser(req);
+    let userId = "";
+    let user: { role?: string; name?: string; email?: string } | null = null;
+    try {
+      const adminUser = await requireAdminUser(req);
+      userId = adminUser.userId;
+      user = adminUser.user;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Not authorised.";
+      const status = message.toLowerCase().includes("missing authorization") ? 401 : 403;
+      return NextResponse.json({ error: message }, { status });
+    }
+
     const formData = await req.formData();
-    const file = formData.get("file");
-    if (!(file instanceof File)) {
+    const fileField = formData.get("file");
+    const blob =
+      fileField && typeof fileField === "object" && "arrayBuffer" in fileField
+        ? (fileField as Blob)
+        : null;
+    if (!blob) {
       return NextResponse.json({ error: "File is required." }, { status: 400 });
     }
 
-    const fileName = file.name || "document";
+    // Netlify/Serverless safety limit: avoid huge bodies causing opaque 500s.
+    const MAX_BYTES = 18 * 1024 * 1024; // 18MB
+    if (typeof (blob as any).size === "number" && (blob as any).size > MAX_BYTES) {
+      return NextResponse.json(
+        { error: "File too large. Please upload a smaller file (max 18MB)." },
+        { status: 413 }
+      );
+    }
+
+    const fileName =
+      fileField && typeof fileField === "object" && "name" in fileField && typeof (fileField as any).name === "string"
+        ? ((fileField as any).name as string)
+        : "document";
     const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
     const docId = crypto.randomUUID();
     const storagePath = `agent-hub/${docId}/${safeName}`;
-    const buffer = Buffer.from(await file.arrayBuffer());
-    const contentType = file.type || "application/octet-stream";
+    const buffer = Buffer.from(await blob.arrayBuffer());
+    const contentType =
+      fileField && typeof fileField === "object" && "type" in fileField && typeof (fileField as any).type === "string"
+        ? ((fileField as any).type as string) || "application/octet-stream"
+        : "application/octet-stream";
 
     const bucketName =
       process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || admin.storage().bucket().name;
@@ -48,12 +78,12 @@ export async function POST(req: NextRequest) {
       const { extractTextFromBuffer, summarizeTextWithAi } = await import(
         "@/lib/assistant/doc-extract"
       );
-      extractedText = await extractTextFromBuffer(buffer, contentType, fileName);
-      summary = await summarizeTextWithAi(extractedText);
-    } catch (error) {
-      extractionError =
-        error instanceof Error ? error.message : "Unable to extract document text.";
-    }
+        extractedText = await extractTextFromBuffer(buffer, contentType, fileName);
+        summary = await summarizeTextWithAi(extractedText);
+      } catch (error) {
+        extractionError =
+          error instanceof Error ? error.message : "Unable to extract document text.";
+      }
 
     const downloadUrl = buildDownloadUrl(bucket.name, storagePath, token);
     const now = admin.firestore.FieldValue.serverTimestamp();
