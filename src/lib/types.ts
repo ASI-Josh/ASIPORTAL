@@ -348,13 +348,19 @@ export interface Job {
   riskAssessment?: JobRiskAssessment;
 }
 
-export type RiskAssessmentRiskLevel = "low" | "medium" | "high";
+export type RiskAssessmentRiskLevel = "low" | "medium" | "high" | "critical";
 
 export interface JobRiskAssessmentHazard {
   id: string;
   label: string;
   present: boolean;
   riskLevel: RiskAssessmentRiskLevel;
+  residualRiskLevel?: RiskAssessmentRiskLevel;
+  initialLikelihood?: number;
+  initialConsequence?: number;
+  residualLikelihood?: number;
+  residualConsequence?: number;
+  exposureNotes?: string;
   controls: string;
 }
 
@@ -1240,7 +1246,7 @@ export interface ImsRiskRegisterEntry {
   domain: ImsRiskDomain;
   title: string;
   description?: string;
-  riskLevel?: "low" | "medium" | "high" | "critical";
+  riskLevel?: RiskAssessmentRiskLevel;
   present?: boolean;
   existingControls?: string;
   additionalControls?: string;

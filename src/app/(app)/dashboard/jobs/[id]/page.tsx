@@ -45,6 +45,13 @@ import {
   MICROFIBER_DISK_SIZES,
   calculateCostBreakdown,
 } from "@/lib/types";
+import {
+  HSE_CONSEQUENCE,
+  HSE_LIKELIHOOD,
+  hseDefaultRatingsForLevel,
+  hseRiskLevelFromScore,
+  hseRiskScore,
+} from "@/lib/hse-risk";
 import { getPublicEnv } from "@/lib/public-env";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -113,6 +120,7 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { InternalKnowledgeAssistant } from "@/components/assistant/internal-knowledge-assistant";
+import { HseRiskMatrix } from "@/components/hse/hse-risk-matrix";
 
 const statusColors: Record<JobStatus, string> = {
   pending: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30",
@@ -144,83 +152,158 @@ const repairStatusLabels: Record<RepairWorkStatus, string> = {
   completed: "Completed",
 };
 
+const hseRiskLevelBadges: Record<JobRiskAssessmentHazard["riskLevel"], string> = {
+  low: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
+  medium: "bg-amber-500/15 text-amber-300 border-amber-500/30",
+  high: "bg-orange-500/15 text-orange-300 border-orange-500/30",
+  critical: "bg-red-500/15 text-red-300 border-red-500/30",
+};
+
 const DEFAULT_RISK_HAZARDS: JobRiskAssessmentHazard[] = [
   {
     id: "vehicle_movement",
     label: "Vehicle or bus movement in depot/work zone",
     present: false,
-    riskLevel: "medium",
+    initialLikelihood: 4,
+    initialConsequence: 4,
+    residualLikelihood: 3,
+    residualConsequence: 3,
+    riskLevel: hseRiskLevelFromScore(hseRiskScore(4, 4)),
+    residualRiskLevel: hseRiskLevelFromScore(hseRiskScore(3, 3)),
     controls: "Traffic management plan, spotter, exclusion zone.",
   },
   {
     id: "working_at_height",
     label: "Working at height (steps, ladders, platforms)",
     present: false,
-    riskLevel: "medium",
+    initialLikelihood: 3,
+    initialConsequence: 4,
+    residualLikelihood: 2,
+    residualConsequence: 4,
+    riskLevel: hseRiskLevelFromScore(hseRiskScore(3, 4)),
+    residualRiskLevel: hseRiskLevelFromScore(hseRiskScore(2, 4)),
     controls: "Use approved access equipment, maintain 3 points of contact.",
   },
   {
     id: "manual_handling",
     label: "Manual handling or heavy lifting",
     present: false,
-    riskLevel: "medium",
+    initialLikelihood: 3,
+    initialConsequence: 3,
+    residualLikelihood: 2,
+    residualConsequence: 3,
+    riskLevel: hseRiskLevelFromScore(hseRiskScore(3, 3)),
+    residualRiskLevel: hseRiskLevelFromScore(hseRiskScore(2, 3)),
     controls: "Use team lift or mechanical aids, follow safe lifting technique.",
   },
   {
     id: "chemicals",
     label: "Chemical exposure (cleaners, solvents, coatings)",
     present: false,
-    riskLevel: "medium",
+    initialLikelihood: 3,
+    initialConsequence: 3,
+    residualLikelihood: 2,
+    residualConsequence: 3,
+    riskLevel: hseRiskLevelFromScore(hseRiskScore(3, 3)),
+    residualRiskLevel: hseRiskLevelFromScore(hseRiskScore(2, 3)),
     controls: "Review SDS, wear PPE, ensure ventilation.",
   },
   {
     id: "electrical",
     label: "Electrical hazards or powered tools",
     present: false,
-    riskLevel: "medium",
+    initialLikelihood: 3,
+    initialConsequence: 4,
+    residualLikelihood: 2,
+    residualConsequence: 4,
+    riskLevel: hseRiskLevelFromScore(hseRiskScore(3, 4)),
+    residualRiskLevel: hseRiskLevelFromScore(hseRiskScore(2, 4)),
     controls: "Inspect leads/tools, use RCD, isolate where required.",
   },
   {
     id: "hot_work",
     label: "Hot work or heat sources",
     present: false,
-    riskLevel: "high",
+    initialLikelihood: 4,
+    initialConsequence: 5,
+    residualLikelihood: 2,
+    residualConsequence: 5,
+    riskLevel: hseRiskLevelFromScore(hseRiskScore(4, 5)),
+    residualRiskLevel: hseRiskLevelFromScore(hseRiskScore(2, 5)),
     controls: "Permit if required, fire watch, keep extinguisher nearby.",
   },
   {
     id: "noise",
     label: "Noise exposure",
     present: false,
-    riskLevel: "low",
+    initialLikelihood: 3,
+    initialConsequence: 2,
+    residualLikelihood: 2,
+    residualConsequence: 2,
+    riskLevel: hseRiskLevelFromScore(hseRiskScore(3, 2)),
+    residualRiskLevel: hseRiskLevelFromScore(hseRiskScore(2, 2)),
     controls: "Use hearing protection, limit exposure time.",
   },
   {
     id: "slips_trips",
     label: "Slips, trips, or uneven surfaces",
     present: false,
-    riskLevel: "medium",
+    initialLikelihood: 4,
+    initialConsequence: 3,
+    residualLikelihood: 2,
+    residualConsequence: 3,
+    riskLevel: hseRiskLevelFromScore(hseRiskScore(4, 3)),
+    residualRiskLevel: hseRiskLevelFromScore(hseRiskScore(2, 3)),
     controls: "Housekeeping, clear walkways, use signage.",
   },
   {
     id: "public_interaction",
     label: "Public or client interaction in work area",
     present: false,
-    riskLevel: "medium",
+    initialLikelihood: 3,
+    initialConsequence: 3,
+    residualLikelihood: 2,
+    residualConsequence: 3,
+    riskLevel: hseRiskLevelFromScore(hseRiskScore(3, 3)),
+    residualRiskLevel: hseRiskLevelFromScore(hseRiskScore(2, 3)),
     controls: "Set barriers, communicate with site contact.",
   },
   {
     id: "weather",
     label: "Weather exposure (heat, rain, wind)",
     present: false,
-    riskLevel: "medium",
+    initialLikelihood: 3,
+    initialConsequence: 3,
+    residualLikelihood: 2,
+    residualConsequence: 3,
+    riskLevel: hseRiskLevelFromScore(hseRiskScore(3, 3)),
+    residualRiskLevel: hseRiskLevelFromScore(hseRiskScore(2, 3)),
     controls: "Monitor conditions, adjust schedule, hydrate.",
   },
   {
     id: "confined_space",
     label: "Confined or restricted spaces",
     present: false,
-    riskLevel: "high",
+    initialLikelihood: 4,
+    initialConsequence: 5,
+    residualLikelihood: 3,
+    residualConsequence: 5,
+    riskLevel: hseRiskLevelFromScore(hseRiskScore(4, 5)),
+    residualRiskLevel: hseRiskLevelFromScore(hseRiskScore(3, 5)),
     controls: "Permit, monitoring, standby, rescue plan.",
+  },
+  {
+    id: "dust_particulates",
+    label: "Dust / airborne particulates (especially in enclosed spaces)",
+    present: false,
+    initialLikelihood: 4,
+    initialConsequence: 4,
+    residualLikelihood: 2,
+    residualConsequence: 4,
+    riskLevel: hseRiskLevelFromScore(hseRiskScore(4, 4)),
+    residualRiskLevel: hseRiskLevelFromScore(hseRiskScore(2, 4)),
+    controls:
+      "Assess ventilation, use wet methods/HEPA vacuum, isolate work area, wear P2/P3 respirator.",
   },
 ];
 
@@ -329,7 +412,42 @@ export default function JobCardPage() {
     const existingHazards = existing.hazards || [];
     const mergedHazards = base.hazards.map((hazard) => {
       const match = existingHazards.find((item) => item.id === hazard.id);
-      return match ? { ...hazard, ...match } : hazard;
+      if (!match) return hazard;
+
+      const merged = { ...hazard, ...match };
+
+      if (!merged.initialLikelihood || !merged.initialConsequence) {
+        const defaults = hseDefaultRatingsForLevel(merged.riskLevel);
+        merged.initialLikelihood = defaults.likelihood;
+        merged.initialConsequence = defaults.consequence;
+      }
+
+      if (!merged.residualLikelihood || !merged.residualConsequence) {
+        const residualDefaults = merged.residualRiskLevel
+          ? hseDefaultRatingsForLevel(merged.residualRiskLevel)
+          : null;
+        merged.residualLikelihood =
+          residualDefaults?.likelihood ?? merged.initialLikelihood ?? hazard.initialLikelihood ?? 3;
+        merged.residualConsequence =
+          residualDefaults?.consequence ??
+          merged.initialConsequence ??
+          hazard.initialConsequence ??
+          3;
+      }
+
+      const initialScore = hseRiskScore(
+        merged.initialLikelihood ?? hazard.initialLikelihood ?? 3,
+        merged.initialConsequence ?? hazard.initialConsequence ?? 3
+      );
+      merged.riskLevel = hseRiskLevelFromScore(initialScore);
+
+      const residualScore = hseRiskScore(
+        merged.residualLikelihood ?? merged.initialLikelihood ?? hazard.initialLikelihood ?? 3,
+        merged.residualConsequence ?? merged.initialConsequence ?? hazard.initialConsequence ?? 3
+      );
+      merged.residualRiskLevel = hseRiskLevelFromScore(residualScore);
+
+      return merged;
     });
 
     return {
@@ -344,6 +462,39 @@ export default function JobCardPage() {
   const [riskAssessment, setRiskAssessment] = useState<JobRiskAssessment>(() =>
     buildRiskAssessmentDraft(job?.riskAssessment)
   );
+
+  const hseRiskSummary = useMemo(() => {
+    const hazards = riskAssessment.hazards || [];
+    let maxInitialScore = 0;
+    let maxResidualScore = 0;
+    let presentCount = 0;
+
+    hazards.forEach((hazard) => {
+      if (!hazard.present) return;
+      presentCount += 1;
+      const initialScore = hseRiskScore(
+        hazard.initialLikelihood ?? 3,
+        hazard.initialConsequence ?? 3
+      );
+      const residualScore = hseRiskScore(
+        hazard.residualLikelihood ?? hazard.initialLikelihood ?? 3,
+        hazard.residualConsequence ?? hazard.initialConsequence ?? 3
+      );
+      if (initialScore > maxInitialScore) maxInitialScore = initialScore;
+      if (residualScore > maxResidualScore) maxResidualScore = residualScore;
+    });
+
+    const safeInitial = maxInitialScore > 0 ? maxInitialScore : 1;
+    const safeResidual = maxResidualScore > 0 ? maxResidualScore : 1;
+    return {
+      presentCount,
+      maxInitialScore,
+      maxResidualScore,
+      initialLevel: hseRiskLevelFromScore(safeInitial),
+      residualLevel: hseRiskLevelFromScore(safeResidual),
+    };
+  }, [riskAssessment.hazards]);
+
   const [showNextJobDialog, setShowNextJobDialog] = useState(false);
   const [nextJobCandidate, setNextJobCandidate] = useState<Job | null>(null);
   const [sendingCompletionNotice, setSendingCompletionNotice] = useState(false);
@@ -1139,10 +1290,35 @@ export default function JobCardPage() {
         .filter((name): name is string => Boolean(name)) ?? [];
     const nextAssessment: JobRiskAssessment = {
       ...riskAssessment,
-      hazards: riskAssessment.hazards.map((hazard) => ({
-        ...hazard,
-        controls: hazard.controls.trim(),
-      })),
+      hazards: riskAssessment.hazards.map((hazard) => {
+        const initialLikelihood =
+          hazard.initialLikelihood ?? hseDefaultRatingsForLevel(hazard.riskLevel).likelihood;
+        const initialConsequence =
+          hazard.initialConsequence ?? hseDefaultRatingsForLevel(hazard.riskLevel).consequence;
+        const residualLikelihood =
+          hazard.residualLikelihood ??
+          hazard.initialLikelihood ??
+          hseDefaultRatingsForLevel(hazard.riskLevel).likelihood;
+        const residualConsequence =
+          hazard.residualConsequence ??
+          hazard.initialConsequence ??
+          hseDefaultRatingsForLevel(hazard.riskLevel).consequence;
+
+        const initialScore = hseRiskScore(initialLikelihood, initialConsequence);
+        const residualScore = hseRiskScore(residualLikelihood, residualConsequence);
+
+        return {
+          ...hazard,
+          controls: hazard.controls.trim(),
+          exposureNotes: hazard.exposureNotes?.trim() || "",
+          initialLikelihood,
+          initialConsequence,
+          residualLikelihood,
+          residualConsequence,
+          riskLevel: hseRiskLevelFromScore(initialScore),
+          residualRiskLevel: hseRiskLevelFromScore(residualScore),
+        };
+      }),
       additionalControls: riskAssessment.additionalControls.trim(),
       notes: riskAssessment.notes.trim(),
     };
@@ -1171,12 +1347,28 @@ export default function JobCardPage() {
           const refDoc = doc(db, COLLECTIONS.IMS_RISK_REGISTER, riskId);
           const existing = await getDoc(refDoc);
 
+          const initialScore = hseRiskScore(
+            hazard.initialLikelihood ?? 3,
+            hazard.initialConsequence ?? 3
+          );
+          const residualScore = hseRiskScore(
+            hazard.residualLikelihood ?? hazard.initialLikelihood ?? 3,
+            hazard.residualConsequence ?? hazard.initialConsequence ?? 3
+          );
+          const initialLevel = hseRiskLevelFromScore(initialScore);
+          const residualLevel = hseRiskLevelFromScore(residualScore);
+          const ratingSummary = `Initial ${initialLevel.toUpperCase()} (${initialScore}) -> Residual ${residualLevel.toUpperCase()} (${residualScore}).`;
+          const dustNotes =
+            hazard.id === "dust_particulates" && hazard.exposureNotes
+              ? ` Dust notes: ${hazard.exposureNotes}.`
+              : "";
+
           const payload: Omit<ImsRiskRegisterEntry, "id"> = {
             entryType: "risk",
             domain: "whs",
             title: hazard.label,
-            description: `Identified from SWMS/JSA for job ${job.jobNumber}.`,
-            riskLevel: hazard.riskLevel,
+            description: `Identified from Site HSE Risk Assessment for job ${job.jobNumber}. ${ratingSummary}${dustNotes}`,
+            riskLevel: hazard.residualRiskLevel ?? hazard.riskLevel,
             present: hazard.present,
             existingControls: hazard.controls,
             additionalControls: nextAssessment.additionalControls || "",
@@ -1208,10 +1400,10 @@ export default function JobCardPage() {
     setRiskAssessment(nextAssessment);
     setShowRiskDialog(false);
     toast({
-      title: markComplete ? "Risk Assessment Completed" : "Risk Assessment Saved",
+      title: markComplete ? "HSE Risk Assessment Completed" : "HSE Risk Assessment Saved",
       description: markComplete
-        ? "Site risk assessment recorded. You can now start work."
-        : "Risk assessment draft saved.",
+        ? "Site HSE risk assessment recorded. You can now start work."
+        : "Site HSE risk assessment draft saved.",
     });
   };
 
@@ -1367,8 +1559,8 @@ export default function JobCardPage() {
     if ((action === "start" || action === "resume") && !riskAssessment.completedAt) {
       setShowRiskDialog(true);
       toast({
-        title: "Site Risk Assessment Required",
-        description: "Complete the SWMS/JSA before starting work.",
+        title: "Site HSE Risk Assessment Required",
+        description: "Complete the Site HSE Risk Assessment before starting work.",
       });
       return;
     }
@@ -1898,14 +2090,14 @@ export default function JobCardPage() {
             </Card>
           </div>
 
-          <Card className="bg-card/50 backdrop-blur">
-            <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Shield className="h-4 w-4 text-primary" />
-                Site Risk Assessment (SWMS / JSA)
-              </CardTitle>
+            <Card className="bg-card/50 backdrop-blur">
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Shield className="h-4 w-4 text-primary" />
+                  Site HSE Risk Assessment
+                </CardTitle>
               <CardDescription>
-                Must be completed before work starts (ISO 45001:2016 aligned).
+                Must be completed before work starts (ISO 45001 aligned).
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -1929,7 +2121,9 @@ export default function JobCardPage() {
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <Button onClick={() => setShowRiskDialog(true)}>
-                  {riskAssessment.completedAt ? "View / Update Assessment" : "Begin Site Risk Assessment"}
+                  {riskAssessment.completedAt
+                    ? "View / Update Assessment"
+                    : "Begin Site HSE Risk Assessment"}
                 </Button>
                 {!riskAssessment.completedAt && (
                   <span className="text-xs text-muted-foreground">
@@ -2016,7 +2210,7 @@ export default function JobCardPage() {
           <Dialog open={showRiskDialog} onOpenChange={setShowRiskDialog}>
             <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
               <DialogHeader>
-                <DialogTitle>Site Risk Assessment (SWMS / JSA)</DialogTitle>
+                <DialogTitle>Site HSE Risk Assessment</DialogTitle>
                 <DialogDescription>
                   Complete prior to starting work. One assigned staff member can complete on behalf
                   of the team.
@@ -2153,9 +2347,41 @@ export default function JobCardPage() {
                 </div>
 
                 <div className="space-y-3">
-                  <Label>Hazard Identification & Controls</Label>
+                  <Label>Hazard Identification, Controls & Risk Scoring</Label>
+                  <div className="flex flex-wrap items-center gap-2 text-sm">
+                    <Badge
+                      variant="outline"
+                      className={hseRiskLevelBadges[hseRiskSummary.initialLevel]}
+                    >
+                      Highest initial: {hseRiskSummary.initialLevel.toUpperCase()} (
+                      {hseRiskSummary.maxInitialScore || 0})
+                    </Badge>
+                    <Badge
+                      variant="outline"
+                      className={hseRiskLevelBadges[hseRiskSummary.residualLevel]}
+                    >
+                      Highest residual: {hseRiskSummary.residualLevel.toUpperCase()} (
+                      {hseRiskSummary.maxResidualScore || 0})
+                    </Badge>
+                    <span className="text-muted-foreground">
+                      {hseRiskSummary.presentCount} hazard(s) marked present
+                    </span>
+                  </div>
                   <div className="space-y-3">
                     {riskAssessment.hazards.map((hazard, index) => (
+                      (() => {
+                        const initialScore = hseRiskScore(
+                          hazard.initialLikelihood ?? 3,
+                          hazard.initialConsequence ?? 3
+                        );
+                        const residualScore = hseRiskScore(
+                          hazard.residualLikelihood ?? hazard.initialLikelihood ?? 3,
+                          hazard.residualConsequence ?? hazard.initialConsequence ?? 3
+                        );
+                        const initialLevel = hseRiskLevelFromScore(initialScore);
+                        const residualLevel = hseRiskLevelFromScore(residualScore);
+
+                        return (
                       <div
                         key={hazard.id}
                         className="rounded-lg border border-border/50 p-3 space-y-3"
@@ -2166,51 +2392,241 @@ export default function JobCardPage() {
                             onCheckedChange={(checked) =>
                               setRiskAssessment((prev) => {
                                 const hazards = [...prev.hazards];
-                                hazards[index] = { ...hazard, present: Boolean(checked) };
+                                hazards[index] = { ...hazards[index], present: Boolean(checked) };
                                 return { ...prev, hazards };
                               })
                             }
                           />
                           <span className="font-medium">{hazard.label}</span>
-                          <Select
-                            value={hazard.riskLevel}
-                            onValueChange={(val) =>
-                              setRiskAssessment((prev) => {
-                                const hazards = [...prev.hazards];
-                                hazards[index] = {
-                                  ...hazard,
-                                  riskLevel: val as JobRiskAssessmentHazard["riskLevel"],
-                                };
-                                return { ...prev, hazards };
-                              })
-                            }
-                          >
-                            <SelectTrigger className="w-[140px]">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="low">Low</SelectItem>
-                              <SelectItem value="medium">Medium</SelectItem>
-                              <SelectItem value="high">High</SelectItem>
-                            </SelectContent>
-                          </Select>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Badge
+                              variant="outline"
+                              className={hseRiskLevelBadges[initialLevel]}
+                            >
+                              Initial {initialLevel.toUpperCase()} ({initialScore})
+                            </Badge>
+                            <Badge
+                              variant="outline"
+                              className={hseRiskLevelBadges[residualLevel]}
+                            >
+                              Residual {residualLevel.toUpperCase()} ({residualScore})
+                            </Badge>
+                          </div>
                         </div>
+
+                        <div className="grid gap-3 md:grid-cols-2">
+                          <div className="rounded-lg border border-border/50 bg-muted/20 p-3 space-y-2">
+                            <div className="text-xs font-medium text-muted-foreground">
+                              Uncontrolled (Before Controls)
+                            </div>
+                            <div className="grid gap-3 sm:grid-cols-2">
+                              <div className="space-y-2">
+                                <Label className="text-xs text-muted-foreground">
+                                  Likelihood
+                                </Label>
+                                <Select
+                                  value={String(hazard.initialLikelihood ?? 3)}
+                                  onValueChange={(val) =>
+                                    setRiskAssessment((prev) => {
+                                      const hazards = [...prev.hazards];
+                                      const current = hazards[index];
+                                      const likelihood = Number.parseInt(val, 10);
+                                      const consequence = current.initialConsequence ?? 3;
+                                      const score = hseRiskScore(likelihood, consequence);
+                                      hazards[index] = {
+                                        ...current,
+                                        initialLikelihood: likelihood,
+                                        initialConsequence: consequence,
+                                        riskLevel: hseRiskLevelFromScore(score),
+                                      };
+                                      return { ...prev, hazards };
+                                    })
+                                  }
+                                >
+                                  <SelectTrigger className="w-full" disabled={!hazard.present}>
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {HSE_LIKELIHOOD.map((opt) => (
+                                      <SelectItem key={opt.value} value={String(opt.value)}>
+                                        {opt.value} - {opt.label}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <div className="space-y-2">
+                                <Label className="text-xs text-muted-foreground">
+                                  Consequence
+                                </Label>
+                                <Select
+                                  value={String(hazard.initialConsequence ?? 3)}
+                                  onValueChange={(val) =>
+                                    setRiskAssessment((prev) => {
+                                      const hazards = [...prev.hazards];
+                                      const current = hazards[index];
+                                      const consequence = Number.parseInt(val, 10);
+                                      const likelihood = current.initialLikelihood ?? 3;
+                                      const score = hseRiskScore(likelihood, consequence);
+                                      hazards[index] = {
+                                        ...current,
+                                        initialLikelihood: likelihood,
+                                        initialConsequence: consequence,
+                                        riskLevel: hseRiskLevelFromScore(score),
+                                      };
+                                      return { ...prev, hazards };
+                                    })
+                                  }
+                                >
+                                  <SelectTrigger className="w-full" disabled={!hazard.present}>
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {HSE_CONSEQUENCE.map((opt) => (
+                                      <SelectItem key={opt.value} value={String(opt.value)}>
+                                        {opt.value} - {opt.label}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="rounded-lg border border-border/50 bg-muted/20 p-3 space-y-2">
+                            <div className="text-xs font-medium text-muted-foreground">
+                              Residual (After Controls)
+                            </div>
+                            <div className="grid gap-3 sm:grid-cols-2">
+                              <div className="space-y-2">
+                                <Label className="text-xs text-muted-foreground">
+                                  Likelihood
+                                </Label>
+                                <Select
+                                  value={String(
+                                    hazard.residualLikelihood ?? hazard.initialLikelihood ?? 3
+                                  )}
+                                  onValueChange={(val) =>
+                                    setRiskAssessment((prev) => {
+                                      const hazards = [...prev.hazards];
+                                      const current = hazards[index];
+                                      const likelihood = Number.parseInt(val, 10);
+                                      const consequence =
+                                        current.residualConsequence ??
+                                        current.initialConsequence ??
+                                        3;
+                                      const score = hseRiskScore(likelihood, consequence);
+                                      hazards[index] = {
+                                        ...current,
+                                        residualLikelihood: likelihood,
+                                        residualConsequence: consequence,
+                                        residualRiskLevel: hseRiskLevelFromScore(score),
+                                      };
+                                      return { ...prev, hazards };
+                                    })
+                                  }
+                                >
+                                  <SelectTrigger className="w-full" disabled={!hazard.present}>
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {HSE_LIKELIHOOD.map((opt) => (
+                                      <SelectItem key={opt.value} value={String(opt.value)}>
+                                        {opt.value} - {opt.label}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <div className="space-y-2">
+                                <Label className="text-xs text-muted-foreground">
+                                  Consequence
+                                </Label>
+                                <Select
+                                  value={String(
+                                    hazard.residualConsequence ?? hazard.initialConsequence ?? 3
+                                  )}
+                                  onValueChange={(val) =>
+                                    setRiskAssessment((prev) => {
+                                      const hazards = [...prev.hazards];
+                                      const current = hazards[index];
+                                      const consequence = Number.parseInt(val, 10);
+                                      const likelihood =
+                                        current.residualLikelihood ??
+                                        current.initialLikelihood ??
+                                        3;
+                                      const score = hseRiskScore(likelihood, consequence);
+                                      hazards[index] = {
+                                        ...current,
+                                        residualLikelihood: likelihood,
+                                        residualConsequence: consequence,
+                                        residualRiskLevel: hseRiskLevelFromScore(score),
+                                      };
+                                      return { ...prev, hazards };
+                                    })
+                                  }
+                                >
+                                  <SelectTrigger className="w-full" disabled={!hazard.present}>
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {HSE_CONSEQUENCE.map((opt) => (
+                                      <SelectItem key={opt.value} value={String(opt.value)}>
+                                        {opt.value} - {opt.label}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {hazard.id === "dust_particulates" && hazard.present && (
+                          <div className="space-y-2">
+                            <Label className="text-xs text-muted-foreground">
+                              Dust Level / Enclosed Space Notes
+                            </Label>
+                            <Input
+                              value={hazard.exposureNotes || ""}
+                              onChange={(e) =>
+                                setRiskAssessment((prev) => {
+                                  const hazards = [...prev.hazards];
+                                  hazards[index] = { ...hazards[index], exposureNotes: e.target.value };
+                                  return { ...prev, hazards };
+                                })
+                              }
+                              placeholder="e.g., visible dust, poor ventilation, sanding/grinding nearby"
+                            />
+                          </div>
+                        )}
+
                         <div className="space-y-2">
-                          <Label className="text-xs text-muted-foreground">Controls</Label>
+                          <Label className="text-xs text-muted-foreground">
+                            Controls (Recommended and Implemented)
+                          </Label>
                           <Input
                             value={hazard.controls}
                             onChange={(e) =>
                               setRiskAssessment((prev) => {
                                 const hazards = [...prev.hazards];
-                                hazards[index] = { ...hazard, controls: e.target.value };
+                                hazards[index] = { ...hazards[index], controls: e.target.value };
                                 return { ...prev, hazards };
                               })
                             }
+                            disabled={!hazard.present}
                           />
                         </div>
                       </div>
+                        );
+                      })()
                     ))}
                   </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Risk Control Matrix (Likelihood x Consequence)</Label>
+                  <HseRiskMatrix />
                 </div>
 
                 <div className="space-y-2">
