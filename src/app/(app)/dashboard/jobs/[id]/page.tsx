@@ -99,6 +99,7 @@ import {
   Clock,
   Navigation,
   Upload,
+  Shield,
   Bot,
 } from "lucide-react";
 import {
