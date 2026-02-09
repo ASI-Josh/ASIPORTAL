@@ -34,6 +34,8 @@ import type {
   ConsumableUsage,
   RepairWorkStatus,
   Job,
+  JobRiskAssessment,
+  JobRiskAssessmentHazard,
 } from "@/lib/types";
 import {
   BOOKING_TYPE_LABELS,
@@ -50,6 +52,7 @@ import { Separator } from "@/components/ui/separator";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -138,6 +141,86 @@ const repairStatusLabels: Record<RepairWorkStatus, string> = {
   completed: "Completed",
 };
 
+const DEFAULT_RISK_HAZARDS: JobRiskAssessmentHazard[] = [
+  {
+    id: "vehicle_movement",
+    label: "Vehicle or bus movement in depot/work zone",
+    present: false,
+    riskLevel: "medium",
+    controls: "Traffic management plan, spotter, exclusion zone.",
+  },
+  {
+    id: "working_at_height",
+    label: "Working at height (steps, ladders, platforms)",
+    present: false,
+    riskLevel: "medium",
+    controls: "Use approved access equipment, maintain 3 points of contact.",
+  },
+  {
+    id: "manual_handling",
+    label: "Manual handling or heavy lifting",
+    present: false,
+    riskLevel: "medium",
+    controls: "Use team lift or mechanical aids, follow safe lifting technique.",
+  },
+  {
+    id: "chemicals",
+    label: "Chemical exposure (cleaners, solvents, coatings)",
+    present: false,
+    riskLevel: "medium",
+    controls: "Review SDS, wear PPE, ensure ventilation.",
+  },
+  {
+    id: "electrical",
+    label: "Electrical hazards or powered tools",
+    present: false,
+    riskLevel: "medium",
+    controls: "Inspect leads/tools, use RCD, isolate where required.",
+  },
+  {
+    id: "hot_work",
+    label: "Hot work or heat sources",
+    present: false,
+    riskLevel: "high",
+    controls: "Permit if required, fire watch, keep extinguisher nearby.",
+  },
+  {
+    id: "noise",
+    label: "Noise exposure",
+    present: false,
+    riskLevel: "low",
+    controls: "Use hearing protection, limit exposure time.",
+  },
+  {
+    id: "slips_trips",
+    label: "Slips, trips, or uneven surfaces",
+    present: false,
+    riskLevel: "medium",
+    controls: "Housekeeping, clear walkways, use signage.",
+  },
+  {
+    id: "public_interaction",
+    label: "Public or client interaction in work area",
+    present: false,
+    riskLevel: "medium",
+    controls: "Set barriers, communicate with site contact.",
+  },
+  {
+    id: "weather",
+    label: "Weather exposure (heat, rain, wind)",
+    present: false,
+    riskLevel: "medium",
+    controls: "Monitor conditions, adjust schedule, hydrate.",
+  },
+  {
+    id: "confined_space",
+    label: "Confined or restricted spaces",
+    present: false,
+    riskLevel: "high",
+    controls: "Permit, monitoring, standby, rescue plan.",
+  },
+];
+
 export default function JobCardPage() {
   const params = useParams();
   const router = useRouter();
@@ -188,6 +271,7 @@ export default function JobCardPage() {
   const [aiRequest, setAiRequest] = useState("");
   const [aiResult, setAiResult] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
+  const [showRiskDialog, setShowRiskDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [photoPreview, setPhotoPreview] = useState<{ url: string; label: string } | null>(
     null
@@ -208,6 +292,55 @@ export default function JobCardPage() {
     repairId: string;
   } | null>(null);
   const [showCompleteDialog, setShowCompleteDialog] = useState(false);
+
+  const buildRiskAssessmentDraft = (
+    existing?: JobRiskAssessment
+  ): JobRiskAssessment => {
+    const base: JobRiskAssessment = {
+      siteConditions: {
+        weather: "",
+        lighting: "good",
+        accessClear: true,
+        trafficControlInPlace: false,
+        emergencyAccessClear: true,
+      },
+      ppe: {
+        gloves: true,
+        eyeProtection: true,
+        hiVis: true,
+        hearingProtection: false,
+        respirator: false,
+        hardHat: false,
+        safetyBoots: true,
+        other: "",
+      },
+      hazards: DEFAULT_RISK_HAZARDS.map((hazard) => ({ ...hazard })),
+      additionalControls: "",
+      supervisorNotified: false,
+      stopWorkAuthorityConfirmed: false,
+      notes: "",
+    };
+
+    if (!existing) return base;
+
+    const existingHazards = existing.hazards || [];
+    const mergedHazards = base.hazards.map((hazard) => {
+      const match = existingHazards.find((item) => item.id === hazard.id);
+      return match ? { ...hazard, ...match } : hazard;
+    });
+
+    return {
+      ...base,
+      ...existing,
+      siteConditions: { ...base.siteConditions, ...existing.siteConditions },
+      ppe: { ...base.ppe, ...existing.ppe },
+      hazards: mergedHazards,
+    };
+  };
+
+  const [riskAssessment, setRiskAssessment] = useState<JobRiskAssessment>(() =>
+    buildRiskAssessmentDraft(job?.riskAssessment)
+  );
   const [showNextJobDialog, setShowNextJobDialog] = useState(false);
   const [nextJobCandidate, setNextJobCandidate] = useState<Job | null>(null);
   const [sendingCompletionNotice, setSendingCompletionNotice] = useState(false);
@@ -350,6 +483,11 @@ export default function JobCardPage() {
     const nextDescription = job.jobDescription ?? extractAiDescription(job.notes);
     setJobDescription(nextDescription);
   }, [job, descriptionDirty]);
+
+  useEffect(() => {
+    if (!job) return;
+    setRiskAssessment(buildRiskAssessmentDraft(job.riskAssessment));
+  }, [job?.id, job?.riskAssessment]);
 
   useEffect(() => {
     if (!job) return;
@@ -989,6 +1127,45 @@ export default function JobCardPage() {
     }, 600);
   };
 
+  const handleSaveRiskAssessment = async (markComplete: boolean) => {
+    if (!job) return;
+    const now = Timestamp.now();
+    const staffNames = job.assignedTechnicians?.map((tech) => tech.name).filter(Boolean) ?? [];
+    const nextAssessment: JobRiskAssessment = {
+      ...riskAssessment,
+      hazards: riskAssessment.hazards.map((hazard) => ({
+        ...hazard,
+        controls: hazard.controls.trim(),
+      })),
+      additionalControls: riskAssessment.additionalControls.trim(),
+      notes: riskAssessment.notes.trim(),
+    };
+
+    if (markComplete) {
+      nextAssessment.completedAt = now;
+      nextAssessment.completedBy = {
+        id: user?.uid || "system",
+        name: user?.name || user?.email || "ASI Staff",
+      };
+      nextAssessment.coveredStaffIds = job.assignedTechnicianIds || [];
+      nextAssessment.coveredStaffNames = staffNames;
+    }
+
+    await updateJob(job.id, {
+      riskAssessment: nextAssessment,
+      updatedAt: now,
+    });
+
+    setRiskAssessment(nextAssessment);
+    setShowRiskDialog(false);
+    toast({
+      title: markComplete ? "Risk Assessment Completed" : "Risk Assessment Saved",
+      description: markComplete
+        ? "Site risk assessment recorded. You can now start work."
+        : "Risk assessment draft saved.",
+    });
+  };
+
   const handleUpdateRepairDetails = (
     vehicleId: string,
     repairId: string,
@@ -1138,6 +1315,14 @@ export default function JobCardPage() {
     action: "start" | "hold" | "resume" | "complete",
     note?: string
   ) => {
+    if ((action === "start" || action === "resume") && !riskAssessment.completedAt) {
+      setShowRiskDialog(true);
+      toast({
+        title: "Site Risk Assessment Required",
+        description: "Complete the SWMS/JSA before starting work.",
+      });
+      return;
+    }
     const now = Timestamp.now();
     const changedBy = user?.name || user?.email || user?.uid || "System";
     const actionToStatus: Record<"start" | "hold" | "resume" | "complete", RepairWorkStatus> = {
@@ -1667,6 +1852,48 @@ export default function JobCardPage() {
           <Card className="bg-card/50 backdrop-blur">
             <CardHeader className="pb-3">
               <CardTitle className="flex items-center gap-2 text-base">
+                <Shield className="h-4 w-4 text-primary" />
+                Site Risk Assessment (SWMS / JSA)
+              </CardTitle>
+              <CardDescription>
+                Must be completed before work starts (ISO 45001:2016 aligned).
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex flex-wrap items-center gap-2 text-sm">
+                <Badge
+                  variant="outline"
+                  className={
+                    riskAssessment.completedAt
+                      ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
+                      : "bg-amber-500/15 text-amber-300 border-amber-500/30"
+                  }
+                >
+                  {riskAssessment.completedAt ? "Completed" : "Not Completed"}
+                </Badge>
+                {riskAssessment.completedAt && (
+                  <span className="text-muted-foreground">
+                    Completed by {riskAssessment.completedBy?.name || "ASI Staff"} on{" "}
+                    {formatDate(riskAssessment.completedAt)}
+                  </span>
+                )}
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button onClick={() => setShowRiskDialog(true)}>
+                  {riskAssessment.completedAt ? "View / Update Assessment" : "Begin Site Risk Assessment"}
+                </Button>
+                {!riskAssessment.completedAt && (
+                  <span className="text-xs text-muted-foreground">
+                    Repairs cannot be started until this is completed.
+                  </span>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-card/50 backdrop-blur">
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-base">
                 <FileText className="h-4 w-4 text-primary" />
                 AI Job Description
               </CardTitle>
@@ -1736,6 +1963,278 @@ export default function JobCardPage() {
               </div>
             </CardContent>
           </Card>
+
+          <Dialog open={showRiskDialog} onOpenChange={setShowRiskDialog}>
+            <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>Site Risk Assessment (SWMS / JSA)</DialogTitle>
+                <DialogDescription>
+                  Complete prior to starting work. One assigned staff member can complete on behalf
+                  of the team.
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="space-y-6">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label>Weather Conditions</Label>
+                    <Input
+                      value={riskAssessment.siteConditions.weather}
+                      onChange={(e) =>
+                        setRiskAssessment((prev) => ({
+                          ...prev,
+                          siteConditions: { ...prev.siteConditions, weather: e.target.value },
+                        }))
+                      }
+                      placeholder="e.g., Clear, light rain, hot"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Lighting</Label>
+                    <Select
+                      value={riskAssessment.siteConditions.lighting}
+                      onValueChange={(val) =>
+                        setRiskAssessment((prev) => ({
+                          ...prev,
+                          siteConditions: {
+                            ...prev.siteConditions,
+                            lighting: val as "good" | "poor",
+                          },
+                        }))
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="good">Good</SelectItem>
+                        <SelectItem value="poor">Poor</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      checked={riskAssessment.siteConditions.accessClear}
+                      onCheckedChange={(checked) =>
+                        setRiskAssessment((prev) => ({
+                          ...prev,
+                          siteConditions: {
+                            ...prev.siteConditions,
+                            accessClear: Boolean(checked),
+                          },
+                        }))
+                      }
+                    />
+                    <Label>Access/egress clear</Label>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      checked={riskAssessment.siteConditions.trafficControlInPlace}
+                      onCheckedChange={(checked) =>
+                        setRiskAssessment((prev) => ({
+                          ...prev,
+                          siteConditions: {
+                            ...prev.siteConditions,
+                            trafficControlInPlace: Boolean(checked),
+                          },
+                        }))
+                      }
+                    />
+                    <Label>Traffic control in place</Label>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      checked={riskAssessment.siteConditions.emergencyAccessClear}
+                      onCheckedChange={(checked) =>
+                        setRiskAssessment((prev) => ({
+                          ...prev,
+                          siteConditions: {
+                            ...prev.siteConditions,
+                            emergencyAccessClear: Boolean(checked),
+                          },
+                        }))
+                      }
+                    />
+                    <Label>Emergency access clear</Label>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <Label>Required PPE</Label>
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
+                    {[
+                      { key: "hiVis", label: "Hi-vis" },
+                      { key: "safetyBoots", label: "Safety boots" },
+                      { key: "gloves", label: "Gloves" },
+                      { key: "eyeProtection", label: "Eye protection" },
+                      { key: "hearingProtection", label: "Hearing protection" },
+                      { key: "respirator", label: "Respirator" },
+                      { key: "hardHat", label: "Hard hat" },
+                    ].map((ppe) => (
+                      <div key={ppe.key} className="flex items-center gap-2">
+                        <Checkbox
+                          checked={Boolean(riskAssessment.ppe[ppe.key as keyof JobRiskAssessment["ppe"]])}
+                          onCheckedChange={(checked) =>
+                            setRiskAssessment((prev) => ({
+                              ...prev,
+                              ppe: {
+                                ...prev.ppe,
+                                [ppe.key]: Boolean(checked),
+                              },
+                            }))
+                          }
+                        />
+                        <Label>{ppe.label}</Label>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Other PPE</Label>
+                    <Input
+                      value={riskAssessment.ppe.other}
+                      onChange={(e) =>
+                        setRiskAssessment((prev) => ({
+                          ...prev,
+                          ppe: { ...prev.ppe, other: e.target.value },
+                        }))
+                      }
+                      placeholder="e.g., face shield"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <Label>Hazard Identification & Controls</Label>
+                  <div className="space-y-3">
+                    {riskAssessment.hazards.map((hazard, index) => (
+                      <div
+                        key={hazard.id}
+                        className="rounded-lg border border-border/50 p-3 space-y-3"
+                      >
+                        <div className="flex flex-wrap items-center gap-3">
+                          <Checkbox
+                            checked={hazard.present}
+                            onCheckedChange={(checked) =>
+                              setRiskAssessment((prev) => {
+                                const hazards = [...prev.hazards];
+                                hazards[index] = { ...hazard, present: Boolean(checked) };
+                                return { ...prev, hazards };
+                              })
+                            }
+                          />
+                          <span className="font-medium">{hazard.label}</span>
+                          <Select
+                            value={hazard.riskLevel}
+                            onValueChange={(val) =>
+                              setRiskAssessment((prev) => {
+                                const hazards = [...prev.hazards];
+                                hazards[index] = {
+                                  ...hazard,
+                                  riskLevel: val as JobRiskAssessmentHazard["riskLevel"],
+                                };
+                                return { ...prev, hazards };
+                              })
+                            }
+                          >
+                            <SelectTrigger className="w-[140px]">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="low">Low</SelectItem>
+                              <SelectItem value="medium">Medium</SelectItem>
+                              <SelectItem value="high">High</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-xs text-muted-foreground">Controls</Label>
+                          <Input
+                            value={hazard.controls}
+                            onChange={(e) =>
+                              setRiskAssessment((prev) => {
+                                const hazards = [...prev.hazards];
+                                hazards[index] = { ...hazard, controls: e.target.value };
+                                return { ...prev, hazards };
+                              })
+                            }
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Additional Controls / Notes</Label>
+                  <Textarea
+                    value={riskAssessment.additionalControls}
+                    onChange={(e) =>
+                      setRiskAssessment((prev) => ({
+                        ...prev,
+                        additionalControls: e.target.value,
+                      }))
+                    }
+                    rows={3}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label>General Notes</Label>
+                  <Textarea
+                    value={riskAssessment.notes}
+                    onChange={(e) =>
+                      setRiskAssessment((prev) => ({
+                        ...prev,
+                        notes: e.target.value,
+                      }))
+                    }
+                    rows={3}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      checked={riskAssessment.supervisorNotified}
+                      onCheckedChange={(checked) =>
+                        setRiskAssessment((prev) => ({
+                          ...prev,
+                          supervisorNotified: Boolean(checked),
+                        }))
+                      }
+                    />
+                    <Label>Supervisor/site contact notified of risks</Label>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      checked={riskAssessment.stopWorkAuthorityConfirmed}
+                      onCheckedChange={(checked) =>
+                        setRiskAssessment((prev) => ({
+                          ...prev,
+                          stopWorkAuthorityConfirmed: Boolean(checked),
+                        }))
+                      }
+                    />
+                    <Label>
+                      Stop work authority confirmed (unsafe conditions require immediate stop)
+                    </Label>
+                  </div>
+                </div>
+              </div>
+
+              <DialogFooter className="gap-2 sm:gap-0">
+                <Button variant="outline" onClick={() => setShowRiskDialog(false)}>
+                  Cancel
+                </Button>
+                <Button variant="outline" onClick={() => handleSaveRiskAssessment(false)}>
+                  Save Draft
+                </Button>
+                <Button onClick={() => handleSaveRiskAssessment(true)}>
+                  Save & Mark Complete
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </TabsContent>
 
         {/* Vehicles & Repairs Tab */}

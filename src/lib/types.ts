@@ -345,6 +345,49 @@ export interface Job {
   totalLabourCost?: number;
   totalMaterialsCost?: number;
   completionAudit?: JobCompletionAudit;
+  riskAssessment?: JobRiskAssessment;
+}
+
+export type RiskAssessmentRiskLevel = "low" | "medium" | "high";
+
+export interface JobRiskAssessmentHazard {
+  id: string;
+  label: string;
+  present: boolean;
+  riskLevel: RiskAssessmentRiskLevel;
+  controls: string;
+}
+
+export interface JobRiskAssessment {
+  completedAt?: Timestamp;
+  completedBy?: {
+    id: string;
+    name: string;
+  };
+  coveredStaffIds?: string[];
+  coveredStaffNames?: string[];
+  siteConditions: {
+    weather: string;
+    lighting: "good" | "poor";
+    accessClear: boolean;
+    trafficControlInPlace: boolean;
+    emergencyAccessClear: boolean;
+  };
+  ppe: {
+    gloves: boolean;
+    eyeProtection: boolean;
+    hiVis: boolean;
+    hearingProtection: boolean;
+    respirator: boolean;
+    hardHat: boolean;
+    safetyBoots: boolean;
+    other: string;
+  };
+  hazards: JobRiskAssessmentHazard[];
+  additionalControls: string;
+  supervisorNotified: boolean;
+  stopWorkAuthorityConfirmed: boolean;
+  notes: string;
 }
 
 export interface JobCompletionAudit {
