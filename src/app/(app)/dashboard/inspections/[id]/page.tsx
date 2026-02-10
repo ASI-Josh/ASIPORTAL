@@ -67,7 +67,9 @@ import {
   FleetVehicle,
   Inspection,
   InspectionStatus,
+  JobVehicle,
   OrganizationContact,
+  RepairSite,
   RepairType,
   SiteLocation,
   Vehicle,
@@ -120,6 +122,68 @@ function deriveBookingTypeFromVehicleReports(reports: VehicleReport[]): RepairTy
   });
 
   return bestType;
+}
+
+function buildLegacyDamageItemsFromVehicleReports(reports: VehicleReport[]): DamageItem[] {
+  return reports.flatMap((report) =>
+    report.damages.map((damage) => ({
+      id: damage.id,
+      description: `${BOOKING_TYPE_LABELS[damage.repairType]} - ${damage.description || "Inspection repair site"}`,
+      severity: damage.severity ?? "minor",
+      location: damage.location,
+      photoUrls: damage.preWorkPhotos ?? damage.photoUrls ?? [],
+      estimatedCost: damage.totalCost ?? damage.estimatedCost,
+    }))
+  );
+}
+
+function buildJobVehiclesFromVehicleReports(reports: VehicleReport[]): JobVehicle[] {
+  return reports.map((report) => {
+    const repairSites: RepairSite[] = report.damages.map((damage) => {
+      const totalCost = damage.totalCost ?? damage.estimatedCost ?? 0;
+      const breakdown = calculateCostBreakdown(totalCost);
+      return {
+        id: damage.id,
+        repairType: damage.repairType,
+        location: damage.location,
+        description: damage.description || undefined,
+        severity: damage.severity ?? "minor",
+        preWorkPhotos: damage.preWorkPhotos ?? damage.photoUrls ?? [],
+        postWorkPhotos: damage.postWorkPhotos ?? [],
+        totalCost,
+        labourCost: damage.labourCost ?? breakdown.labourCost,
+        materialsCost: damage.materialsCost ?? breakdown.materialsCost,
+        isCompleted: false,
+        workStatus: "not_started",
+      };
+    });
+
+    const totalsForVehicle = repairSites.reduce(
+      (acc, site) => ({
+        totalCost: acc.totalCost + (site.totalCost || 0),
+        totalLabour: acc.totalLabour + (site.labourCost || 0),
+        totalMaterials: acc.totalMaterials + (site.materialsCost || 0),
+      }),
+      { totalCost: 0, totalLabour: 0, totalMaterials: 0 }
+    );
+
+    return {
+      id: report.vehicleId,
+      registration: report.vehicle.registration?.trim().toUpperCase() || undefined,
+      vin: report.vehicle.vin?.trim().toUpperCase() || undefined,
+      fleetAssetNumber: report.vehicle.fleetAssetNumber || undefined,
+      bodyManufacturer: report.vehicle.bodyManufacturer || undefined,
+      year: report.vehicle.year || undefined,
+      poWorksOrderNumber: report.vehicle.poWorksOrderNumber || undefined,
+      repairSites,
+      microfiberDisksUsed: [],
+      consumablesUsed: [],
+      status: "pending",
+      totalCost: totalsForVehicle.totalCost,
+      totalLabourCost: totalsForVehicle.totalLabour,
+      totalMaterialsCost: totalsForVehicle.totalMaterials,
+    };
+  });
 }
 
 function isTraversableObject(value: unknown): value is Record<string, unknown> {
@@ -426,6 +490,44 @@ export default function InspectionDetailPage() {
     setScheduledTime(inspection.scheduledTime || "");
     setSelectedStaff(inspection.assignedStaff || []);
   }, [inspection]);
+
+  useEffect(() => {
+    if (!inspection?.convertedToJobId) return;
+    if (vehicleReports.length === 0) return;
+
+    const jobId = inspection.convertedToJobId;
+    const existingJob = getJobById(jobId);
+    if (existingJob?.jobVehicles?.length) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const jobDoc = existingJob || (await getDoc(doc(db, COLLECTIONS.JOBS, jobId))).data();
+        if (cancelled) return;
+        const existingJobVehicles = Array.isArray((jobDoc as any)?.jobVehicles)
+          ? ((jobDoc as any).jobVehicles as unknown[])
+          : [];
+        if (existingJobVehicles.length > 0) return;
+
+        await updateJob(jobId, {
+          vehicles: vehicleReports.map((report) => report.vehicle),
+          jobVehicles: buildJobVehiclesFromVehicleReports(vehicleReports),
+          damage: buildLegacyDamageItemsFromVehicleReports(vehicleReports),
+        });
+        toast({
+          title: "RFQ job synced",
+          description: "Vehicle and repair sites were copied onto the job card.",
+        });
+      } catch (error) {
+        if (cancelled) return;
+        console.warn("Failed to sync RFQ job vehicles:", error);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [getJobById, inspection?.convertedToJobId, toast, updateJob, vehicleReports]);
 
   useEffect(() => {
     const jobId = inspection?.convertedToJobId;
@@ -1103,16 +1205,8 @@ export default function InspectionDetailPage() {
         assignedBy: user?.uid || "system",
       }));
 
-      const inspectionDamage: DamageItem[] = vehicleReports.flatMap((report) =>
-        report.damages.map((damage) => ({
-          id: damage.id,
-          description: `${BOOKING_TYPE_LABELS[damage.repairType]} - ${damage.description || "Inspection repair site"}`,
-          severity: damage.severity ?? "minor",
-          location: damage.location,
-          photoUrls: damage.preWorkPhotos ?? damage.photoUrls ?? [],
-          estimatedCost: damage.totalCost ?? damage.estimatedCost,
-        }))
-      );
+      const inspectionDamage = buildLegacyDamageItemsFromVehicleReports(vehicleReports);
+      const jobVehiclesFromInspection = buildJobVehiclesFromVehicleReports(vehicleReports);
 
       const job = {
         id: jobRef.id,
@@ -1122,8 +1216,8 @@ export default function InspectionDetailPage() {
         clientEmail: selectedContact.email,
         clientPhone: selectedContact.mobile || selectedContact.phone,
         organizationId: selectedOrganization.id,
-        vehicles: [],
-        jobVehicles: [],
+        vehicles: vehicleReports.map((report) => report.vehicle),
+        jobVehicles: jobVehiclesFromInspection,
         damage: inspectionDamage,
         status: "pending",
         assignedTechnicians,
