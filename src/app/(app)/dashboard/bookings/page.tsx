@@ -1491,7 +1491,7 @@ export default function BookingsPage() {
               ))}
             </div>
 
-            <ScrollArea className="flex-1 px-1">
+            <div className="flex-1 overflow-y-auto px-1">
               <div className="p-4 space-y-6">
                 {/* Step 1: Service Type */}
                 {bookingStep === 1 && (
@@ -2148,7 +2148,7 @@ export default function BookingsPage() {
                           </Dialog>
                         </div>
 
-                        <div className="max-h-[50vh] overflow-y-auto pr-1">
+                        <div className="pr-1">
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                           {organisationContacts.map((contact) => (
                             <Card
@@ -2349,7 +2349,7 @@ export default function BookingsPage() {
                         selectedOrganization &&
                         selectedOrganization.sites.length > 0 &&
                         !useCustomSite && (
-                        <div className="max-h-[50vh] overflow-y-auto pr-1 space-y-3">
+                        <div className="pr-1 space-y-3">
                           {selectedOrganization.sites.map((site) => (
                             <Card
                               key={site.id}
@@ -2623,7 +2623,7 @@ export default function BookingsPage() {
                   </div>
                 )}
               </div>
-            </ScrollArea>
+            </div>
 
             <DialogFooter className="border-t pt-4">
               <div className="flex w-full justify-between">
