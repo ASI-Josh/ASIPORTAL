@@ -303,6 +303,24 @@ function pruneUndefined<T>(value: T): T {
   return value;
 }
 
+function toDateValue(value?: unknown): Date | undefined {
+  if (!value) return undefined;
+  if (value instanceof Timestamp) return value.toDate();
+  if (value instanceof Date) return value;
+  const seconds = (value as { seconds?: unknown }).seconds;
+  const nanoseconds = (value as { nanoseconds?: unknown }).nanoseconds;
+  if (typeof seconds === "number" && typeof nanoseconds === "number") {
+    return new Timestamp(seconds, nanoseconds).toDate();
+  }
+  const hasToDate = (value as { toDate?: () => Date }).toDate;
+  if (typeof hasToDate === "function") return hasToDate.call(value);
+  if (typeof value === "string" || typeof value === "number") {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? undefined : date;
+  }
+  return undefined;
+}
+
 export default function InspectionDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -326,6 +344,10 @@ export default function InspectionDetailPage() {
   const [selectedSite, setSelectedSite] = useState<SiteLocation | null>(null);
   const [scheduledDate, setScheduledDate] = useState<Date | undefined>();
   const [scheduledTime, setScheduledTime] = useState("");
+  const [finishDate, setFinishDate] = useState<Date | undefined>();
+  const [finishTime, setFinishTime] = useState("");
+  const [estimatedDowntimeUnit, setEstimatedDowntimeUnit] = useState<"hours" | "days">("hours");
+  const [estimatedDowntimeValue, setEstimatedDowntimeValue] = useState("");
   const [selectedStaff, setSelectedStaff] = useState<StaffMember[]>([]);
   const [notes, setNotes] = useState("");
   const [reportSummary, setReportSummary] = useState("");
@@ -559,28 +581,23 @@ export default function InspectionDetailPage() {
 
   useEffect(() => {
     if (!inspection) return;
-    const toDateValue = (value?: unknown) => {
-      if (!value) return undefined;
-      if (value instanceof Timestamp) return value.toDate();
-      if (value instanceof Date) return value;
-      const seconds = (value as { seconds?: unknown }).seconds;
-      const nanoseconds = (value as { nanoseconds?: unknown }).nanoseconds;
-      if (typeof seconds === "number" && typeof nanoseconds === "number") {
-        return new Timestamp(seconds, nanoseconds).toDate();
-      }
-      const hasToDate = (value as { toDate?: () => Date }).toDate;
-      if (typeof hasToDate === "function") return hasToDate.call(value);
-      if (typeof value === "string" || typeof value === "number") {
-        const date = new Date(value);
-        return Number.isNaN(date.getTime()) ? undefined : date;
-      }
-      return undefined;
-    };
     setVehicleReports(inspection.vehicleReports || []);
     setNotes(inspection.notes || "");
     setReportSummary(inspection.reportSummary || "");
     setScheduledDate(toDateValue(inspection.scheduledDate));
     setScheduledTime(inspection.scheduledTime || "");
+    setFinishDate(toDateValue(inspection.finishDate));
+    setFinishTime(inspection.finishTime || "");
+    if (inspection.estimatedDowntime) {
+      setEstimatedDowntimeUnit(inspection.estimatedDowntime.unit);
+      setEstimatedDowntimeValue(
+        inspection.estimatedDowntime.value > 0
+          ? String(inspection.estimatedDowntime.value)
+          : ""
+      );
+    } else {
+      setEstimatedDowntimeValue("");
+    }
     setSelectedStaff(inspection.assignedStaff || []);
   }, [inspection]);
 
@@ -1016,6 +1033,14 @@ export default function InspectionDetailPage() {
       ? { name: selectedSite.name, address: selectedSite.address }
       : inspection.siteLocation;
 
+    const downtimeParsed = estimatedDowntimeValue.trim()
+      ? Number.parseFloat(estimatedDowntimeValue)
+      : NaN;
+    const estimatedDowntime =
+      Number.isFinite(downtimeParsed) && downtimeParsed > 0
+        ? { value: downtimeParsed, unit: estimatedDowntimeUnit }
+        : undefined;
+
     const payload = {
       organizationId: selectedOrganization?.id,
       organizationName,
@@ -1027,6 +1052,9 @@ export default function InspectionDetailPage() {
       clientPhone: contactPhone,
       scheduledDate: scheduledDate ? Timestamp.fromDate(scheduledDate) : undefined,
       scheduledTime: scheduledTime || undefined,
+      finishDate: finishDate ? Timestamp.fromDate(finishDate) : undefined,
+      finishTime: finishDate ? finishTime || undefined : undefined,
+      estimatedDowntime,
       assignedStaff: selectedStaff,
       assignedStaffIds: selectedStaff.map((staff) => staff.id),
       notes: notes || undefined,
@@ -1070,6 +1098,9 @@ export default function InspectionDetailPage() {
 
     const resolvedScheduledTime = scheduledTime || inspection.scheduledTime || "";
     const allocatedStaff = selectedStaff.length > 0 ? selectedStaff : inspection.assignedStaff || [];
+
+    const resolvedFinishDate = finishDate || toDateValue(inspection.finishDate);
+    const resolvedFinishTime = resolvedFinishDate ? finishTime || inspection.finishTime || "" : "";
 
     const resolvedSiteLocation = selectedSite
       ? {
@@ -1126,6 +1157,8 @@ export default function InspectionDetailPage() {
           siteLocation: resolvedSiteLocation,
           scheduledDate: Timestamp.fromDate(resolvedScheduledDate),
           scheduledTime: resolvedScheduledTime,
+          finishDate: resolvedFinishDate ? Timestamp.fromDate(resolvedFinishDate) : undefined,
+          finishTime: resolvedFinishDate ? resolvedFinishTime || undefined : undefined,
           allocatedStaff,
           allocatedStaffIds: allocatedStaff.map((staff) => staff.id),
           notes: notes || inspection.notes || undefined,
@@ -1154,6 +1187,8 @@ export default function InspectionDetailPage() {
         siteLocation: resolvedSiteLocation,
         scheduledDate: Timestamp.fromDate(resolvedScheduledDate),
         scheduledTime: resolvedScheduledTime,
+        finishDate: resolvedFinishDate ? Timestamp.fromDate(resolvedFinishDate) : undefined,
+        finishTime: resolvedFinishDate ? resolvedFinishTime || undefined : undefined,
         allocatedStaff,
         allocatedStaffIds: allocatedStaff.map((staff) => staff.id),
         notes: notes || inspection.notes || undefined,
@@ -2081,6 +2116,100 @@ ASI Australia`;
                       ))}
                     </SelectContent>
                   </Select>
+                </div>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-3">
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label>Finish date (optional)</Label>
+                    {(finishDate || finishTime) && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setFinishDate(undefined);
+                          setFinishTime("");
+                        }}
+                      >
+                        Clear
+                      </Button>
+                    )}
+                  </div>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        className={cn(
+                          "w-full justify-start",
+                          !finishDate && "text-muted-foreground"
+                        )}
+                      >
+                        <CalendarIcon className="mr-2 h-4 w-4" />
+                        {finishDate ? finishDate.toLocaleDateString("en-AU") : "Select date"}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="p-0" align="start">
+                      <Calendar
+                        mode="single"
+                        selected={finishDate}
+                        onSelect={(date) => setFinishDate(date || undefined)}
+                        initialFocus
+                      />
+                    </PopoverContent>
+                  </Popover>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Finish time (optional)</Label>
+                  <Select
+                    value={finishTime}
+                    onValueChange={setFinishTime}
+                    disabled={!finishDate}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder={finishDate ? "Select time" : "Select date first"} />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-[40vh]">
+                      {timeSlots.map((slot) => (
+                        <SelectItem key={slot} value={slot}>
+                          {slot}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Estimated downtime (works)</Label>
+                  <div className="grid grid-cols-[1fr_140px] gap-2">
+                    <Input
+                      inputMode="decimal"
+                      type="number"
+                      min="0"
+                      placeholder="e.g., 4"
+                      value={estimatedDowntimeValue}
+                      onChange={(e) => setEstimatedDowntimeValue(e.target.value)}
+                    />
+                    <Select
+                      value={estimatedDowntimeUnit}
+                      onValueChange={(value) =>
+                        setEstimatedDowntimeUnit(value as "hours" | "days")
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="hours">Hours</SelectItem>
+                        <SelectItem value="days">Days</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Helps the client plan vehicle downtime once works are approved.
+                  </p>
                 </div>
               </div>
 

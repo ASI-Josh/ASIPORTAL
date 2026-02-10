@@ -280,6 +280,8 @@ export interface Booking {
   resourceDurationTemplate?: ResourceDurationTemplate;
   resourceDurationOverrideDays?: number;
   resourceDurationOverrideHours?: number;
+  finishDate?: Timestamp;
+  finishTime?: string;
   eotCheck?: {
     status: "pending" | "not_required" | "requested";
     promptedAt?: Timestamp;
@@ -475,6 +477,12 @@ export interface Inspection {
   clientPhone?: string;
   scheduledDate?: Timestamp;
   scheduledTime?: string;
+  finishDate?: Timestamp;
+  finishTime?: string;
+  estimatedDowntime?: {
+    value: number;
+    unit: "hours" | "days";
+  };
   assignedStaff?: {
     id: string;
     name: string;

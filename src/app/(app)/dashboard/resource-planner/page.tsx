@@ -65,6 +65,7 @@ type StaffMember = {
   id: string;
   name: string;
   type: "asi_staff" | "subcontractor";
+  email?: string;
 };
 
 type AllocationWindow = {
@@ -91,6 +92,31 @@ const DEFAULT_DURATION: Record<ResourceDurationTemplate, { unit: AllocationWindo
   long: { unit: "days", value: 5 },
 };
 
+const STAFF_COLOR_PALETTE = [
+  "#7c3aed",
+  "#2563eb",
+  "#06b6d4",
+  "#10b981",
+  "#84cc16",
+  "#f59e0b",
+  "#f97316",
+  "#ef4444",
+  "#ec4899",
+] as const;
+
+function hashString(value: string) {
+  let hash = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    hash = (hash * 31 + value.charCodeAt(i)) >>> 0;
+  }
+  return hash;
+}
+
+function getStaffColor(staffId: string) {
+  const idx = hashString(staffId) % STAFF_COLOR_PALETTE.length;
+  return STAFF_COLOR_PALETTE[idx];
+}
+
 function getBookingStartDateTime(booking: Booking): Date | null {
   const date = booking.scheduledDate?.toDate ? booking.scheduledDate.toDate() : null;
   if (!date) return null;
@@ -104,9 +130,39 @@ function getBookingStartDateTime(booking: Booking): Date | null {
   return safe;
 }
 
+function getBookingFinishDateTime(booking: Booking): Date | null {
+  if (!booking.finishDate?.toDate) return null;
+  if (!booking.finishTime) return null;
+  const date = booking.finishDate.toDate();
+  const safe = new Date(date);
+  const [hours, minutes] = booking.finishTime
+    .split(":")
+    .map((part) => Number(part));
+  if (Number.isFinite(hours)) safe.setHours(hours);
+  if (Number.isFinite(minutes)) safe.setMinutes(minutes);
+  safe.setSeconds(0, 0);
+  return safe;
+}
+
 function resolveAllocationWindow(booking: Booking): AllocationWindow | null {
   const startAt = getBookingStartDateTime(booking);
   if (!startAt) return null;
+
+  const finishAt = getBookingFinishDateTime(booking);
+  if (finishAt && finishAt.getTime() > startAt.getTime()) {
+    const diffHours = (finishAt.getTime() - startAt.getTime()) / (1000 * 60 * 60);
+    const roundedHours = Math.round(diffHours * 2) / 2;
+    if (diffHours <= 24) {
+      return {
+        start: startAt,
+        end: finishAt,
+        unit: "hours",
+        value: Math.max(0.5, roundedHours),
+      };
+    }
+    const days = Math.ceil(diffHours / 24);
+    return { start: startAt, end: finishAt, unit: "days", value: days };
+  }
 
   const template: ResourceDurationTemplate = booking.resourceDurationTemplate ?? "na";
   const defaults = DEFAULT_DURATION[template];
@@ -161,6 +217,7 @@ export default function ResourcePlannerPage() {
   const [viewMode, setViewMode] = useState<PlannerViewMode>("week");
   const [cursorDate, setCursorDate] = useState(() => new Date());
   const [staff, setStaff] = useState<StaffMember[]>([]);
+  const [staffAliases, setStaffAliases] = useState<Record<string, string>>({});
   const [editing, setEditing] = useState<AllocationEvent | null>(null);
   const [editTemplate, setEditTemplate] = useState<ResourceDurationTemplate>("na");
   const [editOverrideDays, setEditOverrideDays] = useState<string>("");
@@ -179,25 +236,62 @@ export default function ResourcePlannerPage() {
     return onSnapshot(
       staffQuery,
       (snapshot) => {
-        const loaded = snapshot.docs
-          .map((docSnap) => {
-            const data = docSnap.data() as { name?: string; role?: string; email?: string };
-            const staffType: StaffMember["type"] = data.role === "contractor" ? "subcontractor" : "asi_staff";
-            return {
-              id: docSnap.id,
-              name: data.name || data.email || "Staff",
-              type: staffType,
-            };
-          })
-          .sort((a, b) => a.name.localeCompare(b.name));
-        setStaff(loaded);
+        type RawStaff = StaffMember & { emailKey: string | null };
+        const raw = snapshot.docs.map((docSnap) => {
+          const data = docSnap.data() as { name?: string; role?: string; email?: string };
+          const staffType: StaffMember["type"] = data.role === "contractor" ? "subcontractor" : "asi_staff";
+          const email = data.email?.trim() || "";
+          return {
+            id: docSnap.id,
+            name: data.name || email || "Staff",
+            type: staffType,
+            email: email || undefined,
+            emailKey: email ? email.toLowerCase() : null,
+          } satisfies RawStaff;
+        });
+
+        const groups = new Map<string, RawStaff[]>();
+        raw.forEach((member) => {
+          const key = member.emailKey || member.id;
+          const list = groups.get(key) ?? [];
+          list.push(member);
+          groups.set(key, list);
+        });
+
+        const aliases: Record<string, string> = {};
+        const unique: StaffMember[] = [];
+
+        groups.forEach((members) => {
+          const canonical = [...members].sort((a, b) => {
+            if (a.id === user?.uid) return -1;
+            if (b.id === user?.uid) return 1;
+            if (a.type !== b.type) return a.type === "asi_staff" ? -1 : 1;
+            return a.id.localeCompare(b.id);
+          })[0];
+
+          members.forEach((member) => {
+            aliases[member.id] = canonical.id;
+          });
+
+          unique.push({
+            id: canonical.id,
+            name: canonical.name,
+            type: canonical.type,
+            email: canonical.email,
+          });
+        });
+
+        unique.sort((a, b) => a.name.localeCompare(b.name));
+        setStaffAliases(aliases);
+        setStaff(unique);
       },
       (error) => {
         console.warn("Failed to load staff list:", error);
         setStaff([]);
+        setStaffAliases({});
       }
     );
-  }, [canPlan]);
+  }, [canPlan, user?.uid]);
 
   const jobsById = useMemo(() => {
     const map = new Map<string, Job>();
@@ -239,6 +333,8 @@ export default function ResourcePlannerPage() {
   const events = useMemo((): AllocationEvent[] => {
     const result: AllocationEvent[] = [];
     const rangeStartDay = startOfDay(rangeStart);
+    const canonicalStaffById = new Map<string, StaffMember>();
+    staff.forEach((member) => canonicalStaffById.set(member.id, member));
 
     const addEvent = (booking: Booking, staffMember: StaffMember) => {
       const window = resolveAllocationWindow(booking);
@@ -262,11 +358,22 @@ export default function ResourcePlannerPage() {
           addEvent(booking, { id: "unassigned", name: "Unassigned", type: "asi_staff" });
           return;
         }
-        allocated.forEach((member) => addEvent(booking, { id: member.id, name: member.name, type: member.type }));
+        allocated.forEach((member) => {
+          const canonicalId = staffAliases[member.id] ?? member.id;
+          const canonical = canonicalStaffById.get(canonicalId);
+          addEvent(
+            booking,
+            canonical ?? {
+              id: canonicalId,
+              name: member.name,
+              type: member.type,
+            }
+          );
+        });
       });
 
     return result;
-  }, [bookings, jobsById, rangeEnd, rangeStart]);
+  }, [bookings, jobsById, rangeEnd, rangeStart, staff, staffAliases]);
 
   const staffRows = useMemo(() => {
     const staffMap = new Map<string, StaffMember>();
@@ -555,7 +662,9 @@ export default function ResourcePlannerPage() {
 
           <div className="rounded-xl border border-border/40 overflow-x-auto overflow-y-hidden">
             <div className="grid grid-cols-[220px,1fr] bg-muted/30">
-              <div className="p-3 text-xs font-medium text-muted-foreground">Staff</div>
+              <div className="sticky left-0 z-30 border-r border-border/40 bg-muted/30 p-3 text-xs font-medium text-muted-foreground backdrop-blur">
+                Staff
+              </div>
               <div className="grid" style={gridColumnsStyle}>
                 {visibleDays.map((day) => (
                   <div key={day.toISOString()} className="p-3 text-xs font-medium text-muted-foreground">
@@ -577,6 +686,7 @@ export default function ResourcePlannerPage() {
 
             <div className="divide-y divide-border/40">
               {staffRows.map((member) => {
+                const staffColor = getStaffColor(member.id);
                 const staffEvents = eventsByStaff.get(member.id) ?? [];
                 const lanes = staffEvents.reduce<AllocationEvent[][]>((acc, event) => {
                   const placedLane = acc.find((lane) => {
@@ -596,8 +706,14 @@ export default function ResourcePlannerPage() {
 
                 return (
                   <div key={member.id} className="grid grid-cols-[220px,1fr]">
-                    <div className="p-3">
-                      <div className="text-sm font-medium">{member.name}</div>
+                    <div
+                      className="sticky left-0 z-20 border-l-4 border-r border-border/40 bg-background/80 p-3 backdrop-blur"
+                      style={{ borderLeftColor: staffColor }}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: staffColor }} />
+                        <div className="text-sm font-medium">{member.name}</div>
+                      </div>
                       <div className="text-xs text-muted-foreground">
                         {member.type === "subcontractor" ? "Subcontractor" : "ASI staff"}
                       </div>
@@ -637,6 +753,7 @@ export default function ResourcePlannerPage() {
 
                             const durationLabel = formatWindowLabel(event.window);
                             const serviceLabel = BOOKING_TYPE_LABELS[event.booking.bookingType];
+                            const eventStaffColor = getStaffColor(event.staff.id);
 
                             return (
                               <button
@@ -651,6 +768,7 @@ export default function ResourcePlannerPage() {
                                   gridRowStart: laneIndex + 1,
                                   gridColumnStart: columnStart,
                                   gridColumnEnd: columnEnd,
+                                  boxShadow: `inset 4px 0 0 ${eventStaffColor}`,
                                 }}
                               >
                                 <GripVertical className="h-3 w-3 opacity-50 group-hover:opacity-80" />

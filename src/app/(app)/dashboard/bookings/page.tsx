@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import {
   Timestamp,
   collection,
+  deleteField,
   onSnapshot,
   orderBy,
   query,
@@ -141,6 +142,8 @@ type BookingCalendarPayloadInput = {
   siteAddress?: Address;
   scheduledDate: Date;
   scheduledTime: string;
+  finishDate?: Date;
+  finishTime?: string;
   notes?: string;
   assignedStaff?: string[];
   attendees?: string[];
@@ -159,14 +162,33 @@ const formatAddress = (address?: Address) => {
     .join(", ");
 };
 
-const buildEventTimes = (date: Date, time: string) => {
+const buildEventTimes = (
+  date: Date,
+  time: string,
+  finishDate?: Date,
+  finishTime?: string
+) => {
   const [hours, minutes] = time.split(":").map((part) => Number(part));
   const start = new Date(date);
   if (Number.isFinite(hours)) start.setHours(hours);
   if (Number.isFinite(minutes)) start.setMinutes(minutes);
   start.setSeconds(0, 0);
-  const end = new Date(start);
-  end.setMinutes(end.getMinutes() + DEFAULT_EVENT_DURATION_MINUTES);
+  const end = (() => {
+    if (finishDate && finishTime) {
+      const [finishHours, finishMinutes] = finishTime
+        .split(":")
+        .map((part) => Number(part));
+      const explicitEnd = new Date(finishDate);
+      if (Number.isFinite(finishHours)) explicitEnd.setHours(finishHours);
+      if (Number.isFinite(finishMinutes)) explicitEnd.setMinutes(finishMinutes);
+      explicitEnd.setSeconds(0, 0);
+      if (explicitEnd.getTime() > start.getTime()) return explicitEnd;
+    }
+
+    const fallback = new Date(start);
+    fallback.setMinutes(fallback.getMinutes() + DEFAULT_EVENT_DURATION_MINUTES);
+    return fallback;
+  })();
 
   const formatLocal = (value: Date) =>
     `${value.getFullYear()}-${padTime(value.getMonth() + 1)}-${padTime(value.getDate())}T${padTime(
@@ -221,7 +243,12 @@ const buildBookingCalendarPayload = (input: BookingCalendarPayloadInput): Calend
     lines.push(input.notes);
   }
 
-  const { start, end } = buildEventTimes(input.scheduledDate, input.scheduledTime);
+  const { start, end } = buildEventTimes(
+    input.scheduledDate,
+    input.scheduledTime,
+    input.finishDate,
+    input.finishTime
+  );
 
   const payload: CalendarEventPayload = {
     summary: `Booking ${input.bookingNumber} - ${input.organizationName} - ${input.bookingTypeLabel}`,
@@ -296,6 +323,8 @@ export default function BookingsPage() {
   });
   const [scheduledDate, setScheduledDate] = useState<Date | undefined>();
   const [scheduledTime, setScheduledTime] = useState("");
+  const [finishDate, setFinishDate] = useState<Date | undefined>();
+  const [finishTime, setFinishTime] = useState("");
   const [resourceDurationTemplate, setResourceDurationTemplate] =
     useState<ResourceDurationTemplate>("na");
   const [selectedStaff, setSelectedStaff] = useState<StaffMember[]>([]);
@@ -303,6 +332,8 @@ export default function BookingsPage() {
   const [editingBooking, setEditingBooking] = useState<Booking | null>(null);
   const [editScheduledDate, setEditScheduledDate] = useState<Date | undefined>();
   const [editScheduledTime, setEditScheduledTime] = useState("");
+  const [editFinishDate, setEditFinishDate] = useState<Date | undefined>();
+  const [editFinishTime, setEditFinishTime] = useState("");
   const [editStaff, setEditStaff] = useState<StaffMember[]>([]);
   const [editNotes, setEditNotes] = useState("");
   const [editOrganizationId, setEditOrganizationId] = useState("");
@@ -943,6 +974,42 @@ export default function BookingsPage() {
       return;
     }
 
+    if ((finishDate && !finishTime) || (!finishDate && finishTime)) {
+      toast({
+        title: "Finish time incomplete",
+        description: "If you set a finish date/time, please set both fields.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (finishDate && finishTime) {
+      const [startHours, startMinutes] = scheduledTime
+        .split(":")
+        .map((part) => Number(part));
+      const startAt = new Date(scheduledDate);
+      if (Number.isFinite(startHours)) startAt.setHours(startHours);
+      if (Number.isFinite(startMinutes)) startAt.setMinutes(startMinutes);
+      startAt.setSeconds(0, 0);
+
+      const [finishHours, finishMinutes] = finishTime
+        .split(":")
+        .map((part) => Number(part));
+      const finishAt = new Date(finishDate);
+      if (Number.isFinite(finishHours)) finishAt.setHours(finishHours);
+      if (Number.isFinite(finishMinutes)) finishAt.setMinutes(finishMinutes);
+      finishAt.setSeconds(0, 0);
+
+      if (finishAt.getTime() <= startAt.getTime()) {
+        toast({
+          title: "Finish time invalid",
+          description: "Finish date/time must be after the start date/time.",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+
     if (
       isRetailBooking &&
       (!retailContact.firstName.trim() ||
@@ -992,6 +1059,8 @@ export default function BookingsPage() {
         },
         scheduledDate,
         scheduledTime,
+        finishDate,
+        finishTime: finishTime || undefined,
         resourceDurationTemplate,
         allocatedStaff: selectedStaff.map((s) => ({ id: s.id, name: s.name, type: s.type })),
         notes: bookingNotes,
@@ -1018,6 +1087,8 @@ export default function BookingsPage() {
           siteAddress: createdBooking.siteLocation.address,
           scheduledDate,
           scheduledTime,
+          finishDate,
+          finishTime: finishTime || undefined,
           notes: bookingNotes || undefined,
           assignedStaff: selectedStaff.map((staff) => staff.name),
           attendees: attendeeEmails,
@@ -1078,6 +1149,8 @@ export default function BookingsPage() {
     setRetailContact({ firstName: "", lastName: "", mobile: "", email: "" });
     setScheduledDate(undefined);
     setScheduledTime("");
+    setFinishDate(undefined);
+    setFinishTime("");
     setResourceDurationTemplate("na");
     setSelectedStaff([]);
     setBookingNotes("");
@@ -1141,6 +1214,8 @@ export default function BookingsPage() {
     setEditingBooking(booking);
     setEditScheduledDate(booking.scheduledDate.toDate());
     setEditScheduledTime(booking.scheduledTime);
+    setEditFinishDate(booking.finishDate ? booking.finishDate.toDate() : undefined);
+    setEditFinishTime(booking.finishTime || "");
     setEditNotes(booking.notes || "");
     setEditOrganizationId(booking.organizationId);
     setEditContactId(booking.contactId);
@@ -1157,6 +1232,8 @@ export default function BookingsPage() {
     setEditingBooking(null);
     setEditScheduledDate(undefined);
     setEditScheduledTime("");
+    setEditFinishDate(undefined);
+    setEditFinishTime("");
     setEditStaff([]);
     setEditNotes("");
     setEditOrganizationId("");
@@ -1178,6 +1255,42 @@ export default function BookingsPage() {
   const handleUpdateBooking = async () => {
     if (!editingBooking || !editScheduledDate || !editScheduledTime || editStaff.length === 0) {
       return;
+    }
+
+    if ((editFinishDate && !editFinishTime) || (!editFinishDate && editFinishTime)) {
+      toast({
+        title: "Finish time incomplete",
+        description: "If you set a finish date/time, please set both fields.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (editFinishDate && editFinishTime) {
+      const [startHours, startMinutes] = editScheduledTime
+        .split(":")
+        .map((part) => Number(part));
+      const startAt = new Date(editScheduledDate);
+      if (Number.isFinite(startHours)) startAt.setHours(startHours);
+      if (Number.isFinite(startMinutes)) startAt.setMinutes(startMinutes);
+      startAt.setSeconds(0, 0);
+
+      const [finishHours, finishMinutes] = editFinishTime
+        .split(":")
+        .map((part) => Number(part));
+      const finishAt = new Date(editFinishDate);
+      if (Number.isFinite(finishHours)) finishAt.setHours(finishHours);
+      if (Number.isFinite(finishMinutes)) finishAt.setMinutes(finishMinutes);
+      finishAt.setSeconds(0, 0);
+
+      if (finishAt.getTime() <= startAt.getTime()) {
+        toast({
+          title: "Finish time invalid",
+          description: "Finish date/time must be after the start date/time.",
+          variant: "destructive",
+        });
+        return;
+      }
     }
 
     const selectedOrg =
@@ -1208,6 +1321,19 @@ export default function BookingsPage() {
       type: staff.type,
     }));
 
+    const resolvedContactPhone = selectedContact.mobile || selectedContact.phone;
+
+    const finishUpdates =
+      editFinishDate && editFinishTime
+        ? {
+            finishDate: Timestamp.fromDate(editFinishDate),
+            finishTime: editFinishTime,
+          }
+        : {
+            finishDate: deleteField(),
+            finishTime: deleteField(),
+          };
+
     try {
       await updateBooking(editingBooking.id, {
         organizationId: selectedOrg.id,
@@ -1215,12 +1341,15 @@ export default function BookingsPage() {
         contactId: selectedContact.id,
         contactName: `${selectedContact.firstName} ${selectedContact.lastName}`.trim(),
         contactEmail: selectedContact.email,
-        contactPhone: selectedContact.mobile || selectedContact.phone,
+        ...(resolvedContactPhone
+          ? { contactPhone: resolvedContactPhone }
+          : { contactPhone: deleteField() }),
         scheduledDate: Timestamp.fromDate(editScheduledDate),
         scheduledTime: editScheduledTime,
+        ...finishUpdates,
         allocatedStaff: updatedStaff,
         allocatedStaffIds: updatedStaff.map((staff) => staff.id),
-        notes: editNotes || undefined,
+        ...(editNotes.trim() ? { notes: editNotes } : { notes: deleteField() }),
       });
 
       if (editingBooking.convertedJobId) {
@@ -1278,6 +1407,8 @@ export default function BookingsPage() {
           siteAddress: editingBooking.siteLocation.address,
           scheduledDate: editScheduledDate,
           scheduledTime: editScheduledTime,
+          finishDate: editFinishDate,
+          finishTime: editFinishTime || undefined,
           notes: editNotes || undefined,
           assignedStaff: editStaff.map((staff) => staff.name),
           attendees: attendeeEmails,
@@ -2279,6 +2410,75 @@ export default function BookingsPage() {
                           </Select>
                         </div>
                       </div>
+
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <Label className="text-sm font-semibold">Finish (optional)</Label>
+                          {(finishDate || finishTime) && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => {
+                                setFinishDate(undefined);
+                                setFinishTime("");
+                              }}
+                            >
+                              Clear
+                            </Button>
+                          )}
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <Label>Finish date</Label>
+                            <Popover>
+                              <PopoverTrigger asChild>
+                                <Button
+                                  variant="outline"
+                                  className={cn(
+                                    "w-full justify-start text-left font-normal",
+                                    !finishDate && "text-muted-foreground"
+                                  )}
+                                >
+                                  <CalendarIcon className="mr-2 h-4 w-4" />
+                                  {finishDate ? format(finishDate, "PPP") : "Select date"}
+                                </Button>
+                              </PopoverTrigger>
+                              <PopoverContent className="w-auto p-0" align="start">
+                                <Calendar
+                                  mode="single"
+                                  selected={finishDate}
+                                  onSelect={setFinishDate}
+                                  disabled={(date) => date < startOfDay(new Date())}
+                                  initialFocus
+                                />
+                              </PopoverContent>
+                            </Popover>
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Finish time</Label>
+                            <Select
+                              value={finishTime}
+                              onValueChange={setFinishTime}
+                              disabled={!finishDate}
+                            >
+                              <SelectTrigger>
+                                <SelectValue placeholder={finishDate ? "Select time" : "Select date first"} />
+                              </SelectTrigger>
+                              <SelectContent className="max-h-[40vh]">
+                                {timeSlots.map((time) => (
+                                  <SelectItem key={time} value={time}>
+                                    {time}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          Optional: set an explicit finish so the Resource Planner and calendar reflect the true window.
+                        </p>
+                      </div>
                     </div>
 
                     {/* Resource Allocation */}
@@ -2954,6 +3154,73 @@ export default function BookingsPage() {
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <Label className="text-base font-semibold">Finish (optional)</Label>
+                {(editFinishDate || editFinishTime) && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setEditFinishDate(undefined);
+                      setEditFinishTime("");
+                    }}
+                  >
+                    Clear
+                  </Button>
+                )}
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Finish Date</Label>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        className={cn(
+                          "w-full justify-start text-left font-normal",
+                          !editFinishDate && "text-muted-foreground"
+                        )}
+                      >
+                        <CalendarIcon className="mr-2 h-4 w-4" />
+                        {editFinishDate ? format(editFinishDate, "PPP") : "Select date"}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <Calendar
+                        mode="single"
+                        selected={editFinishDate}
+                        onSelect={setEditFinishDate}
+                        initialFocus
+                      />
+                    </PopoverContent>
+                  </Popover>
+                </div>
+                <div className="space-y-2">
+                  <Label>Finish Time</Label>
+                  <Select
+                    value={editFinishTime}
+                    onValueChange={setEditFinishTime}
+                    disabled={!editFinishDate}
+                  >
+                    <SelectTrigger>
+                      <SelectValue
+                        placeholder={editFinishDate ? "Select time" : "Select date first"}
+                      />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-[40vh]">
+                      {timeSlots.map((slot) => (
+                        <SelectItem key={slot} value={slot}>
+                          {slot}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
             </div>
 

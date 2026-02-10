@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Timestamp, doc, onSnapshot, updateDoc } from "firebase/firestore";
-import { CheckCircle, ChevronLeft, ClipboardCheck, Image as ImageIcon } from "lucide-react";
+import { CheckCircle, ChevronLeft, ClipboardCheck, Clock, Image as ImageIcon } from "lucide-react";
 import { db } from "@/lib/firebaseClient";
 import { COLLECTIONS } from "@/lib/collections";
 import { useAuth } from "@/contexts/AuthContext";
@@ -235,6 +235,42 @@ export default function ClientInspectionDetailPage() {
         <Badge variant="outline">Approval: {approvalStatus}</Badge>
         <span className="text-muted-foreground">Vehicles: {vehicleReports.length}</span>
       </div>
+
+      <Card className="bg-card/50 backdrop-blur-lg border-border/20">
+        <CardHeader className="pb-2">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Clock className="h-4 w-4 text-primary" />
+            Schedule & downtime
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-3 text-sm sm:grid-cols-2">
+          <div>
+            <div className="text-xs text-muted-foreground">Inspection schedule</div>
+            <div className="font-medium">
+              {inspection.scheduledDate?.toDate
+                ? `${inspection.scheduledDate.toDate().toLocaleDateString("en-AU")} ${inspection.scheduledTime || ""}`.trim()
+                : "Not scheduled"}
+              {inspection.finishDate?.toDate && inspection.finishTime
+                ? ` → ${inspection.finishDate.toDate().toLocaleDateString("en-AU")} ${inspection.finishTime}`.trim()
+                : ""}
+            </div>
+          </div>
+          <div>
+            <div className="text-xs text-muted-foreground">Estimated downtime (works)</div>
+            <div className="font-medium">
+              {inspection.estimatedDowntime
+                ? `${inspection.estimatedDowntime.value} ${inspection.estimatedDowntime.unit === "hours"
+                    ? inspection.estimatedDowntime.value === 1
+                      ? "hour"
+                      : "hours"
+                    : inspection.estimatedDowntime.value === 1
+                      ? "day"
+                      : "days"}`.trim()
+                : "Not provided"}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {vehicleReports.map((report) => (
         <Card key={report.vehicleId} className="bg-card/50 backdrop-blur-lg border-border/20">

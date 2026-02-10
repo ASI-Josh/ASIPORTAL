@@ -8,15 +8,6 @@ const nextConfig: NextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
-  async redirects() {
-    return [
-      {
-        source: "/icons/favicon.ico",
-        destination: "/favicon.ico",
-        permanent: false,
-      },
-    ];
-  },
   images: {
     remotePatterns: [
       {

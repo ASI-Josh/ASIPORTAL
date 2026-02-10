@@ -20,8 +20,10 @@ import {
   setDoc,
   deleteField,
   deleteDoc,
+  FieldValue,
   QueryConstraint,
 } from "firebase/firestore";
+import type { UpdateData } from "firebase/firestore";
 import type {
   Job,
   Booking,
@@ -56,6 +58,8 @@ type CreateBookingInput = {
   siteLocation: SiteLocation;
   scheduledDate: Date;
   scheduledTime: string;
+  finishDate?: Date;
+  finishTime?: string;
   resourceDurationTemplate?: ResourceDurationTemplate;
   allocatedStaff: {
     id: string;
@@ -93,7 +97,7 @@ interface JobsContextValue {
 
   // Booking operations
   createBooking: (input: CreateBookingInput) => Promise<{ job: Job; booking: Booking } | null>;
-  updateBooking: (bookingId: string, updates: Partial<Booking>) => Promise<void>;
+  updateBooking: (bookingId: string, updates: UpdateData<Booking>) => Promise<void>;
 
   // Works register operations
   updateWorksRegisterEntry: (
@@ -113,6 +117,7 @@ function isTraversableObject(value: unknown): value is Record<string, unknown> {
   if (value === null || typeof value !== "object") return false;
   if (value instanceof Timestamp) return false;
   if (value instanceof Date) return false;
+  if (value instanceof FieldValue) return false;
   if (Array.isArray(value)) return false;
   return true;
 }
@@ -388,6 +393,12 @@ export function JobsProvider({ children }: { children: ReactNode }) {
         },
         scheduledDate: Timestamp.fromDate(input.scheduledDate),
         scheduledTime: input.scheduledTime,
+        ...(input.finishDate && input.finishTime
+          ? {
+              finishDate: Timestamp.fromDate(input.finishDate),
+              finishTime: input.finishTime,
+            }
+          : {}),
         allocatedStaff: input.allocatedStaff,
         allocatedStaffIds: input.allocatedStaff.map((staff) => staff.id),
         notes: input.notes,
@@ -397,7 +408,7 @@ export function JobsProvider({ children }: { children: ReactNode }) {
         updatedAt: now,
       };
 
-      await setDoc(bookingRef, booking);
+      await setDoc(bookingRef, pruneUndefined(booking));
 
       const jobRef = doc(collection(db, COLLECTIONS.JOBS));
       const job = createJobFromBooking({
@@ -431,7 +442,7 @@ export function JobsProvider({ children }: { children: ReactNode }) {
     [user]
   );
 
-  const updateBooking = useCallback(async (bookingId: string, updates: Partial<Booking>) => {
+  const updateBooking = useCallback(async (bookingId: string, updates: UpdateData<Booking>) => {
     const bookingRef = doc(db, COLLECTIONS.BOOKINGS, bookingId);
     const payload = pruneUndefined({
       ...updates,
