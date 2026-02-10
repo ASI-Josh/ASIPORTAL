@@ -902,14 +902,22 @@ export interface Lead {
 // CONTACT ORGANIZATIONS
 // ============================================
 
-export type ContactCategory = "trade_client" | "retail_client" | "supplier_vendor" | "asi_staff";
+export type ContactCategory =
+  | "trade_client"
+  | "retail_client"
+  | "supplier_vendor"
+  | "subcontractor"
+  | "asi_staff";
 
 export const CONTACT_CATEGORY_LABELS: Record<ContactCategory, string> = {
   trade_client: "Trade Client",
   retail_client: "Retail Client",
   supplier_vendor: "Supplier/Vendor",
+  subcontractor: "Subcontractor",
   asi_staff: "ASI Staff",
 };
+
+export const CLIENT_CONTACT_CATEGORIES: ContactCategory[] = ["trade_client", "retail_client"];
 
 export type OrganizationType = "customer" | "supplier" | "partner";
 export type OrganizationStatus = "active" | "inactive" | "prospect";

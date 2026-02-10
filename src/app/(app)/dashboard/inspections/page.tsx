@@ -44,14 +44,15 @@ import { useAuth } from "@/contexts/AuthContext";
 import { db } from "@/lib/firebaseClient";
 import { COLLECTIONS, generateInspectionNumber } from "@/lib/firestore";
 import { createInspectionWorksRegisterEntry } from "@/lib/jobs-data";
-import type {
-  ContactCategory,
-  ContactOrganization,
-  Inspection,
-  InspectionStatus,
-  OrganizationContact,
+import {
+  CLIENT_CONTACT_CATEGORIES,
+  CONTACT_CATEGORY_LABELS,
+  type ContactCategory,
+  type ContactOrganization,
+  type Inspection,
+  type InspectionStatus,
+  type OrganizationContact,
 } from "@/lib/types";
-import { CONTACT_CATEGORY_LABELS } from "@/lib/types";
 
 const STATUS_LABELS: Record<InspectionStatus, string> = {
   draft: "Draft",
@@ -210,6 +211,10 @@ export default function InspectionsPage() {
   const selectedOrg = useMemo(
     () => organizations.find((org) => org.id === selectedOrgId) || null,
     [organizations, selectedOrgId]
+  );
+  const clientOrganizations = useMemo(
+    () => organizations.filter((org) => CLIENT_CONTACT_CATEGORIES.includes(org.category)),
+    [organizations]
   );
   const selectedContact = useMemo(
     () => contacts.find((contact) => contact.id === selectedContactId) || null,
@@ -470,7 +475,7 @@ export default function InspectionsPage() {
                   <SelectValue placeholder="Select an organisation" />
                 </SelectTrigger>
                 <SelectContent>
-                  {organizations.map((org) => (
+                  {clientOrganizations.map((org) => (
                     <SelectItem key={org.id} value={org.id}>
                       {org.name}
                     </SelectItem>
@@ -508,13 +513,11 @@ export default function InspectionsPage() {
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          {(Object.entries(CONTACT_CATEGORY_LABELS) as [ContactCategory, string][]).map(
-                            ([value, label]) => (
-                              <SelectItem key={value} value={value}>
-                                {label}
-                              </SelectItem>
-                            )
-                          )}
+                          {CLIENT_CONTACT_CATEGORIES.map((category) => (
+                            <SelectItem key={category} value={category}>
+                              {CONTACT_CATEGORY_LABELS[category]}
+                            </SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                     </div>

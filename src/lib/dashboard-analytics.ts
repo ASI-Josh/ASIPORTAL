@@ -1,9 +1,10 @@
-import type {
-  BookingType,
-  ContactOrganization,
-  Job,
-  WorksRegisterEntry,
-  Inspection,
+import {
+  CLIENT_CONTACT_CATEGORIES,
+  type BookingType,
+  type ContactOrganization,
+  type Job,
+  type WorksRegisterEntry,
+  type Inspection,
 } from "@/lib/types";
 
 export type RevenueBucket = {
@@ -306,7 +307,9 @@ export function calculateDashboardMetrics(params: {
 
   const inactiveClients: { name: string; daysInactive: number; lastActivity?: string }[] = [];
   const orgSources = params.organizations || [];
-  orgSources.forEach((org) => {
+  orgSources
+    .filter((org) => CLIENT_CONTACT_CATEGORIES.includes(org.category))
+    .forEach((org) => {
     const lastActivity = lastActivityByOrg.get(org.id) || toDate(org.updatedAt);
     const days = daysBetween(now, lastActivity);
     if (days !== null && days >= 28) {

@@ -61,6 +61,7 @@ import {
   calculateCostBreakdown,
   ContactCategory,
   CONTACT_CATEGORY_LABELS,
+  CLIENT_CONTACT_CATEGORIES,
   ContactOrganization,
   DamageItem,
   DamageReportItem,
@@ -291,6 +292,11 @@ export default function InspectionDetailPage() {
     description: "",
     totalCost: "",
   });
+
+  const clientOrganizations = useMemo(
+    () => organizations.filter((org) => CLIENT_CONTACT_CATEGORIES.includes(org.category)),
+    [organizations]
+  );
 
   useEffect(() => {
     const inspectionRef = doc(db, COLLECTIONS.INSPECTIONS, inspectionId);
@@ -1694,7 +1700,7 @@ ASI Australia`;
                       <SelectValue placeholder="Select organisation" />
                     </SelectTrigger>
                     <SelectContent>
-                      {organizations.map((org) => (
+                      {clientOrganizations.map((org) => (
                         <SelectItem key={org.id} value={org.id}>
                           {org.name}
                         </SelectItem>
@@ -1737,7 +1743,7 @@ ASI Australia`;
                                 <SelectValue placeholder="Select organisation" />
                               </SelectTrigger>
                               <SelectContent>
-                                {organizations.map((org) => (
+                                {clientOrganizations.map((org) => (
                                   <SelectItem key={org.id} value={org.id}>
                                     {org.name}
                                   </SelectItem>
@@ -1771,21 +1777,18 @@ ASI Australia`;
                                   >
                                     <SelectTrigger>
                                       <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      {(Object.entries(CONTACT_CATEGORY_LABELS) as [
-                                        ContactCategory,
-                                        string
-                                      ][]).map(([value, label]) => (
-                                        <SelectItem key={value} value={value}>
-                                          {label}
-                                        </SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
-                                </div>
-                                <div className="space-y-2">
-                                  <Label>ABN</Label>
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        {CLIENT_CONTACT_CATEGORIES.map((category) => (
+                                          <SelectItem key={category} value={category}>
+                                            {CONTACT_CATEGORY_LABELS[category]}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                  <div className="space-y-2">
+                                    <Label>ABN</Label>
                                   <Input
                                     value={newOrgData.abn}
                                     onChange={(e) =>

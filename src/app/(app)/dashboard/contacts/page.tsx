@@ -434,6 +434,19 @@ export default function ContactsPage() {
   const getPrimaryContact = (orgId: string) =>
     contacts.find((c) => c.organizationId === orgId && c.isPrimary);
 
+  const getDefaultPortalRoleForCategory = (
+    category: ContactCategory
+  ): OrganizationFormData["portalRole"] => {
+    if (category === "subcontractor") return "contractor";
+    return "";
+  };
+
+  const getOrganizationTypeForCategory = (category: ContactCategory) => {
+    if (category === "supplier_vendor") return "supplier";
+    if (category === "asi_staff" || category === "subcontractor") return "partner";
+    return "customer";
+  };
+
   const handleOpenOrgDialog = (org?: ContactOrganization) => {
     if (org) {
       setEditingOrg(org);
@@ -456,7 +469,11 @@ export default function ContactsPage() {
       });
     } else {
       setEditingOrg(null);
-      setOrgForm({ ...initialOrgForm, category: activeTab });
+      setOrgForm({
+        ...initialOrgForm,
+        category: activeTab,
+        portalRole: getDefaultPortalRoleForCategory(activeTab),
+      });
     }
     setOrgDialogOpen(true);
   };
@@ -518,7 +535,7 @@ export default function ContactsPage() {
       await addDocument(COLLECTIONS.CONTACT_ORGANIZATIONS, {
         name: orgForm.name,
         category: orgForm.category,
-        type: "customer",
+        type: getOrganizationTypeForCategory(orgForm.category),
         status: orgForm.status,
         abn: orgForm.abn.trim(),
         marketStream: orgForm.marketStream || "",

@@ -77,6 +77,7 @@ import {
   RESOURCE_DURATION_LABELS,
   ContactCategory,
   CONTACT_CATEGORY_LABELS,
+  CLIENT_CONTACT_CATEGORIES,
   ContactOrganization,
   OrganizationContact,
   SiteLocation,
@@ -336,11 +337,14 @@ export default function BookingsPage() {
   // Organization search
   const [orgSearchQuery, setOrgSearchQuery] = useState("");
   const [isCreatingBooking, setIsCreatingBooking] = useState(false);
-  const filteredOrganizations = organizations.filter(
-    (org) =>
-      org.name.toLowerCase().includes(orgSearchQuery.toLowerCase()) ||
-      org.email?.toLowerCase().includes(orgSearchQuery.toLowerCase())
+  const clientOrganizations = useMemo(
+    () => organizations.filter((org) => CLIENT_CONTACT_CATEGORIES.includes(org.category)),
+    [organizations]
   );
+  const filteredOrganizations = clientOrganizations.filter((org) => {
+    const query = orgSearchQuery.toLowerCase();
+    return org.name.toLowerCase().includes(query) || org.email?.toLowerCase().includes(query);
+  });
 
   useEffect(() => {
     const orgQuery = query(collection(db, COLLECTIONS.CONTACT_ORGANIZATIONS), orderBy("name"));
@@ -1710,7 +1714,7 @@ export default function BookingsPage() {
                                     <SelectValue placeholder="Select an organisation..." />
                                   </SelectTrigger>
                                   <SelectContent>
-                                    {organizations.map((org) => (
+                                    {clientOrganizations.map((org) => (
                                       <SelectItem key={org.id} value={org.id}>
                                         {org.name}
                                       </SelectItem>
@@ -1752,13 +1756,11 @@ export default function BookingsPage() {
                                             <SelectValue />
                                           </SelectTrigger>
                                           <SelectContent>
-                                            {(Object.entries(CONTACT_CATEGORY_LABELS) as [ContactCategory, string][]).map(
-                                              ([value, label]) => (
-                                                <SelectItem key={value} value={value}>
-                                                  {label}
-                                                </SelectItem>
-                                              )
-                                            )}
+                                            {CLIENT_CONTACT_CATEGORIES.map((category) => (
+                                              <SelectItem key={category} value={category}>
+                                                {CONTACT_CATEGORY_LABELS[category]}
+                                              </SelectItem>
+                                            ))}
                                           </SelectContent>
                                         </Select>
                                       </div>
@@ -2894,7 +2896,7 @@ export default function BookingsPage() {
                   <SelectValue placeholder="Select organisation" />
                 </SelectTrigger>
                 <SelectContent>
-                  {organizations.map((org) => (
+                  {clientOrganizations.map((org) => (
                     <SelectItem key={org.id} value={org.id}>
                       {org.name}
                     </SelectItem>
