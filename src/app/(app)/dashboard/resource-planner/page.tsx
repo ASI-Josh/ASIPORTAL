@@ -14,9 +14,12 @@ import {
 } from "firebase/firestore";
 import {
   addDays,
+  addMonths,
   endOfDay,
   format,
+  getDaysInMonth,
   isBefore,
+  startOfMonth,
   startOfDay,
   startOfWeek,
 } from "date-fns";
@@ -78,6 +81,8 @@ type AllocationEvent = {
   job: Job | null;
   window: AllocationWindow;
 };
+
+type PlannerViewMode = "day" | "week" | "month";
 
 const DEFAULT_DURATION: Record<ResourceDurationTemplate, { unit: AllocationWindow["unit"]; value: number }> = {
   na: { unit: "hours", value: 1 },
@@ -153,7 +158,8 @@ export default function ResourcePlannerPage() {
   const { user } = useAuth();
   const { bookings, jobs } = useJobs();
 
-  const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }));
+  const [viewMode, setViewMode] = useState<PlannerViewMode>("week");
+  const [cursorDate, setCursorDate] = useState(() => new Date());
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [editing, setEditing] = useState<AllocationEvent | null>(null);
   const [editTemplate, setEditTemplate] = useState<ResourceDurationTemplate>("na");
@@ -199,19 +205,45 @@ export default function ResourcePlannerPage() {
     return map;
   }, [jobs]);
 
+  const rangeStart = useMemo(() => {
+    if (viewMode === "day") return startOfDay(cursorDate);
+    if (viewMode === "month") return startOfMonth(cursorDate);
+    return startOfWeek(cursorDate, { weekStartsOn: 1 });
+  }, [cursorDate, viewMode]);
+
   const visibleDays = useMemo(() => {
-    return Array.from({ length: 7 }).map((_, idx) => addDays(weekStart, idx));
-  }, [weekStart]);
+    const count = viewMode === "day" ? 1 : viewMode === "month" ? getDaysInMonth(rangeStart) : 7;
+    return Array.from({ length: count }).map((_, idx) => addDays(rangeStart, idx));
+  }, [rangeStart, viewMode]);
+
+  const rangeEnd = useMemo(
+    () => addDays(startOfDay(rangeStart), visibleDays.length),
+    [rangeStart, visibleDays.length]
+  );
+
+  const rangeLabel = useMemo(() => {
+    if (viewMode === "day") return format(rangeStart, "EEE d MMM yyyy");
+    if (viewMode === "month") return format(rangeStart, "MMMM yyyy");
+    return `Week of ${format(rangeStart, "EEE d MMM yyyy")}`;
+  }, [rangeStart, viewMode]);
+
+  const gridColumnsStyle = useMemo(() => {
+    const count = Math.max(1, visibleDays.length);
+    const template =
+      viewMode === "month"
+        ? `repeat(${count}, minmax(90px, 1fr))`
+        : `repeat(${count}, minmax(0, 1fr))`;
+    return { gridTemplateColumns: template } as const;
+  }, [viewMode, visibleDays.length]);
 
   const events = useMemo((): AllocationEvent[] => {
     const result: AllocationEvent[] = [];
-    const weekStartDay = startOfDay(weekStart);
-    const weekEnd = addDays(weekStartDay, 7);
+    const rangeStartDay = startOfDay(rangeStart);
 
     const addEvent = (booking: Booking, staffMember: StaffMember) => {
       const window = resolveAllocationWindow(booking);
       if (!window) return;
-      if (!(isBefore(window.start, weekEnd) && isBefore(weekStartDay, window.end))) return;
+      if (!(isBefore(window.start, rangeEnd) && isBefore(rangeStartDay, window.end))) return;
       const job = booking.convertedJobId ? jobsById.get(booking.convertedJobId) ?? null : null;
       result.push({
         id: `${booking.id}:${staffMember.id}`,
@@ -234,7 +266,7 @@ export default function ResourcePlannerPage() {
       });
 
     return result;
-  }, [bookings, jobsById, weekStart]);
+  }, [bookings, jobsById, rangeEnd, rangeStart]);
 
   const staffRows = useMemo(() => {
     const staffMap = new Map<string, StaffMember>();
@@ -415,21 +447,55 @@ export default function ResourcePlannerPage() {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" onClick={() => setWeekStart(startOfWeek(new Date(), { weekStartsOn: 1 }))}>
+            <Select value={viewMode} onValueChange={(value) => setViewMode(value as PlannerViewMode)}>
+              <SelectTrigger className="w-[150px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="day">Day view</SelectItem>
+                <SelectItem value="week">Week view</SelectItem>
+                <SelectItem value="month">Month view</SelectItem>
+              </SelectContent>
+            </Select>
+
+            <Button variant="outline" onClick={() => setCursorDate(new Date())}>
               Today
             </Button>
-            <Button variant="outline" size="icon" onClick={() => setWeekStart(addDays(weekStart, -7))}>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() =>
+                setCursorDate((prev) =>
+                  viewMode === "day"
+                    ? addDays(prev, -1)
+                    : viewMode === "month"
+                      ? addMonths(prev, -1)
+                      : addDays(prev, -7)
+                )
+              }
+            >
               <ChevronLeft className="h-4 w-4" />
             </Button>
-            <Button variant="outline" size="icon" onClick={() => setWeekStart(addDays(weekStart, 7))}>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() =>
+                setCursorDate((prev) =>
+                  viewMode === "day"
+                    ? addDays(prev, 1)
+                    : viewMode === "month"
+                      ? addMonths(prev, 1)
+                      : addDays(prev, 7)
+                )
+              }
+            >
               <ChevronRight className="h-4 w-4" />
             </Button>
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="text-sm text-muted-foreground">
-            Week of{" "}
-            <span className="text-foreground font-medium">{format(weekStart, "EEE d MMM yyyy")}</span>
+            <span className="text-foreground font-medium">{rangeLabel}</span>
           </div>
 
           {eotCandidates.length > 0 ? (
@@ -487,14 +553,23 @@ export default function ResourcePlannerPage() {
             </Card>
           ) : null}
 
-          <div className="rounded-xl border border-border/40 overflow-hidden">
+          <div className="rounded-xl border border-border/40 overflow-x-auto overflow-y-hidden">
             <div className="grid grid-cols-[220px,1fr] bg-muted/30">
               <div className="p-3 text-xs font-medium text-muted-foreground">Staff</div>
-              <div className="grid grid-cols-7">
+              <div className="grid" style={gridColumnsStyle}>
                 {visibleDays.map((day) => (
                   <div key={day.toISOString()} className="p-3 text-xs font-medium text-muted-foreground">
-                    <div>{format(day, "EEE")}</div>
-                    <div className="text-[11px] opacity-80">{format(day, "d MMM")}</div>
+                    {viewMode === "month" ? (
+                      <>
+                        <div className="text-sm font-semibold text-foreground">{format(day, "d")}</div>
+                        <div className="text-[11px] opacity-80">{format(day, "EEE")}</div>
+                      </>
+                    ) : (
+                      <>
+                        <div>{format(day, "EEE")}</div>
+                        <div className="text-[11px] opacity-80">{format(day, "d MMM")}</div>
+                      </>
+                    )}
                   </div>
                 ))}
               </div>
@@ -529,30 +604,30 @@ export default function ResourcePlannerPage() {
                     </div>
                     <div className="relative">
                       <div
-                        className="grid grid-cols-7 auto-rows-[44px] gap-px bg-border/40"
-                        style={{ height: `${laneCount * rowHeight}px` }}
+                        className="grid auto-rows-[44px] gap-px bg-border/40"
+                        style={{ ...gridColumnsStyle, height: `${laneCount * rowHeight}px` }}
                       >
-                        {Array.from({ length: laneCount * 7 }).map((_, idx) => (
+                        {Array.from({ length: laneCount * visibleDays.length }).map((_, idx) => (
                           <div key={idx} className="bg-background/40" />
                         ))}
                       </div>
 
-                      <div className="absolute inset-0 grid grid-cols-7 auto-rows-[44px] gap-px p-1">
+                      <div className="absolute inset-0 grid auto-rows-[44px] gap-px p-1" style={gridColumnsStyle}>
                         {lanes.flatMap((lane, laneIndex) =>
                           lane.map((event) => {
                             const dayIndexStart = Math.max(
                               0,
                               Math.floor(
                                 (startOfDay(event.window.start).getTime() -
-                                  startOfDay(weekStart).getTime()) /
+                                  startOfDay(rangeStart).getTime()) /
                                   (1000 * 60 * 60 * 24)
                               )
                             );
                             const dayIndexEnd = Math.min(
-                              7,
+                              visibleDays.length,
                               Math.ceil(
                                 (startOfDay(event.window.end).getTime() -
-                                  startOfDay(weekStart).getTime()) /
+                                  startOfDay(rangeStart).getTime()) /
                                   (1000 * 60 * 60 * 24)
                               )
                             );

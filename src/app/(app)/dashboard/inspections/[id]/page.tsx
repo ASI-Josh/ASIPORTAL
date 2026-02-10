@@ -252,6 +252,7 @@ export default function InspectionDetailPage() {
   const [showRecycleDialog, setShowRecycleDialog] = useState(false);
   const [linkedBookingId, setLinkedBookingId] = useState<string | null>(null);
   const [bookingSyncing, setBookingSyncing] = useState(false);
+  const [jobSyncing, setJobSyncing] = useState(false);
   const [showNewContactDialog, setShowNewContactDialog] = useState(false);
   const [isCreatingNewOrg, setIsCreatingNewOrg] = useState(false);
   const [newContactData, setNewContactData] = useState({
@@ -1094,6 +1095,48 @@ export default function InspectionDetailPage() {
     }
   };
 
+  const handleSyncRfqJobDetails = async () => {
+    if (!inspection?.convertedToJobId) return;
+    if (user?.role !== "admin") return;
+    if (jobSyncing) return;
+
+    if (vehicleReports.length === 0) {
+      toast({
+        title: "Missing vehicle reports",
+        description: "Add vehicle and damage sites first, then sync the job card.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setJobSyncing(true);
+    try {
+      const existingJob = getJobById(inspection.convertedToJobId);
+      if (existingJob?.jobVehicles?.length) {
+        toast({
+          title: "Job already synced",
+          description: "This RFQ job already has vehicles and repair sites.",
+        });
+        return;
+      }
+
+      await updateJob(inspection.convertedToJobId, {
+        vehicles: vehicleReports.map((report) => report.vehicle),
+        jobVehicles: buildJobVehiclesFromVehicleReports(vehicleReports),
+        damage: buildLegacyDamageItemsFromVehicleReports(vehicleReports),
+      });
+      toast({
+        title: "RFQ job updated",
+        description: "Vehicles and repair sites were copied onto the job card.",
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to sync job card.";
+      toast({ title: "Sync failed", description: message, variant: "destructive" });
+    } finally {
+      setJobSyncing(false);
+    }
+  };
+
   const buildSummaryInput = () => {
     if (!inspection) return "";
     const organizationName = selectedOrganization?.name || inspection.organizationName || "";
@@ -1564,6 +1607,15 @@ ASI Australia`;
                   Reject RFQ
                 </Button>
               </>
+            )}
+            {inspection.convertedToJobId && user?.role === "admin" && (
+              <Button
+                variant="outline"
+                onClick={handleSyncRfqJobDetails}
+                disabled={jobSyncing}
+              >
+                {jobSyncing ? "Syncing..." : "Sync job details"}
+              </Button>
             )}
             {inspection.convertedToJobId && (
               <Button asChild variant="outline">
