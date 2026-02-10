@@ -65,6 +65,15 @@ export type BookingType =
   | "trim_restoration_exterior"
   | "polymer_lens_restoration";
 
+export type ResourceDurationTemplate = "na" | "short" | "medium" | "long";
+
+export const RESOURCE_DURATION_LABELS: Record<ResourceDurationTemplate, string> = {
+  na: "N/A (1 hour window)",
+  short: "Short (1 day)",
+  medium: "Medium (3 days)",
+  long: "Long (5 days)",
+};
+
 export const BOOKING_TYPE_LABELS: Record<BookingType, string> = {
   windscreen_crack_chip_repair: "Windscreen Crack/Chip Repair",
   windscreen_replacement: "Windscreen Replacement",
@@ -268,6 +277,16 @@ export interface Booking {
   id: string;
   bookingNumber: string;
   bookingType: BookingType;
+  resourceDurationTemplate?: ResourceDurationTemplate;
+  resourceDurationOverrideDays?: number;
+  resourceDurationOverrideHours?: number;
+  eotCheck?: {
+    status: "pending" | "not_required" | "requested";
+    promptedAt?: Timestamp;
+    decidedAt?: Timestamp;
+    decidedBy?: string;
+    note?: string;
+  };
   organizationId: string;
   organizationName: string;
   contactId: string;

@@ -73,6 +73,8 @@ import {
   Booking,
   BookingType,
   BOOKING_TYPE_LABELS,
+  ResourceDurationTemplate,
+  RESOURCE_DURATION_LABELS,
   ContactCategory,
   CONTACT_CATEGORY_LABELS,
   ContactOrganization,
@@ -293,6 +295,8 @@ export default function BookingsPage() {
   });
   const [scheduledDate, setScheduledDate] = useState<Date | undefined>();
   const [scheduledTime, setScheduledTime] = useState("");
+  const [resourceDurationTemplate, setResourceDurationTemplate] =
+    useState<ResourceDurationTemplate>("na");
   const [selectedStaff, setSelectedStaff] = useState<StaffMember[]>([]);
   const [bookingNotes, setBookingNotes] = useState("");
   const [editingBooking, setEditingBooking] = useState<Booking | null>(null);
@@ -984,6 +988,7 @@ export default function BookingsPage() {
         },
         scheduledDate,
         scheduledTime,
+        resourceDurationTemplate,
         allocatedStaff: selectedStaff.map((s) => ({ id: s.id, name: s.name, type: s.type })),
         notes: bookingNotes,
       });
@@ -1069,6 +1074,7 @@ export default function BookingsPage() {
     setRetailContact({ firstName: "", lastName: "", mobile: "", email: "" });
     setScheduledDate(undefined);
     setScheduledTime("");
+    setResourceDurationTemplate("na");
     setSelectedStaff([]);
     setBookingNotes("");
     setOrgSearchQuery("");
@@ -2291,6 +2297,42 @@ export default function BookingsPage() {
                             </Select>
                           </div>
                         </div>
+                      </div>
+                    </div>
+
+                    {/* Resource Allocation */}
+                    <div className="space-y-4">
+                      <div>
+                        <Label className="text-base font-semibold">Resource Allocation Window</Label>
+                        <p className="text-sm text-muted-foreground">
+                          Controls how much time is reserved in the Resource Planner for this job.
+                        </p>
+                      </div>
+                      <div className="space-y-2 max-w-xl">
+                        <Label>Duration</Label>
+                        <Select
+                          value={resourceDurationTemplate}
+                          onValueChange={(value) =>
+                            setResourceDurationTemplate(value as ResourceDurationTemplate)
+                          }
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select duration" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {(Object.entries(RESOURCE_DURATION_LABELS) as [
+                              ResourceDurationTemplate,
+                              string,
+                            ][]).map(([value, label]) => (
+                              <SelectItem key={value} value={value}>
+                                {label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <p className="text-xs text-muted-foreground">
+                          Tip: you can fine-tune this later per booking in the Resource Planner.
+                        </p>
                       </div>
                     </div>
 

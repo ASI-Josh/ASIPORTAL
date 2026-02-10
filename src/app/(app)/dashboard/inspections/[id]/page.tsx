@@ -933,17 +933,18 @@ export default function InspectionDetailPage() {
 
     const bookingNumber = await generateBookingNumber();
     const bookingRef = doc(collection(db, COLLECTIONS.BOOKINGS));
-    await setDoc(
-      bookingRef,
-      pruneUndefined({
-        id: bookingRef.id,
-        bookingNumber,
-        bookingType,
-        organizationId: resolvedOrgId,
-        organizationName: resolvedOrgName,
-        contactId: resolvedContactId,
-        contactName: resolvedContactName,
-        contactEmail: resolvedContactEmail,
+      await setDoc(
+        bookingRef,
+        pruneUndefined({
+          id: bookingRef.id,
+          bookingNumber,
+          bookingType,
+          resourceDurationTemplate: "short",
+          organizationId: resolvedOrgId,
+          organizationName: resolvedOrgName,
+          contactId: resolvedContactId,
+          contactName: resolvedContactName,
+          contactEmail: resolvedContactEmail,
         contactPhone: resolvedContactPhone,
         siteLocation: resolvedSiteLocation,
         scheduledDate: Timestamp.fromDate(resolvedScheduledDate),

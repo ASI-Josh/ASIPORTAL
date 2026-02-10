@@ -29,6 +29,7 @@ import type {
   JobStatus,
   JobLifecycleStage,
   BookingType,
+  ResourceDurationTemplate,
   ContactOrganization,
   OrganizationContact,
   SiteLocation,
@@ -55,6 +56,7 @@ type CreateBookingInput = {
   siteLocation: SiteLocation;
   scheduledDate: Date;
   scheduledTime: string;
+  resourceDurationTemplate?: ResourceDurationTemplate;
   allocatedStaff: {
     id: string;
     name: string;
@@ -372,6 +374,7 @@ export function JobsProvider({ children }: { children: ReactNode }) {
         id: bookingRef.id,
         bookingNumber,
         bookingType: input.bookingType,
+        resourceDurationTemplate: input.resourceDurationTemplate ?? "na",
         organizationId: input.organization.id,
         organizationName: input.organization.name,
         contactId: input.contact.id,

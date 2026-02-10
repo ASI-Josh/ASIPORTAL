@@ -291,6 +291,7 @@ export async function POST(req: NextRequest) {
           ...cleanedBookingPayload,
           id: bookingRef.id,
           bookingNumber,
+          resourceDurationTemplate: "short",
           createdAt: now,
           createdBy: userId,
         })
