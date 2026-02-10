@@ -108,7 +108,7 @@ import {
   Clock,
   Navigation,
   Upload,
-  Shield,
+  Shield as ShieldIcon,
   Bot,
 } from "lucide-react";
 import {
@@ -2107,7 +2107,7 @@ export default function JobCardPage() {
             <Card className="bg-card/50 backdrop-blur">
               <CardHeader className="pb-3">
                 <CardTitle className="flex items-center gap-2 text-base">
-                  <Shield className="h-4 w-4 text-primary" />
+                  <ShieldIcon className="h-4 w-4 text-primary" />
                   Site HSE Risk Assessment
                 </CardTitle>
               <CardDescription>
