@@ -2,6 +2,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
   Timestamp,
@@ -9,6 +10,8 @@ import {
   collection,
   doc,
   getDoc,
+  getDocs,
+  limit,
   onSnapshot,
   orderBy,
   query,
@@ -52,7 +55,7 @@ import { useJobs } from "@/contexts/JobsContext";
 import { generateInspectionSummaryAction } from "@/app/actions/ai";
 import { db, storage } from "@/lib/firebaseClient";
 import { buildFleetDocId, getFleetSeedForOrgName, normalizeVehicleKey } from "@/lib/fleet-data";
-import { COLLECTIONS, generateJobNumber } from "@/lib/firestore";
+import { COLLECTIONS, generateBookingNumber, generateJobNumber } from "@/lib/firestore";
 import {
   BOOKING_TYPE_LABELS,
   calculateCostBreakdown,
@@ -94,18 +97,60 @@ const timeSlots = [
   "16:00", "16:30", "17:00",
 ];
 
-const pruneUndefined = (value: unknown): unknown => {
+const DEFAULT_INSPECTION_BOOKING_TYPE: RepairType = "scratch_graffiti_removal";
+
+function deriveBookingTypeFromVehicleReports(reports: VehicleReport[]): RepairType {
+  const weights = new Map<RepairType, number>();
+  reports.forEach((report) => {
+    report.damages.forEach((damage) => {
+      const weight = damage.totalCost ?? damage.estimatedCost ?? 1;
+      weights.set(damage.repairType, (weights.get(damage.repairType) ?? 0) + weight);
+    });
+  });
+
+  if (weights.size === 0) return DEFAULT_INSPECTION_BOOKING_TYPE;
+
+  let bestType: RepairType = DEFAULT_INSPECTION_BOOKING_TYPE;
+  let bestWeight = -1;
+  weights.forEach((weight, type) => {
+    if (weight > bestWeight) {
+      bestWeight = weight;
+      bestType = type;
+    }
+  });
+
+  return bestType;
+}
+
+function isTraversableObject(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== "object") return false;
+  if (value instanceof Timestamp) return false;
+  if (value instanceof Date) return false;
+  if (Array.isArray(value)) return false;
+  return true;
+}
+
+function pruneUndefined<T>(value: T): T {
   if (Array.isArray(value)) {
-    return value.map(pruneUndefined);
+    return value
+      .map((item) => pruneUndefined(item))
+      .filter((item) => item !== undefined) as unknown as T;
   }
-  if (!value || typeof value !== "object") return value;
-  const record = value as Record<string, unknown>;
-  return Object.fromEntries(
-    Object.entries(record)
-      .filter(([, val]) => val !== undefined)
-      .map(([key, val]) => [key, pruneUndefined(val)])
-  );
-};
+
+  if (isTraversableObject(value)) {
+    const cleaned: Record<string, unknown> = {};
+    Object.entries(value).forEach(([key, val]) => {
+      if (val === undefined) return;
+      const nextVal = pruneUndefined(val);
+      if (nextVal !== undefined) {
+        cleaned[key] = nextVal;
+      }
+    });
+    return cleaned as T;
+  }
+
+  return value;
+}
 
 export default function InspectionDetailPage() {
   const params = useParams();
@@ -141,6 +186,8 @@ export default function InspectionDetailPage() {
   const [uploadingPhotos, setUploadingPhotos] = useState<Record<string, boolean>>({});
   const [photoPreview, setPhotoPreview] = useState<{ url: string; label: string } | null>(null);
   const [showRecycleDialog, setShowRecycleDialog] = useState(false);
+  const [linkedBookingId, setLinkedBookingId] = useState<string | null>(null);
+  const [bookingSyncing, setBookingSyncing] = useState(false);
   const [showNewContactDialog, setShowNewContactDialog] = useState(false);
   const [isCreatingNewOrg, setIsCreatingNewOrg] = useState(false);
   const [newContactData, setNewContactData] = useState({
@@ -359,6 +406,11 @@ export default function InspectionDetailPage() {
       if (!value) return undefined;
       if (value instanceof Timestamp) return value.toDate();
       if (value instanceof Date) return value;
+      const seconds = (value as { seconds?: unknown }).seconds;
+      const nanoseconds = (value as { nanoseconds?: unknown }).nanoseconds;
+      if (typeof seconds === "number" && typeof nanoseconds === "number") {
+        return new Timestamp(seconds, nanoseconds).toDate();
+      }
       const hasToDate = (value as { toDate?: () => Date }).toDate;
       if (typeof hasToDate === "function") return hasToDate.call(value);
       if (typeof value === "string" || typeof value === "number") {
@@ -374,6 +426,36 @@ export default function InspectionDetailPage() {
     setScheduledTime(inspection.scheduledTime || "");
     setSelectedStaff(inspection.assignedStaff || []);
   }, [inspection]);
+
+  useEffect(() => {
+    const jobId = inspection?.convertedToJobId;
+    if (!jobId) {
+      setLinkedBookingId(null);
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const bookingQuery = query(
+          collection(db, COLLECTIONS.BOOKINGS),
+          where("convertedJobId", "==", jobId),
+          limit(1)
+        );
+        const snap = await getDocs(bookingQuery);
+        if (cancelled) return;
+        setLinkedBookingId(snap.empty ? null : snap.docs[0].id);
+      } catch (error) {
+        if (cancelled) return;
+        console.warn("Failed to resolve linked booking:", error);
+        setLinkedBookingId(null);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [inspection?.convertedToJobId]);
 
   useEffect(() => {
     if (!inspection || organizations.length === 0) return;
@@ -751,6 +833,164 @@ export default function InspectionDetailPage() {
     return pruneUndefined(payload) as Partial<Inspection>;
   };
 
+  const upsertBookingForConvertedJob = async (jobId: string) => {
+    if (!inspection) return null;
+
+    const resolvedOrgId = selectedOrganization?.id || inspection.organizationId || inspection.clientId || "";
+    const resolvedOrgName =
+      selectedOrganization?.name || inspection.organizationName || inspection.clientName || "";
+    const resolvedContactId = selectedContact?.id || inspection.contactId || "";
+    const resolvedContactName = selectedContact
+      ? `${selectedContact.firstName} ${selectedContact.lastName}`.trim()
+      : inspection.contactName || "";
+    const resolvedContactEmail = selectedContact?.email || inspection.clientEmail || "";
+    const resolvedContactPhone =
+      selectedContact?.mobile || selectedContact?.phone || inspection.clientPhone || undefined;
+
+    const resolvedScheduledDate =
+      scheduledDate ||
+      (() => {
+        const value = inspection.scheduledDate;
+        if (!value) return undefined;
+        if (value instanceof Timestamp) return value.toDate();
+        const seconds = (value as { seconds?: unknown }).seconds;
+        const nanoseconds = (value as { nanoseconds?: unknown }).nanoseconds;
+        if (typeof seconds === "number" && typeof nanoseconds === "number") {
+          return new Timestamp(seconds, nanoseconds).toDate();
+        }
+        const hasToDate = (value as { toDate?: () => Date }).toDate;
+        if (typeof hasToDate === "function") return hasToDate.call(value);
+        return undefined;
+      })();
+
+    const resolvedScheduledTime = scheduledTime || inspection.scheduledTime || "";
+    const allocatedStaff = selectedStaff.length > 0 ? selectedStaff : inspection.assignedStaff || [];
+
+    const resolvedSiteLocation = selectedSite
+      ? {
+          id: selectedSite.id,
+          name: selectedSite.name,
+          address: selectedSite.address,
+        }
+      : inspection.siteLocation
+        ? {
+            name: inspection.siteLocation.name,
+            address: inspection.siteLocation.address,
+          }
+        : selectedOrganization?.address
+          ? {
+              name: resolvedOrgName || "Site",
+              address: selectedOrganization.address,
+            }
+          : null;
+
+    if (!resolvedOrgId || !resolvedOrgName) {
+      throw new Error("Missing organisation details for booking creation.");
+    }
+    if (!resolvedContactEmail) {
+      throw new Error("Missing contact email for booking creation.");
+    }
+    if (!resolvedScheduledDate || !resolvedScheduledTime) {
+      throw new Error("Missing schedule details for booking creation.");
+    }
+    if (!resolvedSiteLocation) {
+      throw new Error("Missing site location for booking creation.");
+    }
+
+    const now = Timestamp.now();
+    const bookingType = deriveBookingTypeFromVehicleReports(vehicleReports.length ? vehicleReports : inspection.vehicleReports || []);
+
+    const existingQuery = query(
+      collection(db, COLLECTIONS.BOOKINGS),
+      where("convertedJobId", "==", jobId),
+      limit(1)
+    );
+    const existingSnap = await getDocs(existingQuery);
+    if (!existingSnap.empty) {
+      const existingRef = existingSnap.docs[0].ref;
+      await updateDoc(
+        existingRef,
+        pruneUndefined({
+          bookingType,
+          organizationId: resolvedOrgId,
+          organizationName: resolvedOrgName,
+          contactId: resolvedContactId,
+          contactName: resolvedContactName,
+          contactEmail: resolvedContactEmail,
+          contactPhone: resolvedContactPhone,
+          siteLocation: resolvedSiteLocation,
+          scheduledDate: Timestamp.fromDate(resolvedScheduledDate),
+          scheduledTime: resolvedScheduledTime,
+          allocatedStaff,
+          allocatedStaffIds: allocatedStaff.map((staff) => staff.id),
+          notes: notes || inspection.notes || undefined,
+          status: "converted_to_job",
+          updatedAt: now,
+        }) as any
+      );
+      return existingSnap.docs[0].id;
+    }
+
+    const bookingNumber = await generateBookingNumber();
+    const bookingRef = doc(collection(db, COLLECTIONS.BOOKINGS));
+    await setDoc(
+      bookingRef,
+      pruneUndefined({
+        id: bookingRef.id,
+        bookingNumber,
+        bookingType,
+        organizationId: resolvedOrgId,
+        organizationName: resolvedOrgName,
+        contactId: resolvedContactId,
+        contactName: resolvedContactName,
+        contactEmail: resolvedContactEmail,
+        contactPhone: resolvedContactPhone,
+        siteLocation: resolvedSiteLocation,
+        scheduledDate: Timestamp.fromDate(resolvedScheduledDate),
+        scheduledTime: resolvedScheduledTime,
+        allocatedStaff,
+        allocatedStaffIds: allocatedStaff.map((staff) => staff.id),
+        notes: notes || inspection.notes || undefined,
+        status: "converted_to_job",
+        convertedJobId: jobId,
+        createdAt: now,
+        createdBy: user?.uid || inspection.createdBy,
+        updatedAt: now,
+      }) as any
+    );
+
+    return bookingRef.id;
+  };
+
+  const handleSyncBookingRecord = async () => {
+    if (!inspection?.convertedToJobId) return;
+    if (bookingSyncing) return;
+    setBookingSyncing(true);
+    try {
+      const bookingId = await upsertBookingForConvertedJob(inspection.convertedToJobId);
+      if (bookingId) setLinkedBookingId(bookingId);
+      if (inspection.status === "approved") {
+        await updateDoc(doc(db, COLLECTIONS.INSPECTIONS, inspection.id), {
+          status: "converted",
+          updatedAt: Timestamp.now(),
+        });
+      }
+      toast({
+        title: "Booking record created",
+        description: "This RFQ will now appear in the Bookings page for scheduling.",
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to create booking record.";
+      toast({
+        title: "Booking sync failed",
+        description: message,
+        variant: "destructive",
+      });
+    } finally {
+      setBookingSyncing(false);
+    }
+  };
+
   const buildSummaryInput = () => {
     if (!inspection) return "";
     const organizationName = selectedOrganization?.name || inspection.organizationName || "";
@@ -998,8 +1238,10 @@ ASI Australia`;
     }
     const now = Timestamp.now();
     await updateDoc(doc(db, COLLECTIONS.INSPECTIONS, inspection.id), {
-      status: "approved",
+      status: "converted",
       approvedAt: now,
+      clientApprovalStatus: "approved",
+      clientApprovalUpdatedAt: now,
       updatedAt: now,
     });
 
@@ -1037,6 +1279,17 @@ ASI Australia`;
         });
         await setDoc(entryRef, entry);
       }
+    }
+
+    try {
+      await upsertBookingForConvertedJob(jobId);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to create booking for the approved RFQ.";
+      toast({
+        title: "Booking sync failed",
+        description: message,
+        variant: "destructive",
+      });
     }
 
     toast({
@@ -1169,6 +1422,11 @@ ASI Australia`;
   }
 
   const canApprove = inspection.status === "submitted" && user?.role === "admin";
+  const needsBookingSync =
+    !!inspection.convertedToJobId &&
+    !linkedBookingId &&
+    (inspection.status === "approved" || inspection.status === "converted") &&
+    user?.role === "admin";
 
   return (
     <div className="space-y-6 p-6">
@@ -1213,6 +1471,11 @@ ASI Australia`;
               </>
             )}
             {inspection.convertedToJobId && (
+              <Button asChild variant="outline">
+                <Link href={`/dashboard/jobs/${inspection.convertedToJobId}`}>View RFQ job</Link>
+              </Button>
+            )}
+            {inspection.convertedToJobId && (
               <Dialog open={showRecycleDialog} onOpenChange={setShowRecycleDialog}>
                 <DialogTrigger asChild>
                   <Button variant="destructive">Send job to recycle bin</Button>
@@ -1239,6 +1502,23 @@ ASI Australia`;
           </div>
         </div>
       </div>
+
+      {needsBookingSync && (
+        <Card className="border-amber-500/30 bg-amber-500/10">
+          <CardHeader>
+            <CardTitle className="text-base">Booking record missing</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <p className="text-sm text-muted-foreground">
+              This inspection has been converted to a job but doesn’t have a Booking record yet, so
+              it won’t appear in the Bookings page.
+            </p>
+            <Button onClick={handleSyncBookingRecord} disabled={bookingSyncing}>
+              {bookingSyncing ? "Creating..." : "Create booking record"}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
       <Tabs defaultValue="details" className="space-y-4">
         <TabsList className="grid w-full grid-cols-3 bg-muted/50">
