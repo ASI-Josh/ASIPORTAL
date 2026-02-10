@@ -331,6 +331,17 @@ export default function JobCardPage() {
   const [showAddRepairDialog, setShowAddRepairDialog] = useState(false);
   const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (!job) return;
+    setJobVehicles(job.jobVehicles || []);
+  }, [job?.id]);
+
+  useEffect(() => {
+    if (!job?.jobVehicles?.length) return;
+    if (jobVehicles.length > 0) return;
+    setJobVehicles(job.jobVehicles);
+  }, [job?.jobVehicles, jobVehicles.length]);
+
   // New vehicle form state
   const [newVehicle, setNewVehicle] = useState({
     registration: "",
