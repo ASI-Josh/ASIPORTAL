@@ -187,6 +187,92 @@ function buildJobVehiclesFromVehicleReports(reports: VehicleReport[]): JobVehicl
   });
 }
 
+function countRepairSites(jobVehicles?: unknown): number {
+  if (!Array.isArray(jobVehicles)) return 0;
+  return jobVehicles.reduce((sum, vehicle) => {
+    if (!vehicle || typeof vehicle !== "object") return sum;
+    const repairSites = (vehicle as { repairSites?: unknown }).repairSites;
+    return sum + (Array.isArray(repairSites) ? repairSites.length : 0);
+  }, 0);
+}
+
+function buildVehicleMatchKeys(vehicle: {
+  id?: string;
+  registration?: string;
+  vin?: string;
+  fleetAssetNumber?: string;
+}): string[] {
+  const keys: string[] = [];
+  const rego = normalizeVehicleKey(vehicle.registration);
+  if (rego) keys.push(`rego:${rego}`);
+  const vin = normalizeVehicleKey(vehicle.vin);
+  if (vin) keys.push(`vin:${vin}`);
+  const fleet = normalizeVehicleKey(vehicle.fleetAssetNumber);
+  if (fleet) keys.push(`fleet:${fleet}`);
+  if (vehicle.id) keys.push(`id:${vehicle.id}`);
+  return keys;
+}
+
+function mergeJobVehiclesRepairSites(params: {
+  existingJobVehicles: JobVehicle[];
+  desiredJobVehicles: JobVehicle[];
+}): JobVehicle[] {
+  const { existingJobVehicles, desiredJobVehicles } = params;
+  if (existingJobVehicles.length === 0) return desiredJobVehicles;
+
+  const desiredByKey = new Map<string, JobVehicle>();
+  desiredJobVehicles.forEach((vehicle) => {
+    buildVehicleMatchKeys(vehicle).forEach((key) => {
+      if (!desiredByKey.has(key)) desiredByKey.set(key, vehicle);
+    });
+  });
+
+  const usedDesired = new Set<JobVehicle>();
+  const merged = existingJobVehicles.map((existing) => {
+    const match =
+      buildVehicleMatchKeys(existing)
+        .map((key) => desiredByKey.get(key))
+        .find(Boolean) || null;
+    if (!match) return existing;
+    usedDesired.add(match);
+
+    const existingRepairSites = Array.isArray(existing.repairSites) ? existing.repairSites : [];
+    if (existingRepairSites.length > 0) return existing;
+    if (!match.repairSites?.length) return existing;
+
+    return {
+      ...existing,
+      registration: existing.registration ?? match.registration,
+      vin: existing.vin ?? match.vin,
+      fleetAssetNumber: existing.fleetAssetNumber ?? match.fleetAssetNumber,
+      bodyManufacturer: existing.bodyManufacturer ?? match.bodyManufacturer,
+      year: existing.year ?? match.year,
+      poWorksOrderNumber: existing.poWorksOrderNumber ?? match.poWorksOrderNumber,
+      repairSites: match.repairSites,
+      totalCost: match.totalCost,
+      totalLabourCost: match.totalLabourCost,
+      totalMaterialsCost: match.totalMaterialsCost,
+    };
+  });
+
+  desiredJobVehicles.forEach((desired) => {
+    if (!usedDesired.has(desired)) merged.push(desired);
+  });
+
+  return merged;
+}
+
+function totalsFromJobVehicles(jobVehicles: JobVehicle[]) {
+  return jobVehicles.reduce(
+    (acc, vehicle) => ({
+      totalCost: acc.totalCost + (vehicle.totalCost || 0),
+      totalLabourCost: acc.totalLabourCost + (vehicle.totalLabourCost || 0),
+      totalMaterialsCost: acc.totalMaterialsCost + (vehicle.totalMaterialsCost || 0),
+    }),
+    { totalCost: 0, totalLabourCost: 0, totalMaterialsCost: 0 }
+  );
+}
+
 function isTraversableObject(value: unknown): value is Record<string, unknown> {
   if (value === null || typeof value !== "object") return false;
   if (value instanceof Timestamp) return false;
@@ -504,7 +590,7 @@ export default function InspectionDetailPage() {
 
     const jobId = inspection.convertedToJobId;
     const existingJob = getJobById(jobId);
-    if (existingJob?.jobVehicles?.length) return;
+    if (countRepairSites(existingJob?.jobVehicles) > 0) return;
 
     let cancelled = false;
     (async () => {
@@ -514,12 +600,22 @@ export default function InspectionDetailPage() {
         const existingJobVehicles = Array.isArray((jobDoc as any)?.jobVehicles)
           ? ((jobDoc as any).jobVehicles as unknown[])
           : [];
-        if (existingJobVehicles.length > 0) return;
+        if (countRepairSites(existingJobVehicles) > 0) return;
+
+        const desiredJobVehicles = buildJobVehiclesFromVehicleReports(vehicleReports);
+        const mergedJobVehicles = mergeJobVehiclesRepairSites({
+          existingJobVehicles: existingJobVehicles as JobVehicle[],
+          desiredJobVehicles,
+        });
+        const totals = totalsFromJobVehicles(mergedJobVehicles);
 
         await updateJob(jobId, {
           vehicles: vehicleReports.map((report) => report.vehicle),
-          jobVehicles: buildJobVehiclesFromVehicleReports(vehicleReports),
+          jobVehicles: mergedJobVehicles,
           damage: buildLegacyDamageItemsFromVehicleReports(vehicleReports),
+          totalJobCost: totals.totalCost,
+          totalLabourCost: totals.totalLabourCost,
+          totalMaterialsCost: totals.totalMaterialsCost,
         });
         toast({
           title: "RFQ job synced",
@@ -1117,8 +1213,12 @@ export default function InspectionDetailPage() {
 
     setJobSyncing(true);
     try {
-      const existingJob = getJobById(inspection.convertedToJobId);
-      if (existingJob?.jobVehicles?.length) {
+      const jobId = inspection.convertedToJobId;
+      const jobDoc = getJobById(jobId) || (await getDoc(doc(db, COLLECTIONS.JOBS, jobId))).data();
+      const existingJobVehicles = Array.isArray((jobDoc as any)?.jobVehicles)
+        ? ((jobDoc as any).jobVehicles as JobVehicle[])
+        : [];
+      if (countRepairSites(existingJobVehicles) > 0) {
         toast({
           title: "Job already synced",
           description: "This RFQ job already has vehicles and repair sites.",
@@ -1126,10 +1226,20 @@ export default function InspectionDetailPage() {
         return;
       }
 
-      await updateJob(inspection.convertedToJobId, {
+      const desiredJobVehicles = buildJobVehiclesFromVehicleReports(vehicleReports);
+      const mergedJobVehicles = mergeJobVehiclesRepairSites({
+        existingJobVehicles,
+        desiredJobVehicles,
+      });
+      const totals = totalsFromJobVehicles(mergedJobVehicles);
+
+      await updateJob(jobId, {
         vehicles: vehicleReports.map((report) => report.vehicle),
-        jobVehicles: buildJobVehiclesFromVehicleReports(vehicleReports),
+        jobVehicles: mergedJobVehicles,
         damage: buildLegacyDamageItemsFromVehicleReports(vehicleReports),
+        totalJobCost: totals.totalCost,
+        totalLabourCost: totals.totalLabourCost,
+        totalMaterialsCost: totals.totalMaterialsCost,
       });
       toast({
         title: "RFQ job updated",

@@ -338,9 +338,12 @@ export default function JobCardPage() {
 
   useEffect(() => {
     if (!job?.jobVehicles?.length) return;
-    if (jobVehicles.length > 0) return;
+    const localRepairCount = jobVehicles.reduce((sum, vehicle) => sum + vehicle.repairSites.length, 0);
+    if (localRepairCount > 0) return;
+    const serverRepairCount = job.jobVehicles.reduce((sum, vehicle) => sum + vehicle.repairSites.length, 0);
+    if (serverRepairCount === 0) return;
     setJobVehicles(job.jobVehicles);
-  }, [job?.jobVehicles, jobVehicles.length]);
+  }, [job?.jobVehicles, jobVehicles]);
 
   // New vehicle form state
   const [newVehicle, setNewVehicle] = useState({
