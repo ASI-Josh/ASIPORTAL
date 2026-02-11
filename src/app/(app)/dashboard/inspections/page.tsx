@@ -70,6 +70,34 @@ const STATUS_BADGE: Record<InspectionStatus, string> = {
   rejected: "bg-red-500/20 text-red-400 border-red-500/30",
 };
 
+function isTraversableObject(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== "object") return false;
+  if (value instanceof Timestamp) return false;
+  if (value instanceof Date) return false;
+  if (Array.isArray(value)) return false;
+  return true;
+}
+
+function pruneUndefined<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => pruneUndefined(item))
+      .filter((item) => item !== undefined) as unknown as T;
+  }
+
+  if (isTraversableObject(value)) {
+    const cleaned: Record<string, unknown> = {};
+    Object.entries(value).forEach(([key, val]) => {
+      if (val === undefined) return;
+      const nextVal = pruneUndefined(val);
+      if (nextVal !== undefined) cleaned[key] = nextVal;
+    });
+    return cleaned as T;
+  }
+
+  return value;
+}
+
 export default function InspectionsPage() {
   const router = useRouter();
   const { toast } = useToast();
@@ -291,7 +319,10 @@ export default function InspectionsPage() {
           createdAt: Timestamp.now(),
           updatedAt: Timestamp.now(),
         };
-        const orgRef = await addDoc(collection(db, COLLECTIONS.CONTACT_ORGANIZATIONS), newOrg);
+        const orgRef = await addDoc(
+          collection(db, COLLECTIONS.CONTACT_ORGANIZATIONS),
+          pruneUndefined(newOrg)
+        );
         organizationId = orgRef.id;
         organization = { ...newOrg, id: orgRef.id };
       }
@@ -317,7 +348,7 @@ export default function InspectionsPage() {
         };
         const contactRef = await addDoc(
           collection(db, COLLECTIONS.ORGANIZATION_CONTACTS),
-          newContact
+          pruneUndefined(newContact)
         );
         contact = { ...newContact, id: contactRef.id };
       }
@@ -330,41 +361,41 @@ export default function InspectionsPage() {
       const inspectionRef = doc(collection(db, COLLECTIONS.INSPECTIONS));
       const worksRef = doc(collection(db, COLLECTIONS.WORKS_REGISTER));
       const now = Timestamp.now();
-      const inspection: Inspection = {
-        id: inspectionRef.id,
-        inspectionNumber,
-        organizationId,
-        organizationName: organization.name,
-        contactId: contact.id,
-        contactName: `${contact.firstName} ${contact.lastName}`.trim(),
-        clientId: organizationId,
-        clientName: organization.name,
-        clientEmail: contact.email,
-        clientPhone: contact.mobile || contact.phone,
-        siteLocation: organization.sites?.[0]
-          ? {
-              name: organization.sites[0].name,
-              address: organization.address && organization.sites[0].isDefault
-                ? organization.address
-                : organization.sites[0].address,
-            }
-          : undefined,
-        status: "draft",
-        vehicleReports: [],
-        worksRegisterId: worksRef.id,
-        createdAt: now,
-        createdBy: user.uid,
-        updatedAt: now,
-      };
-      await setDoc(inspectionRef, inspection);
-      const worksEntry = createInspectionWorksRegisterEntry({
-        inspection,
-        entryId: worksRef.id,
-      });
-      await setDoc(worksRef, worksEntry);
-      setShowNewInspectionDialog(false);
-      resetNewInspectionForm();
-      router.push(`/dashboard/inspections/${inspectionRef.id}`);
+        const inspection: Inspection = {
+          id: inspectionRef.id,
+          inspectionNumber,
+          organizationId,
+          organizationName: organization.name,
+          contactId: contact.id,
+          contactName: `${contact.firstName} ${contact.lastName}`.trim(),
+          clientId: organizationId,
+          clientName: organization.name,
+          clientEmail: contact.email,
+          clientPhone: contact.mobile || contact.phone,
+          siteLocation: organization.sites?.[0]
+            ? {
+                name: organization.sites[0].name,
+                address: organization.address && organization.sites[0].isDefault
+                  ? organization.address
+                  : organization.sites[0].address,
+              }
+            : undefined,
+          status: "draft",
+          vehicleReports: [],
+          worksRegisterId: worksRef.id,
+          createdAt: now,
+          createdBy: user.uid,
+          updatedAt: now,
+        };
+        await setDoc(inspectionRef, pruneUndefined(inspection));
+        const worksEntry = createInspectionWorksRegisterEntry({
+          inspection,
+          entryId: worksRef.id,
+        });
+        await setDoc(worksRef, pruneUndefined(worksEntry));
+        setShowNewInspectionDialog(false);
+        resetNewInspectionForm();
+        router.push(`/dashboard/inspections/${inspectionRef.id}`);
     } catch (error: any) {
       toast({
         title: "Unable to create inspection",

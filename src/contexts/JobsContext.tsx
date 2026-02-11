@@ -418,7 +418,7 @@ export function JobsProvider({ children }: { children: ReactNode }) {
         jobNumber,
       });
 
-      await setDoc(jobRef, job);
+      await setDoc(jobRef, pruneUndefined(job));
 
       const worksRef = doc(collection(db, COLLECTIONS.WORKS_REGISTER));
       const primaryStaff = booking.allocatedStaff[0];
@@ -429,7 +429,7 @@ export function JobsProvider({ children }: { children: ReactNode }) {
         entryId: worksRef.id,
       });
 
-      await setDoc(worksRef, worksEntry);
+      await setDoc(worksRef, pruneUndefined(worksEntry));
 
       await updateDoc(bookingRef, {
         status: "converted_to_job",
