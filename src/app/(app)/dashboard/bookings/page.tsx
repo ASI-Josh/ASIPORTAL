@@ -6,10 +6,13 @@ import { useRouter } from "next/navigation";
 import {
   Timestamp,
   collection,
+  doc,
   deleteField,
+  getDocs,
   onSnapshot,
   orderBy,
   query,
+  writeBatch,
   where,
 } from "firebase/firestore";
 import { format, startOfDay } from "date-fns";
@@ -29,6 +32,7 @@ import {
   ArrowRight,
   FileText,
   Briefcase,
+  Trash2,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -63,6 +67,16 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -340,6 +354,8 @@ export default function BookingsPage() {
   const [editContactId, setEditContactId] = useState("");
   const [editContactsList, setEditContactsList] = useState<OrganizationContact[]>([]);
   const [editContactsError, setEditContactsError] = useState<string | null>(null);
+  const [bookingToHardDelete, setBookingToHardDelete] = useState<Booking | null>(null);
+  const [hardDeleting, setHardDeleting] = useState(false);
 
   // New contact dialog (includes option to add new organisation)
   const [showNewContactDialog, setShowNewContactDialog] = useState(false);
@@ -1440,6 +1456,49 @@ export default function BookingsPage() {
         description: error.message || "Unable to update booking.",
         variant: "destructive",
       });
+    }
+  };
+
+  const handleHardDeleteBooking = async () => {
+    if (!bookingToHardDelete) return;
+    if (hardDeleting) return;
+    if (!user) return;
+
+    setHardDeleting(true);
+    try {
+      const batch = writeBatch(db);
+
+      batch.delete(doc(db, COLLECTIONS.BOOKINGS, bookingToHardDelete.id));
+
+      if (bookingToHardDelete.convertedJobId) {
+        batch.delete(doc(db, COLLECTIONS.JOBS, bookingToHardDelete.convertedJobId));
+
+        const worksSnap = await getDocs(
+          query(
+            collection(db, COLLECTIONS.WORKS_REGISTER),
+            where("jobId", "==", bookingToHardDelete.convertedJobId)
+          )
+        );
+        worksSnap.docs.forEach((docSnap) => batch.delete(docSnap.ref));
+      }
+
+      await batch.commit();
+
+      toast({
+        title: "Booking deleted",
+        description: bookingToHardDelete.convertedJobId
+          ? "Booking, job, and works register record removed."
+          : "Booking removed.",
+      });
+      setBookingToHardDelete(null);
+    } catch (error: any) {
+      toast({
+        title: "Delete failed",
+        description: error?.message || "Unable to delete booking. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setHardDeleting(false);
     }
   };
 
@@ -3010,6 +3069,18 @@ export default function BookingsPage() {
                     >
                       Edit
                     </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-destructive hover:text-destructive"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setBookingToHardDelete(booking);
+                      }}
+                    >
+                      <Trash2 className="mr-1 h-4 w-4" />
+                      Delete
+                    </Button>
                     {booking.convertedJobId ? (
                       <Button variant="ghost" size="sm" asChild>
                         <Link
@@ -3335,6 +3406,35 @@ export default function BookingsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog
+        open={Boolean(bookingToHardDelete)}
+        onOpenChange={(open) => !open && setBookingToHardDelete(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Hard delete booking?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently deletes the booking
+              {bookingToHardDelete?.convertedJobId ? " and its linked job + works register record" : ""}. This
+              can’t be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={hardDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault();
+                handleHardDeleteBooking();
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={hardDeleting}
+            >
+              {hardDeleting ? "Deleting..." : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
