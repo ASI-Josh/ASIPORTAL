@@ -8,9 +8,11 @@ import {
   collection,
   doc,
   deleteField,
+  getDoc,
   onSnapshot,
   orderBy,
   query,
+  setDoc,
   where,
 } from "firebase/firestore";
 import { format, startOfDay } from "date-fns";
@@ -86,6 +88,7 @@ import {
   Booking,
   BookingType,
   BOOKING_TYPE_LABELS,
+  Job,
   ResourceDurationTemplate,
   RESOURCE_DURATION_LABELS,
   ContactCategory,
@@ -98,7 +101,7 @@ import {
 } from "@/lib/types";
 import { initialOrganizations, initialContacts } from "@/lib/contacts-data";
 import { COLLECTIONS, addDocument, createDocument } from "@/lib/firestore";
-import { isJobOnHold } from "@/lib/jobs-data";
+import { createWorksRegisterEntry, isJobOnHold } from "@/lib/jobs-data";
 import { db } from "@/lib/firebaseClient";
 import { useJobs } from "@/contexts/JobsContext";
 import { useAuth } from "@/contexts/AuthContext";
@@ -318,6 +321,7 @@ export default function BookingsPage() {
 
   // State for booking list view
   const [searchQuery, setSearchQuery] = useState("");
+  const [includeCancelledBookings, setIncludeCancelledBookings] = useState(false);
 
   // State for new booking form
   const [showNewBookingDialog, setShowNewBookingDialog] = useState(false);
@@ -1485,11 +1489,63 @@ export default function BookingsPage() {
 
     setDeletingBooking(true);
     try {
-      if (bookingToDelete.convertedJobId) {
-        await deleteJob(bookingToDelete.convertedJobId, user.uid);
+      const marker = `Job created from booking ${bookingToDelete.bookingNumber}`;
+      const resolvedJobId =
+        bookingToDelete.convertedJobId ||
+        [...jobs, ...deletedJobs].find((job) =>
+          job.statusLog?.some(
+            (entry) => typeof entry.notes === "string" && entry.notes.includes(marker)
+          )
+        )?.id;
+
+      const ensureWorksRegisterForJob = async (jobId: string) => {
+        const existing =
+          worksRegister.find((entry) => entry.jobId === jobId) ||
+          (() => {
+            const job = jobs.find((j) => j.id === jobId) || deletedJobs.find((j) => j.id === jobId);
+            if (!job) return null;
+            return worksRegister.find((entry) => entry.jobNumber === job.jobNumber) || null;
+          })();
+        if (existing) return;
+
+        const job =
+          jobs.find((j) => j.id === jobId) ||
+          deletedJobs.find((j) => j.id === jobId) ||
+          (await (async () => {
+            const jobSnap = await getDoc(doc(db, COLLECTIONS.JOBS, jobId));
+            if (!jobSnap.exists()) return null;
+            return { id: jobSnap.id, ...(jobSnap.data() as Omit<Job, "id">) } as Job;
+          })());
+        if (!job) return;
+
+        const worksRef = doc(collection(db, COLLECTIONS.WORKS_REGISTER));
+        const primaryTech =
+          job.assignedTechnicians?.find((tech) => tech.role === "primary") ||
+          job.assignedTechnicians?.[0];
+        const technicianName =
+          primaryTech?.technicianName ||
+          bookingToDelete.allocatedStaff?.[0]?.name ||
+          "Unassigned";
+        const serviceType = BOOKING_TYPE_LABELS[bookingToDelete.bookingType] || "Unknown";
+        const worksEntry = createWorksRegisterEntry({
+          job,
+          serviceType,
+          technicianName,
+          entryId: worksRef.id,
+        });
+        await setDoc(worksRef, worksEntry);
+      };
+
+      if (resolvedJobId) {
+        await ensureWorksRegisterForJob(resolvedJobId);
+        await deleteJob(resolvedJobId, user.uid);
+        await updateBooking(bookingToDelete.id, {
+          status: "cancelled",
+          ...(bookingToDelete.convertedJobId ? {} : { convertedJobId: resolvedJobId }),
+        });
         toast({
           title: "Moved to Recycle Bin",
-          description: "Job moved to Recycle Bin. You can restore it from Recycle Bin if needed.",
+          description: "Job moved to Recycle Bin and booking marked as cancelled.",
         });
       } else {
         await updateBooking(bookingToDelete.id, { status: "cancelled" });
@@ -1550,6 +1606,7 @@ export default function BookingsPage() {
 
   const jobsById = useMemo(() => new Map(jobs.map((job) => [job.id, job])), [jobs]);
   const getBookingDisplayStatus = (booking: Booking) => {
+    if (booking.status === "cancelled") return "cancelled";
     if (booking.convertedJobId) {
       const job = jobsById.get(booking.convertedJobId);
       if (job) {
@@ -1613,7 +1670,8 @@ export default function BookingsPage() {
       booking.contactName.toLowerCase().includes(searchQuery.toLowerCase());
     const hasDeletedJob =
       booking.convertedJobId && deletedJobIds.has(booking.convertedJobId);
-    return matchesSearch && !hasDeletedJob;
+    const matchesCancelled = includeCancelledBookings ? true : booking.status !== "cancelled";
+    return matchesSearch && matchesCancelled && !hasDeletedJob;
   })].sort((a, b) => {
     const statusA = getBookingDisplayStatus(a);
     const statusB = getBookingDisplayStatus(b);
@@ -2964,6 +3022,19 @@ export default function BookingsPage() {
                   )}
                 </SelectContent>
               </Select>
+              <div className="flex items-center gap-2 rounded-md border border-border/50 px-3">
+                <Checkbox
+                  id="include-cancelled-bookings"
+                  checked={includeCancelledBookings}
+                  onCheckedChange={(checked) => setIncludeCancelledBookings(checked === true)}
+                />
+                <Label
+                  htmlFor="include-cancelled-bookings"
+                  className="text-sm text-muted-foreground"
+                >
+                  Show cancelled
+                </Label>
+              </div>
             </div>
           </div>
         </CardContent>
