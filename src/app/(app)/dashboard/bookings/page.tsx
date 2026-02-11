@@ -8,11 +8,9 @@ import {
   collection,
   doc,
   deleteField,
-  getDocs,
   onSnapshot,
   orderBy,
   query,
-  writeBatch,
   where,
 } from "firebase/firestore";
 import { format, startOfDay } from "date-fns";
@@ -176,6 +174,15 @@ const formatAddress = (address?: Address) => {
     .join(", ");
 };
 
+const normalizePhone = (value: unknown) => {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : undefined;
+};
+
+const resolveContactPhone = (contact?: { mobile?: unknown; phone?: unknown }) =>
+  normalizePhone(contact?.mobile) || normalizePhone(contact?.phone);
+
 const buildEventTimes = (
   date: Date,
   time: string,
@@ -287,6 +294,7 @@ export default function BookingsPage() {
     bookings,
     jobs,
     deletedJobs,
+    deleteJob,
     createBooking,
     updateBooking,
     updateJob,
@@ -354,8 +362,8 @@ export default function BookingsPage() {
   const [editContactId, setEditContactId] = useState("");
   const [editContactsList, setEditContactsList] = useState<OrganizationContact[]>([]);
   const [editContactsError, setEditContactsError] = useState<string | null>(null);
-  const [bookingToHardDelete, setBookingToHardDelete] = useState<Booking | null>(null);
-  const [hardDeleting, setHardDeleting] = useState(false);
+  const [bookingToDelete, setBookingToDelete] = useState<Booking | null>(null);
+  const [deletingBooking, setDeletingBooking] = useState(false);
 
   // New contact dialog (includes option to add new organisation)
   const [showNewContactDialog, setShowNewContactDialog] = useState(false);
@@ -1042,10 +1050,13 @@ export default function BookingsPage() {
       return;
     }
 
-    if (!isRetailBooking && (!selectedOrganization || !selectedContact)) {
+    if (
+      !isRetailBooking &&
+      (!selectedOrganization || !selectedContact || !selectedContact.email?.trim())
+    ) {
       toast({
         title: "Missing Information",
-        description: "Please select an organisation and contact.",
+        description: "Please select an organisation and contact (email required).",
         variant: "destructive",
       });
       return;
@@ -1097,8 +1108,8 @@ export default function BookingsPage() {
           bookingTypeLabel: BOOKING_TYPE_LABELS[bookingType as BookingType],
           organizationName: bookingOrganization.name,
           contactName: `${bookingContact.firstName} ${bookingContact.lastName}`.trim(),
-          contactEmail: bookingContact.email,
-          contactPhone: bookingContact.mobile || bookingContact.phone,
+          contactEmail: bookingContact.email?.trim(),
+          contactPhone: resolveContactPhone(bookingContact),
           siteName: createdBooking.siteLocation.name,
           siteAddress: createdBooking.siteLocation.address,
           scheduledDate,
@@ -1330,6 +1341,14 @@ export default function BookingsPage() {
       });
       return;
     }
+    if (!selectedContact.email?.trim()) {
+      toast({
+        title: "Missing Contact Email",
+        description: "The selected contact must have an email address.",
+        variant: "destructive",
+      });
+      return;
+    }
 
     const updatedStaff = editStaff.map((staff) => ({
       id: staff.id,
@@ -1337,7 +1356,7 @@ export default function BookingsPage() {
       type: staff.type,
     }));
 
-    const resolvedContactPhone = selectedContact.mobile || selectedContact.phone;
+    const resolvedContactPhone = resolveContactPhone(selectedContact);
 
     const finishUpdates =
       editFinishDate && editFinishTime
@@ -1356,7 +1375,7 @@ export default function BookingsPage() {
         organizationName: selectedOrg.name,
         contactId: selectedContact.id,
         contactName: `${selectedContact.firstName} ${selectedContact.lastName}`.trim(),
-        contactEmail: selectedContact.email,
+        contactEmail: selectedContact.email.trim(),
         ...(resolvedContactPhone
           ? { contactPhone: resolvedContactPhone }
           : { contactPhone: deleteField() }),
@@ -1380,8 +1399,8 @@ export default function BookingsPage() {
         await updateJob(editingBooking.convertedJobId, {
           clientId: selectedOrg.id,
           clientName: selectedOrg.name,
-          clientEmail: selectedContact.email,
-          clientPhone: selectedContact.mobile || selectedContact.phone,
+          clientEmail: selectedContact.email.trim(),
+          clientPhone: resolvedContactPhone,
           organizationId: selectedOrg.id,
           assignedTechnicians,
           assignedTechnicianIds: updatedStaff.map((staff) => staff.id),
@@ -1405,7 +1424,7 @@ export default function BookingsPage() {
 
       try {
         const attendeeEmails = buildAttendeeEmails([
-          selectedContact.email,
+          selectedContact.email.trim(),
           ...resolveStaffEmails(editStaff),
         ]);
         const linkedJob = editingBooking.convertedJobId
@@ -1417,8 +1436,8 @@ export default function BookingsPage() {
           bookingTypeLabel: BOOKING_TYPE_LABELS[editingBooking.bookingType],
           organizationName: selectedOrg.name,
           contactName: `${selectedContact.firstName} ${selectedContact.lastName}`.trim(),
-          contactEmail: selectedContact.email,
-          contactPhone: selectedContact.mobile || selectedContact.phone,
+          contactEmail: selectedContact.email.trim(),
+          contactPhone: resolvedContactPhone,
           siteName: editingBooking.siteLocation.name,
           siteAddress: editingBooking.siteLocation.address,
           scheduledDate: editScheduledDate,
@@ -1459,46 +1478,35 @@ export default function BookingsPage() {
     }
   };
 
-  const handleHardDeleteBooking = async () => {
-    if (!bookingToHardDelete) return;
-    if (hardDeleting) return;
+  const handleRecycleBooking = async () => {
+    if (!bookingToDelete) return;
+    if (deletingBooking) return;
     if (!user) return;
 
-    setHardDeleting(true);
+    setDeletingBooking(true);
     try {
-      const batch = writeBatch(db);
-
-      batch.delete(doc(db, COLLECTIONS.BOOKINGS, bookingToHardDelete.id));
-
-      if (bookingToHardDelete.convertedJobId) {
-        batch.delete(doc(db, COLLECTIONS.JOBS, bookingToHardDelete.convertedJobId));
-
-        const worksSnap = await getDocs(
-          query(
-            collection(db, COLLECTIONS.WORKS_REGISTER),
-            where("jobId", "==", bookingToHardDelete.convertedJobId)
-          )
-        );
-        worksSnap.docs.forEach((docSnap) => batch.delete(docSnap.ref));
+      if (bookingToDelete.convertedJobId) {
+        await deleteJob(bookingToDelete.convertedJobId, user.uid);
+        toast({
+          title: "Moved to Recycle Bin",
+          description: "Job moved to Recycle Bin. You can restore it from Recycle Bin if needed.",
+        });
+      } else {
+        await updateBooking(bookingToDelete.id, { status: "cancelled" });
+        toast({
+          title: "Booking cancelled",
+          description: "Booking marked as cancelled.",
+        });
       }
-
-      await batch.commit();
-
-      toast({
-        title: "Booking deleted",
-        description: bookingToHardDelete.convertedJobId
-          ? "Booking, job, and works register record removed."
-          : "Booking removed.",
-      });
-      setBookingToHardDelete(null);
+      setBookingToDelete(null);
     } catch (error: any) {
       toast({
-        title: "Delete failed",
-        description: error?.message || "Unable to delete booking. Please try again.",
+        title: "Recycle failed",
+        description: error?.message || "Unable to recycle booking. Please try again.",
         variant: "destructive",
       });
     } finally {
-      setHardDeleting(false);
+      setDeletingBooking(false);
     }
   };
 
@@ -3075,11 +3083,11 @@ export default function BookingsPage() {
                       className="text-destructive hover:text-destructive"
                       onClick={(event) => {
                         event.stopPropagation();
-                        setBookingToHardDelete(booking);
+                        setBookingToDelete(booking);
                       }}
                     >
                       <Trash2 className="mr-1 h-4 w-4" />
-                      Delete
+                      Recycle
                     </Button>
                     {booking.convertedJobId ? (
                       <Button variant="ghost" size="sm" asChild>
@@ -3408,29 +3416,31 @@ export default function BookingsPage() {
       </Dialog>
 
       <AlertDialog
-        open={Boolean(bookingToHardDelete)}
-        onOpenChange={(open) => !open && setBookingToHardDelete(null)}
+        open={Boolean(bookingToDelete)}
+        onOpenChange={(open) => !open && setBookingToDelete(null)}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Hard delete booking?</AlertDialogTitle>
+            <AlertDialogTitle>Send booking to Recycle Bin?</AlertDialogTitle>
             <AlertDialogDescription>
-              This permanently deletes the booking
-              {bookingToHardDelete?.convertedJobId ? " and its linked job + works register record" : ""}. This
-              can’t be undone.
+              This moves the linked job to the Recycle Bin
+              {bookingToDelete?.convertedJobId
+                ? "."
+                : " (or marks this booking as cancelled if no job exists)."}{" "}
+              You can restore jobs from the Recycle Bin later.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={hardDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogCancel disabled={deletingBooking}>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={(event) => {
                 event.preventDefault();
-                handleHardDeleteBooking();
+                handleRecycleBooking();
               }}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              disabled={hardDeleting}
+              disabled={deletingBooking}
             >
-              {hardDeleting ? "Deleting..." : "Delete"}
+              {deletingBooking ? "Recycling..." : "Recycle"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

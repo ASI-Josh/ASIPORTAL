@@ -1401,14 +1401,17 @@ export default function InspectionDetailPage() {
 
       const inspectionDamage = buildLegacyDamageItemsFromVehicleReports(vehicleReports);
       const jobVehiclesFromInspection = buildJobVehiclesFromVehicleReports(vehicleReports);
+      const resolvedClientPhone = [selectedContact.mobile, selectedContact.phone]
+        .map((value) => (typeof value === "string" ? value.trim() : ""))
+        .find((value) => value) || undefined;
 
       const job = {
         id: jobRef.id,
         jobNumber,
         clientId: selectedOrganization.id,
         clientName: selectedOrganization.name,
-        clientEmail: selectedContact.email,
-        clientPhone: selectedContact.mobile || selectedContact.phone,
+        clientEmail: selectedContact.email.trim(),
+        clientPhone: resolvedClientPhone,
         organizationId: selectedOrganization.id,
         vehicles: vehicleReports.map((report) => report.vehicle),
         jobVehicles: jobVehiclesFromInspection,

@@ -373,6 +373,13 @@ export function JobsProvider({ children }: { children: ReactNode }) {
       const bookingNumber = await generateBookingNumber();
       const jobNumber = await generateJobNumber(input.organization);
       const now = Timestamp.now();
+      const normalizePhone = (value: unknown) => {
+        if (typeof value !== "string") return undefined;
+        const trimmed = value.trim();
+        return trimmed ? trimmed : undefined;
+      };
+      const resolvedContactPhone =
+        normalizePhone(input.contact.mobile) || normalizePhone(input.contact.phone);
 
       const bookingRef = doc(collection(db, COLLECTIONS.BOOKINGS));
       const booking: Booking = {
@@ -384,8 +391,8 @@ export function JobsProvider({ children }: { children: ReactNode }) {
         organizationName: input.organization.name,
         contactId: input.contact.id,
         contactName: `${input.contact.firstName} ${input.contact.lastName}`.trim(),
-        contactEmail: input.contact.email,
-        contactPhone: input.contact.mobile || input.contact.phone,
+        contactEmail: input.contact.email.trim(),
+        contactPhone: resolvedContactPhone,
         siteLocation: {
           ...(input.siteLocation.id ? { id: input.siteLocation.id } : {}),
           name: input.siteLocation.name,

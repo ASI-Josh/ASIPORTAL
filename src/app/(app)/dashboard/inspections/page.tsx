@@ -356,6 +356,13 @@ export default function InspectionsPage() {
       if (!organization || !contact) {
         throw new Error("Select an organisation and contact before continuing.");
       }
+      const normalizePhone = (value: unknown) => {
+        if (typeof value !== "string") return undefined;
+        const trimmed = value.trim();
+        return trimmed ? trimmed : undefined;
+      };
+      const resolvedClientPhone =
+        normalizePhone(contact.mobile) || normalizePhone(contact.phone);
 
       const inspectionNumber = await generateInspectionNumber();
       const inspectionRef = doc(collection(db, COLLECTIONS.INSPECTIONS));
@@ -370,8 +377,8 @@ export default function InspectionsPage() {
           contactName: `${contact.firstName} ${contact.lastName}`.trim(),
           clientId: organizationId,
           clientName: organization.name,
-          clientEmail: contact.email,
-          clientPhone: contact.mobile || contact.phone,
+          clientEmail: contact.email.trim(),
+          clientPhone: resolvedClientPhone,
           siteLocation: organization.sites?.[0]
             ? {
                 name: organization.sites[0].name,
