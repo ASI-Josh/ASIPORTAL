@@ -325,7 +325,7 @@ export default function InspectionDetailPage() {
   const params = useParams();
   const router = useRouter();
   const { toast } = useToast();
-  const { user } = useAuth();
+  const { user, firebaseUser } = useAuth();
   const { updateJobStatus, updateJob, worksRegister, getJobById, deleteJob } = useJobs();
   const inspectionId = params.id as string;
 
@@ -352,6 +352,10 @@ export default function InspectionDetailPage() {
   const [notes, setNotes] = useState("");
   const [reportSummary, setReportSummary] = useState("");
   const [summaryGenerating, setSummaryGenerating] = useState(false);
+  const [quoteRecipientEmail, setQuoteRecipientEmail] = useState("");
+  const [quoteNote, setQuoteNote] = useState("");
+  const [quoteGenerating, setQuoteGenerating] = useState(false);
+  const [quoteSending, setQuoteSending] = useState(false);
   const [vehicleReports, setVehicleReports] = useState<VehicleReport[]>([]);
   const [showAddVehicleDialog, setShowAddVehicleDialog] = useState(false);
   const [showAddDamageDialog, setShowAddDamageDialog] = useState(false);
@@ -702,6 +706,13 @@ export default function InspectionDetailPage() {
       null;
     setSelectedContact(matchedContact);
   }, [inspection, contacts]);
+
+  useEffect(() => {
+    if (!inspection) return;
+    if (quoteRecipientEmail.trim()) return;
+    const defaultEmail = (selectedContact?.email || inspection.clientEmail || "").trim();
+    if (defaultEmail) setQuoteRecipientEmail(defaultEmail);
+  }, [inspection, selectedContact?.email, quoteRecipientEmail]);
 
   useEffect(() => {
     setFleetSeeded(false);
@@ -1341,16 +1352,6 @@ export default function InspectionDetailPage() {
     return JSON.stringify(summaryPayload, null, 2);
   };
 
-  const queueEmail = async (recipientEmail: string, subject: string, text: string) => {
-    await addDoc(collection(db, COLLECTIONS.MAIL), {
-      to: [recipientEmail],
-      message: {
-        subject,
-        text,
-      },
-    });
-  };
-
   const handleSaveInspection = async () => {
     if (!inspection) return;
     const payload = buildInspectionPayload();
@@ -1388,9 +1389,136 @@ export default function InspectionDetailPage() {
       submittedAt: now,
     });
 
-    if (!inspection.convertedToJobId) {
+    setSummaryGenerating(true);
+    try {
+      const summaryText = await generateInspectionSummaryAction(buildSummaryInput());
+      const cleanedSummary = summaryText.trim();
+      if (cleanedSummary) {
+        setReportSummary(cleanedSummary);
+        await updateDoc(doc(db, COLLECTIONS.INSPECTIONS, inspection.id), {
+          reportSummary: cleanedSummary,
+          reportSummaryUpdatedAt: Timestamp.now(),
+        });
+      }
+    } catch (error) {
+      console.warn("Failed to generate inspection summary:", error);
+    } finally {
+      setSummaryGenerating(false);
+    }
+
+    toast({
+      title: "Inspection submitted",
+      description: "Inspection submitted. Generate and send the quote to the client when ready.",
+    });
+  };
+
+  const runQuoteAction = async (action: "generate" | "send" | "generate_and_send") => {
+    if (!inspection) throw new Error("Inspection not loaded.");
+    if (!firebaseUser) throw new Error("You must be signed in to perform this action.");
+    const token = await firebaseUser.getIdToken();
+
+    const response = await fetch("/api/inspections/quote", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        inspectionId: inspection.id,
+        action,
+        toEmail: quoteRecipientEmail,
+        note: quoteNote,
+      }),
+    });
+
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      const message = payload?.error || "Quote action failed.";
+      throw new Error(message);
+    }
+    return payload as { ok: boolean; file?: { downloadUrl?: string } };
+  };
+
+  const handleGenerateQuotePdf = async () => {
+    if (user?.role !== "admin") return;
+    if (quoteGenerating) return;
+    setQuoteGenerating(true);
+    try {
+      await runQuoteAction("generate");
+      toast({
+        title: "Quote generated",
+        description: "PDF quote generated and stored as a controlled record.",
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to generate quote.";
+      toast({ title: "Quote generation failed", description: message, variant: "destructive" });
+    } finally {
+      setQuoteGenerating(false);
+    }
+  };
+
+  const handleSendQuoteEmail = async () => {
+    if (user?.role !== "admin") return;
+    if (quoteSending) return;
+    if (!quoteRecipientEmail.trim()) {
+      toast({
+        title: "Missing recipient",
+        description: "Add the client email address before sending the quote.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setQuoteSending(true);
+    try {
+      await runQuoteAction("generate_and_send");
+      toast({
+        title: "Quote sent",
+        description: "The quote email has been queued for delivery.",
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to send quote.";
+      toast({ title: "Send failed", description: message, variant: "destructive" });
+    } finally {
+      setQuoteSending(false);
+    }
+  };
+
+  const handleApproveInspection = async () => {
+    if (!inspection) return;
+    if (user?.role !== "admin") return;
+    if (!selectedOrganization || !selectedContact) {
+      toast({
+        title: "Missing details",
+        description: "Select the organisation and contact before converting to a job.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!scheduledDate || !scheduledTime) {
+      toast({
+        title: "Missing schedule",
+        description: "Set the works schedule date/time before converting to a job.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (vehicleReports.length === 0) {
+      toast({
+        title: "Missing vehicle reports",
+        description: "Add at least one vehicle and repair site before converting to a job.",
+        variant: "destructive",
+      });
+      return;
+    }
+    const now = Timestamp.now();
+    const changedBy = user?.name || user?.email || user?.uid || "System";
+    let jobId = inspection.convertedToJobId || "";
+
+    if (!jobId) {
       const jobNumber = await generateJobNumber(selectedOrganization);
       const jobRef = doc(collection(db, COLLECTIONS.JOBS));
+      jobId = jobRef.id;
+
       const assignedTechnicians = selectedStaff.map((staff, index) => ({
         technicianId: staff.id,
         technicianName: staff.name,
@@ -1399,12 +1527,15 @@ export default function InspectionDetailPage() {
         assignedBy: user?.uid || "system",
       }));
 
-      const inspectionDamage = buildLegacyDamageItemsFromVehicleReports(vehicleReports);
       const jobVehiclesFromInspection = buildJobVehiclesFromVehicleReports(vehicleReports);
+      const totalsForJob = totalsFromJobVehicles(jobVehiclesFromInspection);
+      const inspectionDamage = buildLegacyDamageItemsFromVehicleReports(vehicleReports);
+
       const resolvedClientPhone = [selectedContact.mobile, selectedContact.phone]
         .map((value) => (typeof value === "string" ? value.trim() : ""))
         .find((value) => value) || undefined;
 
+      const quoteFile = inspection.quote?.file;
       const job = {
         id: jobRef.id,
         jobNumber,
@@ -1430,7 +1561,7 @@ export default function InspectionDetailPage() {
             status: "pending",
             changedAt: now,
             changedBy: user?.uid || "System",
-            notes: `RFQ created from inspection ${inspection.inspectionNumber}`,
+            notes: `Job created from inspection ${inspection.inspectionNumber}`,
           },
         ],
         scheduledDate: Timestamp.fromDate(scheduledDate),
@@ -1438,9 +1569,20 @@ export default function InspectionDetailPage() {
         createdBy: user?.uid || inspection.createdBy,
         updatedAt: now,
         notes: `Inspection RFQ: ${inspection.inspectionNumber}`,
-        totalJobCost: totals.totalCost,
-        totalLabourCost: totals.totalLabour,
-        totalMaterialsCost: totals.totalMaterials,
+        totalJobCost: totalsForJob.totalCost,
+        totalLabourCost: totalsForJob.totalLabourCost,
+        totalMaterialsCost: totalsForJob.totalMaterialsCost,
+        sourceInspectionId: inspection.id,
+        sourceInspectionNumber: inspection.inspectionNumber,
+        sourceInspectionQuote: quoteFile
+          ? {
+              fileName: quoteFile.fileName,
+              storagePath: quoteFile.storagePath,
+              downloadUrl: quoteFile.downloadUrl,
+              contentType: quoteFile.contentType,
+              size: quoteFile.size,
+            }
+          : undefined,
       };
 
       await setDoc(jobRef, job);
@@ -1476,59 +1618,8 @@ export default function InspectionDetailPage() {
       });
     }
 
-    setSummaryGenerating(true);
-    try {
-      const summaryText = await generateInspectionSummaryAction(buildSummaryInput());
-      const cleanedSummary = summaryText.trim();
-      if (cleanedSummary) {
-        setReportSummary(cleanedSummary);
-        await updateDoc(doc(db, COLLECTIONS.INSPECTIONS, inspection.id), {
-          reportSummary: cleanedSummary,
-          reportSummaryUpdatedAt: Timestamp.now(),
-        });
+    if (!jobId) return;
 
-        const recipientEmail = selectedContact?.email || inspection.clientEmail;
-        if (recipientEmail) {
-          const contactName = selectedContact
-            ? `${selectedContact.firstName} ${selectedContact.lastName}`.trim()
-            : inspection.contactName || "there";
-          const subject = `Inspection report: ${inspection.inspectionNumber}`;
-          const message = `Hi ${contactName || "there"},
-
-Thanks for arranging the inspection with ASI. Here is your inspection summary:
-
-${cleanedSummary}
-
-If you have any questions, reply to this email and we will help.
-
-Regards,
-ASI Australia`;
-          await queueEmail(recipientEmail, subject, message);
-        }
-      }
-    } catch (error) {
-      console.warn("Failed to generate inspection summary:", error);
-    } finally {
-      setSummaryGenerating(false);
-    }
-
-    toast({
-      title: "Inspection completed",
-      description: "The RFQ has been sent and is awaiting approval.",
-    });
-  };
-
-  const handleApproveInspection = async () => {
-    if (!inspection) return;
-    if (!inspection.convertedToJobId) {
-      toast({
-        title: "No RFQ job created",
-        description: "Complete the inspection first to generate an RFQ job.",
-        variant: "destructive",
-      });
-      return;
-    }
-    const now = Timestamp.now();
     await updateDoc(doc(db, COLLECTIONS.INSPECTIONS, inspection.id), {
       status: "converted",
       approvedAt: now,
@@ -1537,12 +1628,10 @@ ASI Australia`;
       updatedAt: now,
     });
 
-    const changedBy = user?.name || user?.email || user?.uid || "System";
-    const jobId = inspection.convertedToJobId;
     await updateJob(jobId, {
-      scheduledDate: scheduledDate ? Timestamp.fromDate(scheduledDate) : undefined,
+      scheduledDate: Timestamp.fromDate(scheduledDate),
     });
-    await updateJobStatus(jobId, "scheduled", changedBy, "RFQ approved");
+    await updateJobStatus(jobId, "scheduled", changedBy, "Quote approved (client email)");
 
     const existingEntry =
       (inspection.worksRegisterId
@@ -1585,8 +1674,8 @@ ASI Australia`;
     }
 
     toast({
-      title: "RFQ approved",
-      description: "The job has been scheduled and moved into the pipeline.",
+      title: "Job created",
+      description: "The quote has been approved and the job is now scheduled in the pipeline.",
     });
   };
 
@@ -1713,7 +1802,8 @@ ASI Australia`;
     );
   }
 
-  const canApprove = inspection.status === "submitted" && user?.role === "admin";
+  const canApprove =
+    (inspection.status === "submitted" || inspection.status === "approved") && user?.role === "admin";
   const needsBookingSync =
     !!inspection.convertedToJobId &&
     !linkedBookingId &&
@@ -1750,15 +1840,15 @@ ASI Australia`;
               Save changes
             </Button>
             <Button onClick={handleCompleteInspection}>
-              Complete inspection & send report
+              Submit inspection
             </Button>
             {canApprove && (
               <>
                 <Button variant="outline" onClick={handleApproveInspection}>
-                  Approve RFQ
+                  Convert to job & schedule
                 </Button>
                 <Button variant="destructive" onClick={handleRejectInspection}>
-                  Reject RFQ
+                  Mark rejected
                 </Button>
               </>
             )}
@@ -1803,6 +1893,73 @@ ASI Australia`;
           </div>
         </div>
       </div>
+
+      {user?.role === "admin" && inspection.status !== "draft" && (
+        <Card className="bg-card/50 backdrop-blur border-border/40">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <FileText className="h-4 w-4 text-primary" />
+              Quote delivery
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-3">
+              <div className="space-y-2 md:col-span-2">
+                <Label>Recipient email</Label>
+                <Input
+                  value={quoteRecipientEmail}
+                  onChange={(event) => setQuoteRecipientEmail(event.target.value)}
+                  placeholder="client@example.com"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Status</Label>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant="outline">
+                    {(inspection.quote?.status || "not_sent").replace("_", " ").toUpperCase()}
+                  </Badge>
+                  {inspection.quote?.file?.downloadUrl && (
+                    <Button asChild variant="outline" size="sm">
+                      <Link
+                        href={inspection.quote.file.downloadUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        View PDF
+                      </Link>
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Optional note</Label>
+              <Input
+                value={quoteNote}
+                onChange={(event) => setQuoteNote(event.target.value)}
+                placeholder="Optional internal note for this quote (stored with the inspection)."
+              />
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" onClick={handleGenerateQuotePdf} disabled={quoteGenerating}>
+                {quoteGenerating ? "Generating..." : "Generate PDF"}
+              </Button>
+              <Button
+                onClick={handleSendQuoteEmail}
+                disabled={quoteSending || !quoteRecipientEmail.trim()}
+              >
+                {quoteSending ? "Sending..." : "Send quote email"}
+              </Button>
+            </div>
+
+            <p className="text-xs text-muted-foreground">
+              Client approvals are handled via email reply. Portal inspection approvals are disabled.
+            </p>
+          </CardContent>
+        </Card>
+      )}
 
       {needsBookingSync && (
         <Card className="border-amber-500/30 bg-amber-500/10">

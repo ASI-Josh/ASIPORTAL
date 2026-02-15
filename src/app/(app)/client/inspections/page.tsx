@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { collection, onSnapshot, orderBy, query, where } from "firebase/firestore";
 import { ClipboardCheck } from "lucide-react";
@@ -47,45 +47,25 @@ export default function ClientInspectionsPage() {
     return () => unsubscribe();
   }, [user?.organizationId]);
 
-  const pendingApprovals = useMemo(
-    () =>
-      inspections.filter(
-        (inspection) =>
-          inspection.status === "submitted" ||
-          inspection.clientApprovalStatus === "pending" ||
-          inspection.clientApprovalStatus === "partial"
-      ),
-    [inspections]
-  );
-
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-2">
-        <h2 className="text-3xl font-headline font-bold tracking-tight">Inspections & RFQs</h2>
+        <h2 className="text-3xl font-headline font-bold tracking-tight">Inspections & Quotes</h2>
         <p className="text-muted-foreground">
-          Review inspection reports and approve RFQs per vehicle.
+          Inspection reports and quotes are delivered by email. This area is read-only for reference.
         </p>
       </div>
 
-      {pendingApprovals.length > 0 && (
-        <Card className="border-primary/50 bg-primary/5">
-          <CardContent className="p-4 text-sm">
-            {pendingApprovals.length} inspection{pendingApprovals.length > 1 ? "s" : ""} awaiting
-            your approval.
-          </CardContent>
-        </Card>
-      )}
-
-      {pendingApprovals.length === 0 ? (
+      {inspections.length === 0 ? (
         <Card className="bg-card/50 backdrop-blur-lg border-border/20">
           <CardContent className="p-10 text-center text-muted-foreground">
             <ClipboardCheck className="mx-auto h-10 w-10 mb-4 opacity-50" />
-            No inspections awaiting approval.
+            No inspections found.
           </CardContent>
         </Card>
       ) : (
         <div className="space-y-3">
-          {pendingApprovals.map((inspection) => (
+          {inspections.map((inspection) => (
             <Card key={inspection.id} className="bg-card/50 backdrop-blur-lg border-border/20">
               <CardHeader className="pb-2">
                 <div className="flex flex-wrap items-center justify-between gap-2">
@@ -99,9 +79,9 @@ export default function ClientInspectionsPage() {
                 <div>{inspection.clientName}</div>
                 <div>
                   Vehicles: {inspection.vehicleReports?.length || 0}
-                  {inspection.clientApprovalStatus && (
+                  {inspection.quote?.status && (
                     <span className="ml-2 text-xs uppercase tracking-wide">
-                      {inspection.clientApprovalStatus}
+                      quote: {inspection.quote.status}
                     </span>
                   )}
                 </div>

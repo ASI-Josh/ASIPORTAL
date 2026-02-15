@@ -464,6 +464,27 @@ export interface VehicleReport {
   additionalNotes?: string;
 }
 
+export interface InspectionQuoteFile {
+  fileName: string;
+  storagePath: string;
+  downloadUrl: string;
+  contentType: "application/pdf";
+  size: number;
+}
+
+export interface InspectionQuote {
+  status?: "generated" | "sent";
+  file?: InspectionQuoteFile;
+  generatedAt?: Timestamp;
+  generatedById?: string;
+  generatedByName?: string;
+  sentAt?: Timestamp;
+  sentTo?: string;
+  sentById?: string;
+  sentByName?: string;
+  note?: string;
+}
+
 export interface Inspection {
   id: string;
   inspectionNumber: string;
@@ -501,6 +522,7 @@ export interface Inspection {
   approvedAt?: Timestamp;
   clientApprovalStatus?: "pending" | "approved" | "rejected" | "partial";
   clientApprovalUpdatedAt?: Timestamp;
+  quote?: InspectionQuote;
   convertedToJobId?: string;
   worksRegisterId?: string;
   createdAt: Timestamp;
