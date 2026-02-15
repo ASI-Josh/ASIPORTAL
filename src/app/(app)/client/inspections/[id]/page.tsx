@@ -182,6 +182,16 @@ export default function ClientInspectionDetailPage() {
                         {BOOKING_TYPE_LABELS[damage.repairType]} â€¢ {damage.location}
                       </p>
                       <p className="text-sm text-muted-foreground">{damage.description}</p>
+                      {typeof damage.estimatedDowntimeHours === "number" &&
+                      damage.estimatedDowntimeHours > 0 ? (
+                        <p className="text-xs text-muted-foreground">
+                          Est. downtime:{" "}
+                          {(Math.round(damage.estimatedDowntimeHours * 10) / 10)
+                            .toString()
+                            .replace(/\\.0$/, "")}{" "}
+                          hrs
+                        </p>
+                      ) : null}
                     </div>
                     <Badge variant="outline">{formatCurrency(damage.totalCost)}</Badge>
                   </div>
@@ -219,4 +229,3 @@ export default function ClientInspectionDetailPage() {
     </div>
   );
 }
-

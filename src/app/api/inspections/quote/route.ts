@@ -135,6 +135,11 @@ function extractQuoteData(inspectionData: Record<string, any>) {
     { labour: 0, materials: 0, total: 0 }
   );
 
+  const totalDowntimeHours = damages.reduce((sum: number, damage: any) => {
+    const hours = safeNumber(damage.estimatedDowntimeHours);
+    return sum + (hours > 0 ? hours : 0);
+  }, 0);
+
   const flattenedPhotos = vehicleReports
     .flatMap((report: any) =>
       Array.isArray(report?.damages)
@@ -154,6 +159,7 @@ function extractQuoteData(inspectionData: Record<string, any>) {
     vehicle,
     damages,
     totals,
+    totalDowntimeHours,
     photoUrls: uniquePhotos,
   };
 }
@@ -202,7 +208,7 @@ async function generateQuotePdfBytes(params: {
     color: rgb(0.35, 0.35, 0.35),
   });
 
-  const { vehicle, damages, totals, photoUrls } = extractQuoteData(inspection);
+  const { vehicle, damages, totals, totalDowntimeHours, photoUrls } = extractQuoteData(inspection);
 
   const contactName = safeString(inspection.contactName);
   const contactEmail = safeString(inspection.clientEmail);
@@ -211,12 +217,16 @@ async function generateQuotePdfBytes(params: {
   const scheduledDate = formatDate(inspection.scheduledDate);
   const scheduledTime = safeString(inspection.scheduledTime);
 
-  const estDowntimeValue = safeNumber(inspection?.estimatedDowntime?.value);
-  const estDowntimeUnit = safeString(inspection?.estimatedDowntime?.unit) as "hours" | "days" | "";
-  const estDowntimeText =
-    estDowntimeValue > 0 && (estDowntimeUnit === "hours" || estDowntimeUnit === "days")
-      ? `${estDowntimeValue} ${estDowntimeUnit}`
+  const legacyDowntimeValue = safeNumber(inspection?.estimatedDowntime?.value);
+  const legacyDowntimeUnit = safeString(inspection?.estimatedDowntime?.unit) as "hours" | "days" | "";
+  const legacyDowntimeText =
+    legacyDowntimeValue > 0 && (legacyDowntimeUnit === "hours" || legacyDowntimeUnit === "days")
+      ? `${legacyDowntimeValue} ${legacyDowntimeUnit}`
       : "";
+  const estDowntimeText =
+    totalDowntimeHours > 0
+      ? `${(Math.round(totalDowntimeHours * 10) / 10).toString().replace(/\\.0$/, "")} hrs`
+      : legacyDowntimeText;
 
   const leftColX = margin;
   const rightColX = Math.round(width * 0.52);
@@ -262,10 +272,11 @@ async function generateQuotePdfBytes(params: {
   const tableWidth = width - margin * 2;
   const rowHeight = 18;
   const headerHeight = 20;
-  const colRepair = 84;
-  const colLocation = 96;
+  const colRepair = 76;
+  const colLocation = 88;
+  const colDuration = 78;
   const colCost = 76;
-  const colDesc = tableWidth - colRepair - colLocation - colCost;
+  const colDesc = tableWidth - colRepair - colLocation - colDuration - colCost;
 
   page.drawRectangle({
     x: tableLeft,
@@ -280,7 +291,13 @@ async function generateQuotePdfBytes(params: {
   const headerYPos = tableTop - 14;
   page.drawText("Repair type", { x: tableLeft + 6, y: headerYPos, size: 9, font: bold });
   page.drawText("Location", { x: tableLeft + colRepair + 6, y: headerYPos, size: 9, font: bold });
-  page.drawText("Description", { x: tableLeft + colRepair + colLocation + 6, y: headerYPos, size: 9, font: bold });
+  page.drawText("Duration", { x: tableLeft + colRepair + colLocation + 6, y: headerYPos, size: 9, font: bold });
+  page.drawText("Description", {
+    x: tableLeft + colRepair + colLocation + colDuration + 6,
+    y: headerYPos,
+    size: 9,
+    font: bold,
+  });
   page.drawText("Total", { x: tableLeft + tableWidth - colCost + 6, y: headerYPos, size: 9, font: bold });
 
   const maxRows = Math.max(1, Math.min(12, Math.floor((tableTop - 240) / rowHeight)));
@@ -301,8 +318,11 @@ async function generateQuotePdfBytes(params: {
     });
 
     const repairType = truncate(safeString(damage.repairType) || "-", 18);
-    const location = truncate(safeString(damage.location) || "-", 22);
-    const description = truncate(safeString(damage.description) || "-", 58);
+    const location = truncate(safeString(damage.location) || "-", 18);
+    const downtime = safeNumber(damage.estimatedDowntimeHours);
+    const downtimeText =
+      downtime > 0 ? `${(Math.round(downtime * 10) / 10).toString().replace(/\\.0$/, "")}h` : "-";
+    const description = truncate(safeString(damage.description) || "-", 46);
     const total =
       safeNumber(damage.totalCost) ||
       (safeNumber(damage.labourCost) || safeNumber(damage.materialsCost)
@@ -311,8 +331,14 @@ async function generateQuotePdfBytes(params: {
 
     page.drawText(repairType, { x: tableLeft + 6, y: rowY + 5, size: 9, font });
     page.drawText(location, { x: tableLeft + colRepair + 6, y: rowY + 5, size: 9, font });
-    page.drawText(description, {
+    page.drawText(downtimeText, {
       x: tableLeft + colRepair + colLocation + 6,
+      y: rowY + 5,
+      size: 9,
+      font,
+    });
+    page.drawText(description, {
+      x: tableLeft + colRepair + colLocation + colDuration + 6,
       y: rowY + 5,
       size: 9,
       font,
@@ -598,6 +624,12 @@ export async function POST(req: NextRequest) {
       const scheduled = `${formatDate(inspection.scheduledDate)} ${safeString(
         inspection.scheduledTime
       )}`.trim();
+      const quoteData = extractQuoteData(inspection);
+      const totalCostText = quoteData.totals.total > 0 ? formatCurrency(quoteData.totals.total) : "";
+      const downtimeText =
+        quoteData.totalDowntimeHours > 0
+          ? `${(Math.round(quoteData.totalDowntimeHours * 10) / 10).toString().replace(/\\.0$/, "")} hrs`
+          : "";
 
       const text = `Hi ${contactName || "there"},
 
@@ -605,6 +637,7 @@ Please find your ASI inspection quote for ${clientName || "your organisation"}.
 
 Inspection reference: ${inspectionNumber}
 Inspection date/time: ${scheduled || "N/A"}
+${totalCostText ? `Total estimate: ${totalCostText}\n` : ""}${downtimeText ? `Estimated downtime: ${downtimeText}\n` : ""}
 
 View/download quote (PDF): ${file?.downloadUrl || ""}
 
@@ -620,6 +653,8 @@ Advanced Surface Innovations (ASI) Australia`;
   <div style="padding:12px 14px; border:1px solid #e2e8f0; border-radius:10px; background:#f8fafc;">
     <div><strong>Inspection reference:</strong> ${inspectionNumber}</div>
     <div><strong>Inspection date/time:</strong> ${scheduled || "N/A"}</div>
+    ${totalCostText ? `<div><strong>Total estimate:</strong> ${totalCostText}</div>` : ""}
+    ${downtimeText ? `<div><strong>Estimated downtime:</strong> ${downtimeText}</div>` : ""}
     <div><strong>Quote PDF:</strong> <a href="${file?.downloadUrl || "#"}">Download / view</a></div>
   </div>
   <p style="margin-top:14px;"><strong>To approve:</strong> reply to this email confirming the scope of works you approve (you may approve partial items), and the dates/times your asset is booked out of service. We will then schedule and confirm the booking.</p>
@@ -652,4 +687,3 @@ Advanced Surface Innovations (ASI) Australia`;
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
-

@@ -196,6 +196,17 @@ function countRepairSites(jobVehicles?: unknown): number {
   }, 0);
 }
 
+function estimatedDowntimeHoursFromVehicleReports(reports: VehicleReport[]) {
+  return reports.reduce((sum, report) => {
+    const damages = Array.isArray(report.damages) ? report.damages : [];
+    const damageHours = damages.reduce((damageSum, damage) => {
+      const hours = typeof damage.estimatedDowntimeHours === "number" ? damage.estimatedDowntimeHours : 0;
+      return damageSum + (Number.isFinite(hours) ? hours : 0);
+    }, 0);
+    return sum + damageHours;
+  }, 0);
+}
+
 function buildVehicleMatchKeys(vehicle: {
   id?: string;
   registration?: string;
@@ -346,8 +357,6 @@ export default function InspectionDetailPage() {
   const [scheduledTime, setScheduledTime] = useState("");
   const [finishDate, setFinishDate] = useState<Date | undefined>();
   const [finishTime, setFinishTime] = useState("");
-  const [estimatedDowntimeUnit, setEstimatedDowntimeUnit] = useState<"hours" | "days">("hours");
-  const [estimatedDowntimeValue, setEstimatedDowntimeValue] = useState("");
   const [selectedStaff, setSelectedStaff] = useState<StaffMember[]>([]);
   const [notes, setNotes] = useState("");
   const [reportSummary, setReportSummary] = useState("");
@@ -403,6 +412,7 @@ export default function InspectionDetailPage() {
     location: "",
     description: "",
     totalCost: "",
+    estimatedDowntimeHours: "",
   });
 
   const clientOrganizations = useMemo(
@@ -592,18 +602,13 @@ export default function InspectionDetailPage() {
     setScheduledTime(inspection.scheduledTime || "");
     setFinishDate(toDateValue(inspection.finishDate));
     setFinishTime(inspection.finishTime || "");
-    if (inspection.estimatedDowntime) {
-      setEstimatedDowntimeUnit(inspection.estimatedDowntime.unit);
-      setEstimatedDowntimeValue(
-        inspection.estimatedDowntime.value > 0
-          ? String(inspection.estimatedDowntime.value)
-          : ""
-      );
-    } else {
-      setEstimatedDowntimeValue("");
-    }
     setSelectedStaff(inspection.assignedStaff || []);
   }, [inspection]);
+
+  const estimatedDowntimeHours = useMemo(
+    () => estimatedDowntimeHoursFromVehicleReports(vehicleReports),
+    [vehicleReports]
+  );
 
   useEffect(() => {
     if (!inspection?.convertedToJobId) return;
@@ -915,6 +920,11 @@ export default function InspectionDetailPage() {
       return;
     }
     const cost = parseFloat(newDamage.totalCost) || 0;
+    const downtimeParsed = newDamage.estimatedDowntimeHours.trim()
+      ? Number.parseFloat(newDamage.estimatedDowntimeHours)
+      : NaN;
+    const estimatedDowntimeHours =
+      Number.isFinite(downtimeParsed) && downtimeParsed > 0 ? downtimeParsed : undefined;
     const { labourCost, materialsCost } = calculateCostBreakdown(cost);
     const damage: DamageReportItem = {
       id: `damage-${Date.now()}`,
@@ -929,6 +939,7 @@ export default function InspectionDetailPage() {
       estimatedCost: cost,
       labourCost,
       materialsCost,
+      estimatedDowntimeHours,
     };
     setVehicleReports((prev) =>
       prev.map((vehicle) =>
@@ -943,6 +954,7 @@ export default function InspectionDetailPage() {
       location: "",
       description: "",
       totalCost: "",
+      estimatedDowntimeHours: "",
     });
   };
 
@@ -979,6 +991,22 @@ export default function InspectionDetailPage() {
                 materialsCost,
               }
             : damage
+        );
+        return { ...vehicle, damages };
+      })
+    );
+  };
+
+  const handleUpdateDamageDowntime = (
+    vehicleId: string,
+    damageId: string,
+    hours?: number
+  ) => {
+    setVehicleReports((prev) =>
+      prev.map((vehicle) => {
+        if (vehicle.vehicleId !== vehicleId) return vehicle;
+        const damages = vehicle.damages.map((damage) =>
+          damage.id === damageId ? { ...damage, estimatedDowntimeHours: hours } : damage
         );
         return { ...vehicle, damages };
       })
@@ -1044,12 +1072,10 @@ export default function InspectionDetailPage() {
       ? { name: selectedSite.name, address: selectedSite.address }
       : inspection.siteLocation;
 
-    const downtimeParsed = estimatedDowntimeValue.trim()
-      ? Number.parseFloat(estimatedDowntimeValue)
-      : NaN;
+    const computedDowntimeHours = estimatedDowntimeHoursFromVehicleReports(vehicleReports);
     const estimatedDowntime =
-      Number.isFinite(downtimeParsed) && downtimeParsed > 0
-        ? { value: downtimeParsed, unit: estimatedDowntimeUnit }
+      computedDowntimeHours > 0
+        ? { value: Math.round(computedDowntimeHours * 10) / 10, unit: "hours" as const }
         : undefined;
 
     const payload = {
@@ -1981,7 +2007,7 @@ export default function InspectionDetailPage() {
       <Tabs defaultValue="details" className="space-y-4">
         <TabsList className="grid w-full grid-cols-3 bg-muted/50">
           <TabsTrigger value="details">Inspection details</TabsTrigger>
-          <TabsTrigger value="vehicles">Vehicles & damage</TabsTrigger>
+          <TabsTrigger value="vehicles">Report</TabsTrigger>
           <TabsTrigger value="summary">Quote summary</TabsTrigger>
         </TabsList>
 
@@ -2343,32 +2369,15 @@ export default function InspectionDetailPage() {
 
                 <div className="space-y-2">
                   <Label>Estimated downtime (works)</Label>
-                  <div className="grid grid-cols-[1fr_140px] gap-2">
-                    <Input
-                      inputMode="decimal"
-                      type="number"
-                      min="0"
-                      placeholder="e.g., 4"
-                      value={estimatedDowntimeValue}
-                      onChange={(e) => setEstimatedDowntimeValue(e.target.value)}
-                    />
-                    <Select
-                      value={estimatedDowntimeUnit}
-                      onValueChange={(value) =>
-                        setEstimatedDowntimeUnit(value as "hours" | "days")
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="hours">Hours</SelectItem>
-                        <SelectItem value="days">Days</SelectItem>
-                      </SelectContent>
-                    </Select>
+                  <div className="rounded-md border border-border/50 bg-muted/20 px-3 py-2 text-sm">
+                    {estimatedDowntimeHours > 0
+                      ? `${(Math.round(estimatedDowntimeHours * 10) / 10)
+                          .toString()
+                          .replace(/\\.0$/, "")} hours`
+                      : "Not provided"}
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    Helps the client plan vehicle downtime once works are approved.
+                    Auto-calculated from the Report tab repair site durations.
                   </p>
                 </div>
               </div>
@@ -2539,13 +2548,16 @@ export default function InspectionDetailPage() {
                       (acc, damage) => {
                         const cost = damage.totalCost ?? damage.estimatedCost ?? 0;
                         const breakdown = calculateCostBreakdown(cost);
+                        const downtimeHours =
+                          typeof damage.estimatedDowntimeHours === "number" ? damage.estimatedDowntimeHours : 0;
                         return {
                           totalCost: acc.totalCost + cost,
                           totalLabour: acc.totalLabour + (damage.labourCost ?? breakdown.labourCost),
                           totalMaterials: acc.totalMaterials + (damage.materialsCost ?? breakdown.materialsCost),
+                          totalDowntimeHours: acc.totalDowntimeHours + (Number.isFinite(downtimeHours) ? downtimeHours : 0),
                         };
                       },
-                      { totalCost: 0, totalLabour: 0, totalMaterials: 0 }
+                      { totalCost: 0, totalLabour: 0, totalMaterials: 0, totalDowntimeHours: 0 }
                     );
 
                     return (
@@ -2812,7 +2824,7 @@ export default function InspectionDetailPage() {
                                           </div>
                                         </div>
 
-                                        <div className="grid grid-cols-3 gap-4 pt-2 border-t">
+                                        <div className="grid grid-cols-2 gap-4 pt-2 border-t md:grid-cols-4">
                                           <div className="space-y-1">
                                             <Label className="text-xs">Total Cost</Label>
                                             <div className="flex items-center gap-1">
@@ -2829,6 +2841,30 @@ export default function InspectionDetailPage() {
                                                 className="h-8"
                                               />
                                             </div>
+                                          </div>
+                                          <div className="space-y-1">
+                                            <Label className="text-xs">Est. downtime (hrs)</Label>
+                                            <Input
+                                              inputMode="decimal"
+                                              type="number"
+                                              min="0"
+                                              step="0.5"
+                                              value={
+                                                typeof damage.estimatedDowntimeHours === "number"
+                                                  ? String(damage.estimatedDowntimeHours)
+                                                  : ""
+                                              }
+                                              onChange={(e) => {
+                                                const raw = e.target.value;
+                                                const next = raw.trim() ? Number.parseFloat(raw) : NaN;
+                                                handleUpdateDamageDowntime(
+                                                  vehicle.vehicleId,
+                                                  damage.id,
+                                                  Number.isFinite(next) && next > 0 ? next : undefined
+                                                );
+                                              }}
+                                              className="h-8"
+                                            />
                                           </div>
                                           <div className="space-y-1">
                                             <Label className="text-xs text-blue-400">
@@ -2857,10 +2893,20 @@ export default function InspectionDetailPage() {
 
                           <Card className="bg-primary/5 border-primary/20">
                             <CardContent className="p-4">
-                              <div className="grid grid-cols-3 gap-4 text-sm">
+                              <div className="grid grid-cols-2 gap-4 text-sm md:grid-cols-4">
                                 <div>
                                   <Label className="text-xs text-muted-foreground">Total Cost</Label>
                                   <p className="text-lg font-bold">${vehicleTotals.totalCost.toFixed(2)}</p>
+                                </div>
+                                <div>
+                                  <Label className="text-xs text-muted-foreground">Est. downtime</Label>
+                                  <p className="font-medium">
+                                    {vehicleTotals.totalDowntimeHours > 0
+                                      ? `${(Math.round(vehicleTotals.totalDowntimeHours * 10) / 10)
+                                          .toString()
+                                          .replace(/\\.0$/, "")} hrs`
+                                      : "-"}
+                                  </p>
                                 </div>
                                 <div>
                                   <Label className="text-xs text-muted-foreground">Labour</Label>
@@ -2914,14 +2960,17 @@ export default function InspectionDetailPage() {
                       (acc, damage) => {
                         const cost = damage.totalCost ?? damage.estimatedCost ?? 0;
                         const breakdown = calculateCostBreakdown(cost);
+                        const downtimeHours =
+                          typeof damage.estimatedDowntimeHours === "number" ? damage.estimatedDowntimeHours : 0;
                         return {
                           totalCost: acc.totalCost + cost,
                           totalLabour: acc.totalLabour + (damage.labourCost ?? breakdown.labourCost),
                           totalMaterials:
                             acc.totalMaterials + (damage.materialsCost ?? breakdown.materialsCost),
+                          totalDowntimeHours: acc.totalDowntimeHours + (Number.isFinite(downtimeHours) ? downtimeHours : 0),
                         };
                       },
-                      { totalCost: 0, totalLabour: 0, totalMaterials: 0 }
+                      { totalCost: 0, totalLabour: 0, totalMaterials: 0, totalDowntimeHours: 0 }
                     );
 
                     return (
@@ -2947,6 +2996,10 @@ export default function InspectionDetailPage() {
                           <div className="space-y-1 text-sm">
                             {vehicle.damages.map((damage) => {
                               const cost = damage.totalCost ?? damage.estimatedCost ?? 0;
+                              const downtime =
+                                typeof damage.estimatedDowntimeHours === "number"
+                                  ? damage.estimatedDowntimeHours
+                                  : 0;
                               return (
                                 <div
                                   key={damage.id}
@@ -2961,13 +3014,29 @@ export default function InspectionDetailPage() {
                                         {damage.description}
                                       </p>
                                     )}
+                                    {downtime > 0 && (
+                                      <p className="text-xs text-muted-foreground">
+                                        Est. downtime:{" "}
+                                        {(Math.round(downtime * 10) / 10).toString().replace(/\\.0$/, "")}{" "}
+                                        hrs
+                                      </p>
+                                    )}
                                   </div>
                                   <span className="font-medium">${cost.toFixed(2)}</span>
                                 </div>
                               );
                             })}
                           </div>
-                          <div className="flex gap-4 pt-3 border-t text-sm">
+                          <div className="flex flex-wrap gap-4 pt-3 border-t text-sm">
+                            {vehicleTotals.totalDowntimeHours > 0 && (
+                              <span className="text-muted-foreground">
+                                Downtime:{" "}
+                                {(Math.round(vehicleTotals.totalDowntimeHours * 10) / 10)
+                                  .toString()
+                                  .replace(/\\.0$/, "")}{" "}
+                                hrs
+                              </span>
+                            )}
                             <span className="text-blue-400">
                               Labour: ${vehicleTotals.totalLabour.toFixed(2)}
                             </span>
@@ -2981,7 +3050,19 @@ export default function InspectionDetailPage() {
                   })}
                 </div>
               )}
-              <div className="grid gap-4 md:grid-cols-3">
+              <div className="grid gap-4 md:grid-cols-4">
+                <Card className="bg-muted/40">
+                  <CardContent className="p-4">
+                    <Label className="text-xs text-muted-foreground">Estimated downtime</Label>
+                    <p className="text-2xl font-bold">
+                      {estimatedDowntimeHours > 0
+                        ? `${(Math.round(estimatedDowntimeHours * 10) / 10)
+                            .toString()
+                            .replace(/\\.0$/, "")} hrs`
+                        : "-"}
+                    </p>
+                  </CardContent>
+                </Card>
                 <Card className="bg-muted/40">
                   <CardContent className="p-4">
                     <Label className="text-xs text-muted-foreground">Labour estimate</Label>
@@ -3115,6 +3196,23 @@ export default function InspectionDetailPage() {
                   {(parseFloat(newDamage.totalCost) * 0.3).toFixed(2)}
                 </p>
               )}
+            </div>
+            <div className="space-y-2">
+              <Label>Estimated downtime (hours)</Label>
+              <Input
+                inputMode="decimal"
+                type="number"
+                min="0"
+                step="0.5"
+                placeholder="e.g., 4"
+                value={newDamage.estimatedDowntimeHours}
+                onChange={(e) =>
+                  setNewDamage({ ...newDamage, estimatedDowntimeHours: e.target.value })
+                }
+              />
+              <p className="text-xs text-muted-foreground">
+                Used to calculate total estimated downtime on the inspection and quote.
+              </p>
             </div>
             <Button onClick={handleAddDamage} className="w-full">
               Save damage

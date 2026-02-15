@@ -451,6 +451,7 @@ export interface DamageReportItem {
   totalCost?: number;
   labourCost?: number;
   materialsCost?: number;
+  estimatedDowntimeHours?: number;
   clientDecision?: "pending" | "approved" | "rejected";
   clientDecisionNotes?: string;
   clientDecisionAt?: Timestamp;
