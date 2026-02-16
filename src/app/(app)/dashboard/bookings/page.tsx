@@ -83,14 +83,13 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { ADMIN_EMAILS, determineUserRole } from "@/lib/auth";
+import { HOURS_PER_WORKDAY, calculateEndFromWorkHours } from "@/lib/scheduling";
 
 import {
   Booking,
   BookingType,
   BOOKING_TYPE_LABELS,
   Job,
-  ResourceDurationTemplate,
-  RESOURCE_DURATION_LABELS,
   ContactCategory,
   CONTACT_CATEGORY_LABELS,
   CLIENT_CONTACT_CATEGORIES,
@@ -159,6 +158,7 @@ type BookingCalendarPayloadInput = {
   scheduledTime: string;
   finishDate?: Date;
   finishTime?: string;
+  durationHours?: number;
   notes?: string;
   assignedStaff?: string[];
   attendees?: string[];
@@ -190,7 +190,8 @@ const buildEventTimes = (
   date: Date,
   time: string,
   finishDate?: Date,
-  finishTime?: string
+  finishTime?: string,
+  durationHours?: number
 ) => {
   const [hours, minutes] = time.split(":").map((part) => Number(part));
   const start = new Date(date);
@@ -207,6 +208,10 @@ const buildEventTimes = (
       if (Number.isFinite(finishMinutes)) explicitEnd.setMinutes(finishMinutes);
       explicitEnd.setSeconds(0, 0);
       if (explicitEnd.getTime() > start.getTime()) return explicitEnd;
+    }
+
+    if (typeof durationHours === "number" && durationHours > 0) {
+      return calculateEndFromWorkHours(start, durationHours, HOURS_PER_WORKDAY);
     }
 
     const fallback = new Date(start);
@@ -261,6 +266,10 @@ const buildBookingCalendarPayload = (input: BookingCalendarPayloadInput): Calend
     lines.push(`Assigned staff: ${input.assignedStaff.join(", ")}`);
   }
 
+  if (typeof input.durationHours === "number" && input.durationHours > 0) {
+    lines.push(`Estimated duration: ${input.durationHours}h (based on ${HOURS_PER_WORKDAY}h workdays)`);
+  }
+
   if (input.notes) {
     lines.push("");
     lines.push("Notes:");
@@ -271,7 +280,8 @@ const buildBookingCalendarPayload = (input: BookingCalendarPayloadInput): Calend
     input.scheduledDate,
     input.scheduledTime,
     input.finishDate,
-    input.finishTime
+    input.finishTime,
+    input.durationHours
   );
 
   const payload: CalendarEventPayload = {
@@ -351,8 +361,7 @@ export default function BookingsPage() {
   const [scheduledTime, setScheduledTime] = useState("");
   const [finishDate, setFinishDate] = useState<Date | undefined>();
   const [finishTime, setFinishTime] = useState("");
-  const [resourceDurationTemplate, setResourceDurationTemplate] =
-    useState<ResourceDurationTemplate>("na");
+  const [estimatedDurationHours, setEstimatedDurationHours] = useState("3");
   const [selectedStaff, setSelectedStaff] = useState<StaffMember[]>([]);
   const [bookingNotes, setBookingNotes] = useState("");
   const [editingBooking, setEditingBooking] = useState<Booking | null>(null);
@@ -1002,6 +1011,16 @@ export default function BookingsPage() {
       return;
     }
 
+    const durationHours = Number(estimatedDurationHours);
+    if (!Number.isFinite(durationHours) || durationHours <= 0) {
+      toast({
+        title: "Missing duration",
+        description: "Please enter an estimated duration (hours) for this booking.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     if ((finishDate && !finishTime) || (!finishDate && finishTime)) {
       toast({
         title: "Finish time incomplete",
@@ -1092,7 +1111,8 @@ export default function BookingsPage() {
         scheduledTime,
         finishDate,
         finishTime: finishTime || undefined,
-        resourceDurationTemplate,
+        resourceDurationTemplate: "na",
+        resourceDurationOverrideHours: durationHours,
         allocatedStaff: selectedStaff.map((s) => ({ id: s.id, name: s.name, type: s.type })),
         notes: bookingNotes,
       });
@@ -1120,6 +1140,7 @@ export default function BookingsPage() {
           scheduledTime,
           finishDate,
           finishTime: finishTime || undefined,
+          durationHours,
           notes: bookingNotes || undefined,
           assignedStaff: selectedStaff.map((staff) => staff.name),
           attendees: attendeeEmails,
@@ -1182,7 +1203,7 @@ export default function BookingsPage() {
     setScheduledTime("");
     setFinishDate(undefined);
     setFinishTime("");
-    setResourceDurationTemplate("na");
+    setEstimatedDurationHours("3");
     setSelectedStaff([]);
     setBookingNotes("");
     setOrgSearchQuery("");
@@ -1448,6 +1469,10 @@ export default function BookingsPage() {
           scheduledTime: editScheduledTime,
           finishDate: editFinishDate,
           finishTime: editFinishTime || undefined,
+          durationHours:
+            typeof editingBooking.resourceDurationOverrideHours === "number"
+              ? editingBooking.resourceDurationOverrideHours
+              : undefined,
           notes: editNotes || undefined,
           assignedStaff: editStaff.map((staff) => staff.name),
           attendees: attendeeEmails,
@@ -1577,10 +1602,13 @@ export default function BookingsPage() {
     ? Boolean(retailContactValid)
     : selectedOrganization !== null && selectedContact !== null;
   const showCustomSite = isRetailBooking || useCustomSite;
+  const durationHoursValid =
+    Number.isFinite(Number(estimatedDurationHours)) && Number(estimatedDurationHours) > 0;
   const canProceedToStep4 =
     scheduledDate !== undefined &&
     scheduledTime !== "" &&
-    (selectedSite !== null || showCustomSite);
+    (selectedSite !== null || showCustomSite) &&
+    durationHoursValid;
   const canSubmit = selectedStaff.length > 0;
   const summaryOrganizationName = isRetailBooking
     ? RETAIL_ORG_NAME
@@ -2606,38 +2634,27 @@ export default function BookingsPage() {
                       </div>
                     </div>
 
-                    {/* Resource Allocation */}
+                    {/* Duration */}
                     <div className="space-y-4">
                       <div>
-                        <Label className="text-base font-semibold">Resource Allocation Window</Label>
+                        <Label className="text-base font-semibold">Estimated Duration</Label>
                         <p className="text-sm text-muted-foreground">
-                          Controls how much time is reserved in the Resource Planner for this job.
+                          Used to reserve staff capacity in the Resource Planner and set the Google Calendar window.
                         </p>
                       </div>
                       <div className="space-y-2 max-w-xl">
-                        <Label>Duration</Label>
-                        <Select
-                          value={resourceDurationTemplate}
-                          onValueChange={(value) =>
-                            setResourceDurationTemplate(value as ResourceDurationTemplate)
-                          }
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select duration" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {(Object.entries(RESOURCE_DURATION_LABELS) as [
-                              ResourceDurationTemplate,
-                              string,
-                            ][]).map(([value, label]) => (
-                              <SelectItem key={value} value={value}>
-                                {label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        <Label>Duration (hours) *</Label>
+                        <Input
+                          type="number"
+                          min={0.5}
+                          step={0.5}
+                          value={estimatedDurationHours}
+                          onChange={(e) => setEstimatedDurationHours(e.target.value)}
+                          placeholder="e.g. 3"
+                        />
                         <p className="text-xs text-muted-foreground">
-                          Tip: you can fine-tune this later per booking in the Resource Planner.
+                          Converted using {HOURS_PER_WORKDAY}h workdays for multi-day bookings. You can still override
+                          the finish date/time if needed.
                         </p>
                       </div>
                     </div>

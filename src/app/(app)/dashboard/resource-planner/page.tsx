@@ -58,6 +58,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useJobs } from "@/contexts/JobsContext";
 import { db } from "@/lib/firebaseClient";
 import { COLLECTIONS } from "@/lib/firestore";
+import { HOURS_PER_WORKDAY, calculateEndFromWorkHours } from "@/lib/scheduling";
 import type { Booking, Job, ResourceDurationTemplate } from "@/lib/types";
 import { BOOKING_TYPE_LABELS, RESOURCE_DURATION_LABELS } from "@/lib/types";
 
@@ -91,6 +92,11 @@ const DEFAULT_DURATION: Record<ResourceDurationTemplate, { unit: AllocationWindo
   medium: { unit: "days", value: 3 },
   long: { unit: "days", value: 5 },
 };
+
+const WORKDAY_START_MINUTES = 7 * 60;
+const WORKDAY_END_MINUTES = 17 * 60;
+const SLOT_MINUTES = 30;
+const SLOTS_PER_DAY = Math.max(1, Math.floor((WORKDAY_END_MINUTES - WORKDAY_START_MINUTES) / SLOT_MINUTES));
 
 const STAFF_COLOR_PALETTE = [
   "#7c3aed",
@@ -172,8 +178,7 @@ function resolveAllocationWindow(booking: Booking): AllocationWindow | null {
       typeof booking.resourceDurationOverrideHours === "number" && booking.resourceDurationOverrideHours > 0
         ? booking.resourceDurationOverrideHours
         : defaults.value;
-    const end = new Date(startAt);
-    end.setHours(end.getHours() + hours);
+    const end = calculateEndFromWorkHours(startAt, hours, HOURS_PER_WORKDAY);
     return { start: startAt, end, unit: "hours", value: hours };
   }
 
@@ -321,14 +326,19 @@ export default function ResourcePlannerPage() {
     return `Week of ${format(rangeStart, "EEE d MMM yyyy")}`;
   }, [rangeStart, viewMode]);
 
+  const columnsPerDay = viewMode === "month" ? 1 : SLOTS_PER_DAY;
+  const columnCount = useMemo(
+    () => Math.max(1, visibleDays.length * columnsPerDay),
+    [columnsPerDay, visibleDays.length]
+  );
+
   const gridColumnsStyle = useMemo(() => {
-    const count = Math.max(1, visibleDays.length);
     const template =
       viewMode === "month"
-        ? `repeat(${count}, minmax(90px, 1fr))`
-        : `repeat(${count}, minmax(0, 1fr))`;
+        ? `repeat(${visibleDays.length}, minmax(90px, 1fr))`
+        : `repeat(${columnCount}, minmax(28px, 1fr))`;
     return { gridTemplateColumns: template } as const;
-  }, [viewMode, visibleDays.length]);
+  }, [columnCount, viewMode, visibleDays.length]);
 
   const events = useMemo((): AllocationEvent[] => {
     const result: AllocationEvent[] = [];
@@ -665,22 +675,51 @@ export default function ResourcePlannerPage() {
               <div className="sticky left-0 z-30 border-r border-border/40 bg-muted/30 p-3 text-xs font-medium text-muted-foreground backdrop-blur">
                 Staff
               </div>
-              <div className="grid" style={gridColumnsStyle}>
-                {visibleDays.map((day) => (
-                  <div key={day.toISOString()} className="p-3 text-xs font-medium text-muted-foreground">
-                    {viewMode === "month" ? (
-                      <>
-                        <div className="text-sm font-semibold text-foreground">{format(day, "d")}</div>
-                        <div className="text-[11px] opacity-80">{format(day, "EEE")}</div>
-                      </>
-                    ) : (
-                      <>
-                        <div>{format(day, "EEE")}</div>
-                        <div className="text-[11px] opacity-80">{format(day, "d MMM")}</div>
-                      </>
+              <div className="space-y-px">
+                <div className="grid" style={gridColumnsStyle}>
+                  {viewMode === "month"
+                    ? visibleDays.map((day) => (
+                        <div
+                          key={day.toISOString()}
+                          className="p-3 text-xs font-medium text-muted-foreground"
+                        >
+                          <div className="text-sm font-semibold text-foreground">{format(day, "d")}</div>
+                          <div className="text-[11px] opacity-80">{format(day, "EEE")}</div>
+                        </div>
+                      ))
+                    : visibleDays.map((day) => (
+                        <div
+                          key={day.toISOString()}
+                          className="p-3 text-xs font-medium text-muted-foreground"
+                          style={{ gridColumn: `span ${columnsPerDay}` }}
+                        >
+                          <div>{format(day, "EEE")}</div>
+                          <div className="text-[11px] opacity-80">{format(day, "d MMM")}</div>
+                        </div>
+                      ))}
+                </div>
+
+                {viewMode !== "month" ? (
+                  <div className="grid border-t border-border/40" style={gridColumnsStyle}>
+                    {visibleDays.flatMap((day) =>
+                      Array.from({ length: columnsPerDay }).map((_, slotIdx) => {
+                        const minutes = WORKDAY_START_MINUTES + slotIdx * SLOT_MINUTES;
+                        const hours = Math.floor(minutes / 60);
+                        const mins = minutes % 60;
+                        const label =
+                          mins === 0 ? `${String(hours).padStart(2, "0")}:${String(mins).padStart(2, "0")}` : "";
+                        return (
+                          <div
+                            key={`${day.toISOString()}:${slotIdx}`}
+                            className="p-1 text-center text-[10px] font-medium text-muted-foreground/80"
+                          >
+                            {label}
+                          </div>
+                        );
+                      })
                     )}
                   </div>
-                ))}
+                ) : null}
               </div>
             </div>
 
@@ -723,7 +762,7 @@ export default function ResourcePlannerPage() {
                         className="grid auto-rows-[44px] gap-px bg-border/40"
                         style={{ ...gridColumnsStyle, height: `${laneCount * rowHeight}px` }}
                       >
-                        {Array.from({ length: laneCount * visibleDays.length }).map((_, idx) => (
+                        {Array.from({ length: laneCount * columnCount }).map((_, idx) => (
                           <div key={idx} className="bg-background/40" />
                         ))}
                       </div>
@@ -731,27 +770,63 @@ export default function ResourcePlannerPage() {
                       <div className="absolute inset-0 grid auto-rows-[44px] gap-px p-1" style={gridColumnsStyle}>
                         {lanes.flatMap((lane, laneIndex) =>
                           lane.map((event) => {
-                            const dayIndexStart = Math.max(
-                              0,
-                              Math.floor(
-                                (startOfDay(event.window.start).getTime() -
-                                  startOfDay(rangeStart).getTime()) /
-                                  (1000 * 60 * 60 * 24)
-                              )
-                            );
-                            const dayIndexEnd = Math.min(
-                              visibleDays.length,
-                              Math.ceil(
-                                (startOfDay(event.window.end).getTime() -
-                                  startOfDay(rangeStart).getTime()) /
-                                  (1000 * 60 * 60 * 24)
-                              )
-                            );
+                            const msPerDay = 1000 * 60 * 60 * 24;
+                            const rangeStartDay = startOfDay(rangeStart);
 
-                            const columnStart = dayIndexStart + 1;
-                            const columnEnd = Math.max(columnStart + 1, dayIndexEnd + 1);
+                            const toTimelineIndex = (value: Date, isEnd: boolean) => {
+                              const dayIndex = Math.floor(
+                                (startOfDay(value).getTime() - rangeStartDay.getTime()) / msPerDay
+                              );
+                              if (dayIndex < 0) return 0;
+                              if (dayIndex >= visibleDays.length) return columnCount;
 
-                            const durationLabel = formatWindowLabel(event.window);
+                              const minutes = value.getHours() * 60 + value.getMinutes();
+                              const clampedMinutes = Math.min(
+                                WORKDAY_END_MINUTES,
+                                Math.max(WORKDAY_START_MINUTES, minutes)
+                              );
+                              const raw = (clampedMinutes - WORKDAY_START_MINUTES) / SLOT_MINUTES;
+                              const slot = isEnd ? Math.ceil(raw) : Math.floor(raw);
+                              const clampedSlot = Math.min(Math.max(slot, 0), columnsPerDay);
+
+                              return dayIndex * columnsPerDay + clampedSlot;
+                            };
+
+                            const { columnStart, columnEnd } = (() => {
+                              if (viewMode === "month") {
+                                const dayIndexStart = Math.max(
+                                  0,
+                                  Math.floor(
+                                    (startOfDay(event.window.start).getTime() -
+                                      startOfDay(rangeStart).getTime()) /
+                                      msPerDay
+                                  )
+                                );
+                                const dayIndexEnd = Math.min(
+                                  visibleDays.length,
+                                  Math.ceil(
+                                    (startOfDay(event.window.end).getTime() -
+                                      startOfDay(rangeStart).getTime()) /
+                                      msPerDay
+                                  )
+                                );
+                                const start = dayIndexStart + 1;
+                                const end = Math.max(start + 1, dayIndexEnd + 1);
+                                return { columnStart: start, columnEnd: end };
+                              }
+
+                              const startIdx = toTimelineIndex(event.window.start, false);
+                              const endIdx = toTimelineIndex(event.window.end, true);
+                              const start = startIdx + 1;
+                              const end = Math.max(start + 1, endIdx + 1);
+                              return { columnStart: start, columnEnd: end };
+                            })();
+
+                            const durationOverride = event.booking.resourceDurationOverrideHours;
+                            const durationLabel =
+                              typeof durationOverride === "number" && durationOverride > 0
+                                ? `${durationOverride}h`
+                                : formatWindowLabel(event.window);
                             const serviceLabel = BOOKING_TYPE_LABELS[event.booking.bookingType];
                             const eventStaffColor = getStaffColor(event.staff.id);
 
@@ -795,7 +870,7 @@ export default function ResourcePlannerPage() {
           </div>
 
           <p className="text-xs text-muted-foreground">
-            Duration windows come from the booking wizard (N/A / Short / Medium / Long) and can be fine-tuned per booking here.
+            Duration windows come from the booking wizard (estimated hours) and can be fine-tuned per booking here.
           </p>
         </CardContent>
       </Card>

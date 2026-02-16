@@ -61,6 +61,8 @@ type CreateBookingInput = {
   finishDate?: Date;
   finishTime?: string;
   resourceDurationTemplate?: ResourceDurationTemplate;
+  resourceDurationOverrideDays?: number;
+  resourceDurationOverrideHours?: number;
   allocatedStaff: {
     id: string;
     name: string;
@@ -387,6 +389,13 @@ export function JobsProvider({ children }: { children: ReactNode }) {
         bookingNumber,
         bookingType: input.bookingType,
         resourceDurationTemplate: input.resourceDurationTemplate ?? "na",
+        ...(typeof input.resourceDurationOverrideDays === "number" && input.resourceDurationOverrideDays > 0
+          ? { resourceDurationOverrideDays: input.resourceDurationOverrideDays }
+          : {}),
+        ...(typeof input.resourceDurationOverrideHours === "number" &&
+        input.resourceDurationOverrideHours > 0
+          ? { resourceDurationOverrideHours: input.resourceDurationOverrideHours }
+          : {}),
         organizationId: input.organization.id,
         organizationName: input.organization.name,
         contactId: input.contact.id,
