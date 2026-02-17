@@ -10,6 +10,16 @@ import { COLLECTIONS } from "@/lib/collections";
 
 export const runtime = "nodejs";
 
+const REPAIR_TYPE_LABELS: Record<string, string> = {
+  windscreen_crack_chip_repair: "Windscreen Crack/Chip Repair",
+  windscreen_replacement: "Windscreen Replacement",
+  scratch_graffiti_removal: "Scratch/Graffiti Removal",
+  film_installation: "Film Installation",
+  trim_restoration_interior: "Trim Restoration (Interior)",
+  trim_restoration_exterior: "Trim Restoration (Exterior)",
+  polymer_lens_restoration: "Polymer Lens Restoration",
+};
+
 type TimestampLike =
   | admin.firestore.Timestamp
   | { seconds: number; nanoseconds: number }
@@ -111,6 +121,12 @@ function safeString(value: unknown) {
 
 function safeNumber(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function resolveRepairTypeLabel(value: unknown) {
+  if (typeof value !== "string") return "";
+  const trimmed = value.trim();
+  return REPAIR_TYPE_LABELS[trimmed] || trimmed;
 }
 
 function extractQuoteData(inspectionData: Record<string, any>) {
@@ -317,7 +333,7 @@ async function generateQuotePdfBytes(params: {
       borderWidth: 1,
     });
 
-    const repairType = truncate(safeString(damage.repairType) || "-", 18);
+    const repairType = truncate(resolveRepairTypeLabel(damage.repairType) || "-", 18);
     const location = truncate(safeString(damage.location) || "-", 18);
     const downtime = safeNumber(damage.estimatedDowntimeHours);
     const downtimeText =
@@ -368,7 +384,7 @@ async function generateQuotePdfBytes(params: {
   }
 
   const totalsLine = `Total: ${formatCurrency(totals.total)}${
-    estDowntimeText ? ` • Estimated downtime: ${estDowntimeText}` : ""
+    estDowntimeText ? ` • Estimated works duration: ${estDowntimeText}` : ""
   }`;
   page.drawText(totalsLine, {
     x: margin,
@@ -637,7 +653,7 @@ Please find your ASI inspection quote for ${clientName || "your organisation"}.
 
 Inspection reference: ${inspectionNumber}
 Inspection date/time: ${scheduled || "N/A"}
-${totalCostText ? `Total estimate: ${totalCostText}\n` : ""}${downtimeText ? `Estimated downtime: ${downtimeText}\n` : ""}
+${totalCostText ? `Total estimate: ${totalCostText}\n` : ""}${downtimeText ? `Estimated works duration: ${downtimeText}\n` : ""}
 
 View/download quote (PDF): ${file?.downloadUrl || ""}
 
@@ -654,7 +670,7 @@ Advanced Surface Innovations (ASI) Australia`;
     <div><strong>Inspection reference:</strong> ${inspectionNumber}</div>
     <div><strong>Inspection date/time:</strong> ${scheduled || "N/A"}</div>
     ${totalCostText ? `<div><strong>Total estimate:</strong> ${totalCostText}</div>` : ""}
-    ${downtimeText ? `<div><strong>Estimated downtime:</strong> ${downtimeText}</div>` : ""}
+    ${downtimeText ? `<div><strong>Estimated works duration:</strong> ${downtimeText}</div>` : ""}
     <div><strong>Quote PDF:</strong> <a href="${file?.downloadUrl || "#"}">Download / view</a></div>
   </div>
   <p style="margin-top:14px;"><strong>To approve:</strong> reply to this email confirming the scope of works you approve (you may approve partial items), and the dates/times your asset is booked out of service. We will then schedule and confirm the booking.</p>
