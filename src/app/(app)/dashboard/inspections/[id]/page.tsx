@@ -1588,8 +1588,9 @@ export default function InspectionDetailPage() {
       }
 
       toast({
-        title: "Inspection submitted",
-        description: "Inspection submitted. Generate and send the quote to the client when ready.",
+        title: "Inspection completed",
+        description:
+          "Inspection completed for internal review. Quote generation/sending is manual by admin only.",
       });
     } catch (error) {
       toast({
@@ -2029,7 +2030,7 @@ export default function InspectionDetailPage() {
               Save changes
             </Button>
             <Button onClick={handleCompleteInspection}>
-              Submit inspection
+              Complete inspection
             </Button>
             {canApprove && (
               <>
