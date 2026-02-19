@@ -7,6 +7,7 @@ import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { admin } from "@/lib/firebaseAdmin";
 import { requireAdminUser } from "@/lib/server/firebaseAuth";
 import { COLLECTIONS } from "@/lib/collections";
+import { getPublicEnv } from "@/lib/public-env";
 
 export const runtime = "nodejs";
 
@@ -140,6 +141,20 @@ function safeString(value: unknown) {
 
 function safeNumber(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function resolveStorageBucketName() {
+  const fromRuntime =
+    process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || process.env.FIREBASE_STORAGE_BUCKET;
+  if (fromRuntime?.trim()) return fromRuntime.trim();
+
+  const fromPublic = getPublicEnv("NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET");
+  if (typeof fromPublic === "string" && fromPublic.trim()) return fromPublic.trim();
+
+  const fromAdminApp = admin.app().options.storageBucket;
+  if (typeof fromAdminApp === "string" && fromAdminApp.trim()) return fromAdminApp.trim();
+
+  return "";
 }
 
 function resolveRepairTypeLabel(value: unknown) {
@@ -599,8 +614,7 @@ async function generateAndStoreQuote(params: {
   inspection: Record<string, any>;
   generatedBy: { userId: string; name: string };
 }): Promise<GenerateResult> {
-  const bucketName =
-    process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || process.env.FIREBASE_STORAGE_BUCKET;
+  const bucketName = resolveStorageBucketName();
   if (!bucketName) {
     throw new Error(
       "Firebase Storage bucket not configured. Set NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET (or FIREBASE_STORAGE_BUCKET) in your runtime env vars."
@@ -805,6 +819,14 @@ Advanced Surface Innovations (ASI) Australia`;
     return NextResponse.json({ ok: true, file });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to generate quote.";
+    console.error("Inspection quote API failed:", error);
+    const normalized = message.toLowerCase();
+    if (normalized.includes("missing authorization token")) {
+      return NextResponse.json({ error: message }, { status: 401 });
+    }
+    if (normalized.includes("not authorised")) {
+      return NextResponse.json({ error: message }, { status: 403 });
+    }
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

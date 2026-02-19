@@ -1658,7 +1658,8 @@ export default function InspectionDetailPage() {
     }
     setQuoteSending(true);
     try {
-      await runQuoteAction("generate_and_send");
+      const hasExistingQuoteFile = Boolean(inspection?.quote?.file?.downloadUrl);
+      await runQuoteAction(hasExistingQuoteFile ? "send" : "generate_and_send");
       toast({
         title: "Quote sent",
         description: "The quote email has been queued for delivery.",
