@@ -512,17 +512,26 @@ export default function BookingsPage() {
   }, []);
 
   useEffect(() => {
-    const asiOrgIds = organizations
-      .filter(
-        (org) =>
+    const staffOrgs = organizations
+      .map((org) => {
+        const isAsiOrg =
           org.category === "asi_staff" ||
           org.domains?.some(
             (domain) => domain.toLowerCase().trim() === "asi-australia.com.au"
-          )
-      )
-      .map((org) => org.id);
+          );
+        if (isAsiOrg) {
+          return { id: org.id, type: "asi_staff" as const };
+        }
+        const isSubcontractorOrg =
+          org.category === "subcontractor" || org.portalRole === "contractor";
+        if (isSubcontractorOrg) {
+          return { id: org.id, type: "subcontractor" as const };
+        }
+        return null;
+      })
+      .filter((entry): entry is { id: string; type: StaffMember["type"] } => Boolean(entry));
 
-    if (asiOrgIds.length === 0) {
+    if (staffOrgs.length === 0) {
       setAsiContactStaffList([]);
       return;
     }
@@ -543,7 +552,7 @@ export default function BookingsPage() {
       );
     };
 
-    const unsubscribers = asiOrgIds.map((orgId) => {
+    const unsubscribers = staffOrgs.map(({ id: orgId, type }) => {
       const contactQuery = query(
         collection(db, COLLECTIONS.ORGANIZATION_CONTACTS),
         where("organizationId", "==", orgId)
@@ -559,7 +568,7 @@ export default function BookingsPage() {
             acc.push({
               id: data.portalUserId || docSnap.id,
               name: fullName || data.email || "Unknown",
-              type: "asi_staff",
+              type,
               email: data.email || undefined,
             });
             return acc;

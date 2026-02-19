@@ -19,6 +19,7 @@ const REPAIR_TYPE_LABELS: Record<string, string> = {
   trim_restoration_exterior: "Trim Restoration (Exterior)",
   polymer_lens_restoration: "Polymer Lens Restoration",
 };
+const DEFAULT_APP_URL = "https://asiportal.live";
 
 type TimestampLike =
   | admin.firestore.Timestamp
@@ -46,6 +47,24 @@ const buildDownloadUrl = (bucketName: string, filePath: string, token: string) =
   `https://firebasestorage.googleapis.com/v0/b/${bucketName}/o/${encodeURIComponent(
     filePath
   )}?alt=media&token=${token}`;
+
+function normalizeAppUrl(value: string) {
+  return value.trim().replace(/\.+$/, "").replace(/\/+$/, "");
+}
+
+function resolveAppUrl(req: NextRequest) {
+  const configured =
+    process.env.NEXT_PUBLIC_APP_URL ||
+    process.env.APP_URL ||
+    process.env.NEXT_PUBLIC_SITE_URL;
+  if (configured) return normalizeAppUrl(configured);
+
+  const host = req.headers.get("x-forwarded-host") || req.headers.get("host");
+  const proto = req.headers.get("x-forwarded-proto") || (host?.includes("localhost") ? "http" : "https");
+  if (host) return `${proto}://${host}`;
+
+  return DEFAULT_APP_URL;
+}
 
 function toDate(value: TimestampLike): Date | null {
   if (!value) return null;
@@ -82,7 +101,7 @@ function formatCurrency(value: number) {
 function truncate(text: string, maxLength: number) {
   const cleaned = text.replace(/\s+/g, " ").trim();
   if (cleaned.length <= maxLength) return cleaned;
-  return `${cleaned.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
+  return `${cleaned.slice(0, Math.max(0, maxLength - 3)).trimEnd()}...`;
 }
 
 function wrapText(text: string, maxWidth: number, font: any, fontSize: number) {
@@ -129,32 +148,53 @@ function resolveRepairTypeLabel(value: unknown) {
   return REPAIR_TYPE_LABELS[trimmed] || trimmed;
 }
 
+function resolveVehicleLabel(report: any, index: number) {
+  const vehicle = report?.vehicle || {};
+  return (
+    safeString(vehicle.registration) ||
+    safeString(vehicle.fleetAssetNumber) ||
+    safeString(vehicle.vin) ||
+    `Vehicle ${index + 1}`
+  );
+}
+
 function extractQuoteData(inspectionData: Record<string, any>) {
   const vehicleReports = Array.isArray(inspectionData.vehicleReports) ? inspectionData.vehicleReports : [];
-  const firstReport = vehicleReports[0] || null;
-  const vehicle = firstReport?.vehicle || null;
-  const damages = Array.isArray(firstReport?.damages) ? firstReport.damages : [];
 
-  const totals = damages.reduce(
-    (acc: { labour: number; materials: number; total: number }, damage: any) => {
+  const lineItems = vehicleReports.flatMap((report: any, reportIndex: number) => {
+    const vehicleLabel = resolveVehicleLabel(report, reportIndex);
+    const damages = Array.isArray(report?.damages) ? report.damages : [];
+    return damages.map((damage: any) => {
       const labour = safeNumber(damage.labourCost);
       const materials = safeNumber(damage.materialsCost);
       const total =
         safeNumber(damage.totalCost) ||
         (labour || materials ? labour + materials : safeNumber(damage.estimatedCost));
+      const downtimeHours = safeNumber(damage.estimatedDowntimeHours);
+
       return {
-        labour: acc.labour + labour,
-        materials: acc.materials + materials,
-        total: acc.total + total,
+        vehicleLabel,
+        repairType: resolveRepairTypeLabel(damage.repairType) || "-",
+        location: safeString(damage.location) || "-",
+        description: safeString(damage.description) || "-",
+        labour,
+        materials,
+        total,
+        downtimeHours: downtimeHours > 0 ? downtimeHours : 0,
       };
-    },
+    });
+  });
+
+  const totals = lineItems.reduce(
+    (acc: { labour: number; materials: number; total: number }, item: any) => ({
+      labour: acc.labour + safeNumber(item.labour),
+      materials: acc.materials + safeNumber(item.materials),
+      total: acc.total + safeNumber(item.total),
+    }),
     { labour: 0, materials: 0, total: 0 }
   );
 
-  const totalDowntimeHours = damages.reduce((sum: number, damage: any) => {
-    const hours = safeNumber(damage.estimatedDowntimeHours);
-    return sum + (hours > 0 ? hours : 0);
-  }, 0);
+  const totalDowntimeHours = lineItems.reduce((sum: number, item: any) => sum + safeNumber(item.downtimeHours), 0);
 
   const flattenedPhotos = vehicleReports
     .flatMap((report: any) =>
@@ -172,8 +212,7 @@ function extractQuoteData(inspectionData: Record<string, any>) {
 
   return {
     vehicleReports,
-    vehicle,
-    damages,
+    lineItems,
     totals,
     totalDowntimeHours,
     photoUrls: uniquePhotos,
@@ -190,7 +229,8 @@ async function generateQuotePdfBytes(params: {
   const bold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
   const logoImage = await pdfDoc.embedPng(logoBytes);
 
-  const page = pdfDoc.addPage([595.28, 841.89]); // A4
+  const pageSize: [number, number] = [595.28, 841.89]; // A4
+  const page = pdfDoc.addPage(pageSize);
   const { width, height } = page.getSize();
   const margin = 36;
 
@@ -204,8 +244,7 @@ async function generateQuotePdfBytes(params: {
     height: logoDims.height,
   });
 
-  const title = "Inspection Quote";
-  page.drawText(title, {
+  page.drawText("Inspection Quote", {
     x: margin + logoDims.width + 12,
     y: headerY - 18,
     size: 16,
@@ -215,7 +254,9 @@ async function generateQuotePdfBytes(params: {
 
   const inspectionNumber = safeString(inspection.inspectionNumber);
   const quoteDate = formatDate(admin.firestore.Timestamp.now());
-  const metaText = inspectionNumber ? `Quote ref: ${inspectionNumber} • Generated: ${quoteDate}` : `Generated: ${quoteDate}`;
+  const metaText = inspectionNumber
+    ? `Quote ref: ${inspectionNumber} - Generated: ${quoteDate}`
+    : `Generated: ${quoteDate}`;
   page.drawText(metaText, {
     x: margin + logoDims.width + 12,
     y: headerY - 36,
@@ -224,7 +265,7 @@ async function generateQuotePdfBytes(params: {
     color: rgb(0.35, 0.35, 0.35),
   });
 
-  const { vehicle, damages, totals, totalDowntimeHours, photoUrls } = extractQuoteData(inspection);
+  const { lineItems, totals, totalDowntimeHours, photoUrls } = extractQuoteData(inspection);
 
   const contactName = safeString(inspection.contactName);
   const contactEmail = safeString(inspection.clientEmail);
@@ -250,7 +291,13 @@ async function generateQuotePdfBytes(params: {
 
   const drawKeyValue = (label: string, value: string, x: number, y: number) => {
     page.drawText(label, { x, y, size: 8.5, font, color: rgb(0.45, 0.45, 0.45) });
-    page.drawText(value || "-", { x, y: y - 12, size: 10, font: bold, color: rgb(0.12, 0.12, 0.12) });
+    page.drawText(value || "-", {
+      x,
+      y: y - 12,
+      size: 10,
+      font: bold,
+      color: rgb(0.12, 0.12, 0.12),
+    });
   };
 
   drawKeyValue("Client", clientName, leftColX, cursorY);
@@ -260,27 +307,31 @@ async function generateQuotePdfBytes(params: {
   drawKeyValue("Inspection date/time", `${scheduledDate} ${scheduledTime}`.trim(), rightColX, cursorY);
   cursorY -= 34;
 
-  const vehicleLine = vehicle
-    ? [
-        safeString(vehicle.registration) && `Reg: ${safeString(vehicle.registration)}`,
-        safeString(vehicle.fleetAssetNumber) && `Asset: ${safeString(vehicle.fleetAssetNumber)}`,
-        safeString(vehicle.bodyManufacturer) && `Body: ${safeString(vehicle.bodyManufacturer)}`,
-      ]
-        .filter(Boolean)
-        .join(" • ")
-    : "Vehicle details not provided";
+  const vehicleLine = (() => {
+    const labels = Array.from(
+      new Set(lineItems.map((item: any) => safeString(item.vehicleLabel)).filter(Boolean))
+    );
+    return labels.length > 0 ? labels.join(" | ") : "Vehicle details not provided";
+  })();
 
-  page.drawText("Vehicle", { x: leftColX, y: cursorY, size: 8.5, font, color: rgb(0.45, 0.45, 0.45) });
-  const vehicleLines = wrapText(vehicleLine, width - margin * 2, bold, 10);
-  vehicleLines.slice(0, 2).forEach((line, index) => {
-    page.drawText(line, {
-      x: leftColX,
-      y: cursorY - 12 - index * 12,
-      size: 10,
-      font: bold,
-      color: rgb(0.12, 0.12, 0.12),
-    });
+  page.drawText("Vehicle summary", {
+    x: leftColX,
+    y: cursorY,
+    size: 8.5,
+    font,
+    color: rgb(0.45, 0.45, 0.45),
   });
+  wrapText(vehicleLine, width - margin * 2, bold, 10)
+    .slice(0, 2)
+    .forEach((line, index) => {
+      page.drawText(line, {
+        x: leftColX,
+        y: cursorY - 12 - index * 12,
+        size: 10,
+        font: bold,
+        color: rgb(0.12, 0.12, 0.12),
+      });
+    });
   cursorY -= 40;
 
   const tableTop = cursorY;
@@ -288,11 +339,12 @@ async function generateQuotePdfBytes(params: {
   const tableWidth = width - margin * 2;
   const rowHeight = 18;
   const headerHeight = 20;
+  const colVehicle = 76;
   const colRepair = 76;
-  const colLocation = 88;
-  const colDuration = 78;
-  const colCost = 76;
-  const colDesc = tableWidth - colRepair - colLocation - colDuration - colCost;
+  const colLocation = 72;
+  const colDuration = 60;
+  const colCost = 70;
+  const colDesc = tableWidth - colVehicle - colRepair - colLocation - colDuration - colCost;
 
   page.drawRectangle({
     x: tableLeft,
@@ -305,22 +357,33 @@ async function generateQuotePdfBytes(params: {
   });
 
   const headerYPos = tableTop - 14;
-  page.drawText("Repair type", { x: tableLeft + 6, y: headerYPos, size: 9, font: bold });
-  page.drawText("Location", { x: tableLeft + colRepair + 6, y: headerYPos, size: 9, font: bold });
-  page.drawText("Duration", { x: tableLeft + colRepair + colLocation + 6, y: headerYPos, size: 9, font: bold });
+  page.drawText("Vehicle", { x: tableLeft + 6, y: headerYPos, size: 9, font: bold });
+  page.drawText("Repair type", { x: tableLeft + colVehicle + 6, y: headerYPos, size: 9, font: bold });
+  page.drawText("Location", {
+    x: tableLeft + colVehicle + colRepair + 6,
+    y: headerYPos,
+    size: 9,
+    font: bold,
+  });
+  page.drawText("Duration", {
+    x: tableLeft + colVehicle + colRepair + colLocation + 6,
+    y: headerYPos,
+    size: 9,
+    font: bold,
+  });
   page.drawText("Description", {
-    x: tableLeft + colRepair + colLocation + colDuration + 6,
+    x: tableLeft + colVehicle + colRepair + colLocation + colDuration + 6,
     y: headerYPos,
     size: 9,
     font: bold,
   });
   page.drawText("Total", { x: tableLeft + tableWidth - colCost + 6, y: headerYPos, size: 9, font: bold });
 
-  const maxRows = Math.max(1, Math.min(12, Math.floor((tableTop - 240) / rowHeight)));
-  const rows = damages.slice(0, maxRows);
+  const maxRows = Math.max(1, Math.min(10, Math.floor((tableTop - 260) / rowHeight)));
+  const rows = lineItems.slice(0, maxRows);
   let rowY = tableTop - headerHeight;
 
-  rows.forEach((damage: any, index: number) => {
+  rows.forEach((item: any, index: number) => {
     rowY -= rowHeight;
     const shade = index % 2 === 0 ? rgb(1, 1, 1) : rgb(0.985, 0.985, 0.99);
     page.drawRectangle({
@@ -333,45 +396,49 @@ async function generateQuotePdfBytes(params: {
       borderWidth: 1,
     });
 
-    const repairType = truncate(resolveRepairTypeLabel(damage.repairType) || "-", 18);
-    const location = truncate(safeString(damage.location) || "-", 18);
-    const downtime = safeNumber(damage.estimatedDowntimeHours);
+    const vehicleLabel = truncate(safeString(item.vehicleLabel) || "-", 14);
+    const repairType = truncate(safeString(item.repairType) || "-", 16);
+    const location = truncate(safeString(item.location) || "-", 14);
+    const downtimeHours = safeNumber(item.downtimeHours);
     const downtimeText =
-      downtime > 0 ? `${(Math.round(downtime * 10) / 10).toString().replace(/\\.0$/, "")}h` : "-";
-    const description = truncate(safeString(damage.description) || "-", 46);
-    const total =
-      safeNumber(damage.totalCost) ||
-      (safeNumber(damage.labourCost) || safeNumber(damage.materialsCost)
-        ? safeNumber(damage.labourCost) + safeNumber(damage.materialsCost)
-        : safeNumber(damage.estimatedCost));
+      downtimeHours > 0
+        ? `${(Math.round(downtimeHours * 10) / 10).toString().replace(/\\.0$/, "")}h`
+        : "-";
+    const description = truncate(safeString(item.description) || "-", 32);
+    const total = safeNumber(item.total);
 
-    page.drawText(repairType, { x: tableLeft + 6, y: rowY + 5, size: 9, font });
-    page.drawText(location, { x: tableLeft + colRepair + 6, y: rowY + 5, size: 9, font });
-    page.drawText(downtimeText, {
-      x: tableLeft + colRepair + colLocation + 6,
+    page.drawText(vehicleLabel, { x: tableLeft + 6, y: rowY + 5, size: 8.5, font });
+    page.drawText(repairType, { x: tableLeft + colVehicle + 6, y: rowY + 5, size: 8.5, font });
+    page.drawText(location, {
+      x: tableLeft + colVehicle + colRepair + 6,
       y: rowY + 5,
-      size: 9,
+      size: 8.5,
+      font,
+    });
+    page.drawText(downtimeText, {
+      x: tableLeft + colVehicle + colRepair + colLocation + 6,
+      y: rowY + 5,
+      size: 8.5,
       font,
     });
     page.drawText(description, {
-      x: tableLeft + colRepair + colLocation + colDuration + 6,
+      x: tableLeft + colVehicle + colRepair + colLocation + colDuration + 6,
       y: rowY + 5,
-      size: 9,
+      size: 8.5,
       font,
     });
     page.drawText(formatCurrency(total), {
       x: tableLeft + tableWidth - colCost + 6,
       y: rowY + 5,
-      size: 9,
+      size: 8.5,
       font,
     });
   });
 
   cursorY = rowY - 18;
-
-  if (damages.length > rows.length) {
+  if (lineItems.length > rows.length) {
     page.drawText(
-      `+ ${damages.length - rows.length} more item(s) not shown due to 1-page quote limit.`,
+      `+ ${lineItems.length - rows.length} more item(s) not shown due to 1-page quote limit.`,
       {
         x: margin,
         y: cursorY,
@@ -383,56 +450,25 @@ async function generateQuotePdfBytes(params: {
     cursorY -= 14;
   }
 
-  const totalsLine = `Total: ${formatCurrency(totals.total)}${
-    estDowntimeText ? ` • Estimated works duration: ${estDowntimeText}` : ""
-  }`;
-  page.drawText(totalsLine, {
+  page.drawText(`Total Estimated Cost: ${formatCurrency(totals.total)}`, {
     x: margin,
     y: cursorY,
     size: 10,
     font: bold,
     color: rgb(0.12, 0.12, 0.12),
   });
-  cursorY -= 22;
-
-  page.drawRectangle({
+  cursorY -= 14;
+  page.drawText(`Works Downtime Allocation Required: ${estDowntimeText || "Not provided"}`, {
     x: margin,
-    y: cursorY - 66,
-    width: width - margin * 2,
-    height: 66,
-    color: rgb(0.08, 0.1, 0.14),
-    borderColor: rgb(0.2, 0.25, 0.33),
-    borderWidth: 1,
-    opacity: 0.95,
-  });
-
-  const actionTitle = "Action required (reply by email to approve)";
-  page.drawText(actionTitle, {
-    x: margin + 10,
-    y: cursorY - 18,
-    size: 10.5,
+    y: cursorY,
+    size: 9.5,
     font: bold,
-    color: rgb(0.95, 0.95, 0.98),
+    color: rgb(0.2, 0.2, 0.24),
   });
-
-  const actionBody =
-    "Please reply to this email confirming the scope of works you approve (you may approve partial items), " +
-    "and the dates/times your asset is booked out of service. We will then schedule the job and confirm the booking.";
-  const actionLines = wrapText(actionBody, width - margin * 2 - 20, font, 9);
-  actionLines.slice(0, 3).forEach((line, index) => {
-    page.drawText(line, {
-      x: margin + 10,
-      y: cursorY - 34 - index * 12,
-      size: 9,
-      font,
-      color: rgb(0.9, 0.9, 0.95),
-    });
-  });
-
-  cursorY -= 86;
+  cursorY -= 20;
 
   if (photoUrls.length > 0) {
-    page.drawText("Photos (thumbnails)", {
+    page.drawText("Section 2 - Inspection photos", {
       x: margin,
       y: cursorY,
       size: 9,
@@ -493,9 +529,61 @@ async function generateQuotePdfBytes(params: {
         imageX = nextX;
       }
     }
+    cursorY = imageY - 12;
+  } else {
+    page.drawText("Section 2 - Inspection photos: none attached", {
+      x: margin,
+      y: cursorY,
+      size: 9,
+      font,
+      color: rgb(0.4, 0.4, 0.45),
+    });
+    cursorY -= 14;
   }
 
-  page.drawText("Controlled record. Uncontrolled if printed.", {
+  const actionHeight = 82;
+  let actionPage = page;
+  let actionTop = cursorY;
+  if (actionTop - actionHeight < margin + 20) {
+    actionPage = pdfDoc.addPage(pageSize);
+    actionTop = actionPage.getSize().height - margin;
+  }
+
+  actionPage.drawRectangle({
+    x: margin,
+    y: actionTop - actionHeight,
+    width: width - margin * 2,
+    height: actionHeight,
+    color: rgb(0.08, 0.1, 0.14),
+    borderColor: rgb(0.2, 0.25, 0.33),
+    borderWidth: 1,
+    opacity: 0.95,
+  });
+
+  actionPage.drawText("Section 3 - Reply by email to approve", {
+    x: margin + 10,
+    y: actionTop - 18,
+    size: 10.5,
+    font: bold,
+    color: rgb(0.95, 0.95, 0.98),
+  });
+
+  const actionBody =
+    "Reply confirming approved scope (full or partial), PO/Works Order Number, and your allocated date/time " +
+    "for the works. You can review full-size photos via the ASI Portal link in the email.";
+  wrapText(actionBody, width - margin * 2 - 20, font, 9)
+    .slice(0, 4)
+    .forEach((line, index) => {
+      actionPage.drawText(line, {
+        x: margin + 10,
+        y: actionTop - 34 - index * 12,
+        size: 9,
+        font,
+        color: rgb(0.9, 0.9, 0.95),
+      });
+    });
+
+  actionPage.drawText("Controlled record. Uncontrolled if printed.", {
     x: margin,
     y: margin - 18,
     size: 8,
@@ -506,7 +594,6 @@ async function generateQuotePdfBytes(params: {
   const pdfBytes = await pdfDoc.save();
   return Buffer.from(pdfBytes);
 }
-
 async function generateAndStoreQuote(params: {
   inspectionId: string;
   inspection: Record<string, any>;
@@ -637,15 +724,23 @@ export async function POST(req: NextRequest) {
       const subject = `ASI Inspection Quote: ${inspectionNumber}`;
       const clientName = safeString(inspection.clientName || inspection.organizationName);
       const contactName = safeString(inspection.contactName) || recipient;
+      const appUrl = resolveAppUrl(req);
+      const portalInspectionUrl = `${appUrl}/client/inspections/${inspectionId}`;
       const scheduled = `${formatDate(inspection.scheduledDate)} ${safeString(
         inspection.scheduledTime
       )}`.trim();
       const quoteData = extractQuoteData(inspection);
       const totalCostText = quoteData.totals.total > 0 ? formatCurrency(quoteData.totals.total) : "";
+      const fallbackDowntimeValue = safeNumber(inspection?.estimatedDowntime?.value);
+      const fallbackDowntimeUnit = safeString(inspection?.estimatedDowntime?.unit);
+      const fallbackDowntimeText =
+        fallbackDowntimeValue > 0 && (fallbackDowntimeUnit === "hours" || fallbackDowntimeUnit === "days")
+          ? `${fallbackDowntimeValue} ${fallbackDowntimeUnit}`
+          : "";
       const downtimeText =
         quoteData.totalDowntimeHours > 0
           ? `${(Math.round(quoteData.totalDowntimeHours * 10) / 10).toString().replace(/\\.0$/, "")} hrs`
-          : "";
+          : fallbackDowntimeText;
 
       const text = `Hi ${contactName || "there"},
 
@@ -653,11 +748,15 @@ Please find your ASI inspection quote for ${clientName || "your organisation"}.
 
 Inspection reference: ${inspectionNumber}
 Inspection date/time: ${scheduled || "N/A"}
-${totalCostText ? `Total estimate: ${totalCostText}\n` : ""}${downtimeText ? `Estimated works duration: ${downtimeText}\n` : ""}
+${totalCostText ? `Total estimate: ${totalCostText}\n` : ""}${downtimeText ? `Works Downtime Allocation Required: ${downtimeText}\n` : ""}
 
 View/download quote (PDF): ${file?.downloadUrl || ""}
+View inspection details and enlarge photos in ASI Portal: ${portalInspectionUrl}
 
-To approve: reply to this email confirming the scope of works you approve (you may approve partial items) and the dates/times your asset is booked out of service. We will then schedule and confirm the booking.
+To approve, reply to this email with:
+1. Confirmed approved scope (full or partial line items)
+2. PO/Works Order Number
+3. Your allocated works date and time
 
 Regards,
 Advanced Surface Innovations (ASI) Australia`;
@@ -670,10 +769,16 @@ Advanced Surface Innovations (ASI) Australia`;
     <div><strong>Inspection reference:</strong> ${inspectionNumber}</div>
     <div><strong>Inspection date/time:</strong> ${scheduled || "N/A"}</div>
     ${totalCostText ? `<div><strong>Total estimate:</strong> ${totalCostText}</div>` : ""}
-    ${downtimeText ? `<div><strong>Estimated works duration:</strong> ${downtimeText}</div>` : ""}
+    ${downtimeText ? `<div><strong>Works Downtime Allocation Required:</strong> ${downtimeText}</div>` : ""}
     <div><strong>Quote PDF:</strong> <a href="${file?.downloadUrl || "#"}">Download / view</a></div>
+    <div><strong>Inspection portal view:</strong> <a href="${portalInspectionUrl}">Review summary and enlarge photos</a></div>
   </div>
-  <p style="margin-top:14px;"><strong>To approve:</strong> reply to this email confirming the scope of works you approve (you may approve partial items), and the dates/times your asset is booked out of service. We will then schedule and confirm the booking.</p>
+  <p style="margin-top:14px;"><strong>Reply to approve with:</strong></p>
+  <ol style="margin-top:6px; padding-left:18px;">
+    <li>Approved scope of works (full or partial line items)</li>
+    <li>PO/Works Order Number</li>
+    <li>Allocated works date and time</li>
+  </ol>
   <p>Regards,<br/>Advanced Surface Innovations (ASI) Australia</p>
 </div>`;
 
@@ -703,3 +808,4 @@ Advanced Surface Innovations (ASI) Australia`;
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
+

@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
@@ -101,6 +101,7 @@ const timeSlots = [
 ];
 
 const DEFAULT_INSPECTION_BOOKING_TYPE: RepairType = "scratch_graffiti_removal";
+const AUTO_SAVE_DEBOUNCE_MS = 1500;
 
 function deriveBookingTypeFromVehicleReports(reports: VehicleReport[]): RepairType {
   const weights = new Map<RepairType, number>();
@@ -332,6 +333,12 @@ function toDateValue(value?: unknown): Date | undefined {
   return undefined;
 }
 
+function getErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message.trim()) return error.message;
+  if (typeof error === "string" && error.trim()) return error;
+  return fallback;
+}
+
 export default function InspectionDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -375,8 +382,14 @@ export default function InspectionDetailPage() {
   const [linkedBookingId, setLinkedBookingId] = useState<string | null>(null);
   const [bookingSyncing, setBookingSyncing] = useState(false);
   const [jobSyncing, setJobSyncing] = useState(false);
+  const [autoSaving, setAutoSaving] = useState(false);
+  const [lastAutoSavedAt, setLastAutoSavedAt] = useState<Date | null>(null);
   const [showNewContactDialog, setShowNewContactDialog] = useState(false);
   const [isCreatingNewOrg, setIsCreatingNewOrg] = useState(false);
+  const hasHydratedRef = useRef(false);
+  const autoSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastAutoSaveSignatureRef = useRef("");
+  const autoSaveErrorShownRef = useRef(false);
   const [newContactData, setNewContactData] = useState({
     organisationId: "",
     firstName: "",
@@ -419,6 +432,18 @@ export default function InspectionDetailPage() {
     () => organizations.filter((org) => CLIENT_CONTACT_CATEGORIES.includes(org.category)),
     [organizations]
   );
+
+  useEffect(() => {
+    hasHydratedRef.current = false;
+    lastAutoSaveSignatureRef.current = "";
+    autoSaveErrorShownRef.current = false;
+    if (autoSaveTimeoutRef.current) {
+      clearTimeout(autoSaveTimeoutRef.current);
+      autoSaveTimeoutRef.current = null;
+    }
+    setLastAutoSavedAt(null);
+    setAutoSaving(false);
+  }, [inspectionId]);
 
   useEffect(() => {
     const inspectionRef = doc(db, COLLECTIONS.INSPECTIONS, inspectionId);
@@ -603,6 +628,7 @@ export default function InspectionDetailPage() {
     setFinishDate(toDateValue(inspection.finishDate));
     setFinishTime(inspection.finishTime || "");
     setSelectedStaff(inspection.assignedStaff || []);
+    hasHydratedRef.current = true;
   }, [inspection]);
 
   const estimatedDowntimeHours = useMemo(
@@ -1060,48 +1086,153 @@ export default function InspectionDetailPage() {
     }
   };
 
-  const buildInspectionPayload = (statusOverride?: InspectionStatus) => {
-    if (!inspection) return null;
-    const organizationName = selectedOrganization?.name || inspection.organizationName || "";
-    const contactName = selectedContact
-      ? `${selectedContact.firstName} ${selectedContact.lastName}`.trim()
-      : inspection.contactName || "";
-    const contactEmail = selectedContact?.email || inspection.clientEmail || "";
-    const contactPhone = selectedContact?.mobile || selectedContact?.phone || inspection.clientPhone;
-    const siteLocation = selectedSite
-      ? { name: selectedSite.name, address: selectedSite.address }
-      : inspection.siteLocation;
+  const buildInspectionPayload = useCallback(
+    (statusOverride?: InspectionStatus) => {
+      if (!inspection) return null;
+      const organizationName = selectedOrganization?.name || inspection.organizationName || "";
+      const contactName = selectedContact
+        ? `${selectedContact.firstName} ${selectedContact.lastName}`.trim()
+        : inspection.contactName || "";
+      const contactEmail = selectedContact?.email || inspection.clientEmail || "";
+      const contactPhone = selectedContact?.mobile || selectedContact?.phone || inspection.clientPhone;
+      const siteLocation = selectedSite
+        ? { name: selectedSite.name, address: selectedSite.address }
+        : inspection.siteLocation;
 
-    const computedDowntimeHours = estimatedDowntimeHoursFromVehicleReports(vehicleReports);
-    const estimatedDowntime =
-      computedDowntimeHours > 0
-        ? { value: Math.round(computedDowntimeHours * 10) / 10, unit: "hours" as const }
-        : undefined;
+      const computedDowntimeHours = estimatedDowntimeHoursFromVehicleReports(vehicleReports);
+      const estimatedDowntime =
+        computedDowntimeHours > 0
+          ? { value: Math.round(computedDowntimeHours * 10) / 10, unit: "hours" as const }
+          : undefined;
 
-    const payload = {
-      organizationId: selectedOrganization?.id,
-      organizationName,
-      contactId: selectedContact?.id,
-      contactName,
-      clientId: selectedOrganization?.id || inspection.clientId,
-      clientName: organizationName || inspection.clientName,
-      clientEmail: contactEmail,
-      clientPhone: contactPhone,
-      scheduledDate: scheduledDate ? Timestamp.fromDate(scheduledDate) : undefined,
-      scheduledTime: scheduledTime || undefined,
-      finishDate: finishDate ? Timestamp.fromDate(finishDate) : undefined,
-      finishTime: finishDate ? finishTime || undefined : undefined,
-      estimatedDowntime,
-      assignedStaff: selectedStaff,
-      assignedStaffIds: selectedStaff.map((staff) => staff.id),
-      notes: notes || undefined,
-      siteLocation,
+      const payload = {
+        organizationId: selectedOrganization?.id,
+        organizationName,
+        contactId: selectedContact?.id,
+        contactName,
+        clientId: selectedOrganization?.id || inspection.clientId,
+        clientName: organizationName || inspection.clientName,
+        clientEmail: contactEmail,
+        clientPhone: contactPhone,
+        scheduledDate: scheduledDate ? Timestamp.fromDate(scheduledDate) : undefined,
+        scheduledTime: scheduledTime || undefined,
+        finishDate: finishDate ? Timestamp.fromDate(finishDate) : undefined,
+        finishTime: finishDate ? finishTime || undefined : undefined,
+        estimatedDowntime,
+        assignedStaff: selectedStaff,
+        assignedStaffIds: selectedStaff.map((staff) => staff.id),
+        notes: notes || undefined,
+        siteLocation,
+        vehicleReports,
+        status: statusOverride || inspection.status,
+        updatedAt: Timestamp.now(),
+      };
+      return pruneUndefined(payload) as Partial<Inspection>;
+    },
+    [
+      inspection,
+      selectedOrganization?.id,
+      selectedOrganization?.name,
+      selectedContact,
+      selectedSite,
+      scheduledDate,
+      scheduledTime,
+      finishDate,
+      finishTime,
+      selectedStaff,
+      notes,
       vehicleReports,
-      status: statusOverride || inspection.status,
-      updatedAt: Timestamp.now(),
+    ]
+  );
+
+  const autoSaveSignature = useMemo(() => {
+    if (!inspection) return "";
+    return JSON.stringify({
+      inspectionId: inspection.id,
+      status: inspection.status,
+      organizationId: selectedOrganization?.id || inspection.organizationId || "",
+      contactId: selectedContact?.id || inspection.contactId || "",
+      siteLocation: selectedSite
+        ? {
+            id: selectedSite.id || "",
+            name: selectedSite.name || "",
+            address: selectedSite.address || null,
+          }
+        : inspection.siteLocation || null,
+      scheduledDate: scheduledDate ? scheduledDate.toISOString() : "",
+      scheduledTime,
+      finishDate: finishDate ? finishDate.toISOString() : "",
+      finishTime,
+      staffIds: selectedStaff.map((staff) => staff.id).sort(),
+      notes,
+      vehicleReports,
+    });
+  }, [
+    inspection,
+    selectedOrganization?.id,
+    selectedContact?.id,
+    selectedSite,
+    scheduledDate,
+    scheduledTime,
+    finishDate,
+    finishTime,
+    selectedStaff,
+    notes,
+    vehicleReports,
+  ]);
+
+  useEffect(() => {
+    if (!inspection) return;
+    if (!hasHydratedRef.current) return;
+    if (!(inspection.status === "draft" || inspection.status === "submitted")) return;
+    if (!autoSaveSignature) return;
+
+    if (!lastAutoSaveSignatureRef.current) {
+      lastAutoSaveSignatureRef.current = autoSaveSignature;
+      return;
+    }
+    if (autoSaveSignature === lastAutoSaveSignatureRef.current) return;
+
+    if (autoSaveTimeoutRef.current) {
+      clearTimeout(autoSaveTimeoutRef.current);
+    }
+
+    autoSaveTimeoutRef.current = setTimeout(async () => {
+      const payload = buildInspectionPayload();
+      if (!payload) return;
+      const autoSavePayload = { ...payload };
+      delete (autoSavePayload as Partial<Inspection>).status;
+      setAutoSaving(true);
+      try {
+        await updateDoc(doc(db, COLLECTIONS.INSPECTIONS, inspection.id), autoSavePayload);
+        lastAutoSaveSignatureRef.current = autoSaveSignature;
+        autoSaveErrorShownRef.current = false;
+        setLastAutoSavedAt(new Date());
+      } catch (error) {
+        console.warn("Inspection auto-save failed:", error);
+        if (!autoSaveErrorShownRef.current) {
+          toast({
+            title: "Auto-save failed",
+            description: getErrorMessage(
+              error,
+              "Changes could not be auto-saved. Keep this page open and try Save changes."
+            ),
+            variant: "destructive",
+          });
+          autoSaveErrorShownRef.current = true;
+        }
+      } finally {
+        setAutoSaving(false);
+      }
+    }, AUTO_SAVE_DEBOUNCE_MS);
+
+    return () => {
+      if (autoSaveTimeoutRef.current) {
+        clearTimeout(autoSaveTimeoutRef.current);
+        autoSaveTimeoutRef.current = null;
+      }
     };
-    return pruneUndefined(payload) as Partial<Inspection>;
-  };
+  }, [autoSaveSignature, buildInspectionPayload, inspection, toast]);
 
   const upsertBookingForConvertedJob = async (jobId: string) => {
     if (!inspection) return null;
@@ -1380,13 +1511,28 @@ export default function InspectionDetailPage() {
 
   const handleSaveInspection = async () => {
     if (!inspection) return;
-    const payload = buildInspectionPayload();
-    if (!payload) return;
-    await updateDoc(doc(db, COLLECTIONS.INSPECTIONS, inspection.id), payload);
-    toast({
-      title: "Inspection saved",
-      description: "Inspection details have been updated.",
-    });
+    if (autoSaveTimeoutRef.current) {
+      clearTimeout(autoSaveTimeoutRef.current);
+      autoSaveTimeoutRef.current = null;
+    }
+    try {
+      const payload = buildInspectionPayload();
+      if (!payload) return;
+      await updateDoc(doc(db, COLLECTIONS.INSPECTIONS, inspection.id), payload);
+      lastAutoSaveSignatureRef.current = autoSaveSignature;
+      autoSaveErrorShownRef.current = false;
+      setLastAutoSavedAt(new Date());
+      toast({
+        title: "Inspection saved",
+        description: "Inspection details have been updated.",
+      });
+    } catch (error) {
+      toast({
+        title: "Unable to save inspection",
+        description: getErrorMessage(error, "Please check your connection and try again."),
+        variant: "destructive",
+      });
+    }
   };
 
   const handleCompleteInspection = async () => {
@@ -1407,35 +1553,51 @@ export default function InspectionDetailPage() {
       });
       return;
     }
-    const now = Timestamp.now();
-    const payload = buildInspectionPayload("submitted");
-    if (!payload) return;
-    await updateDoc(doc(db, COLLECTIONS.INSPECTIONS, inspection.id), {
-      ...payload,
-      submittedAt: now,
-    });
-
-    setSummaryGenerating(true);
-    try {
-      const summaryText = await generateInspectionSummaryAction(buildSummaryInput());
-      const cleanedSummary = summaryText.trim();
-      if (cleanedSummary) {
-        setReportSummary(cleanedSummary);
-        await updateDoc(doc(db, COLLECTIONS.INSPECTIONS, inspection.id), {
-          reportSummary: cleanedSummary,
-          reportSummaryUpdatedAt: Timestamp.now(),
-        });
-      }
-    } catch (error) {
-      console.warn("Failed to generate inspection summary:", error);
-    } finally {
-      setSummaryGenerating(false);
+    if (autoSaveTimeoutRef.current) {
+      clearTimeout(autoSaveTimeoutRef.current);
+      autoSaveTimeoutRef.current = null;
     }
+    try {
+      const now = Timestamp.now();
+      const payload = buildInspectionPayload("submitted");
+      if (!payload) return;
+      await updateDoc(doc(db, COLLECTIONS.INSPECTIONS, inspection.id), {
+        ...payload,
+        submittedAt: now,
+      });
 
-    toast({
-      title: "Inspection submitted",
-      description: "Inspection submitted. Generate and send the quote to the client when ready.",
-    });
+      lastAutoSaveSignatureRef.current = autoSaveSignature;
+      autoSaveErrorShownRef.current = false;
+      setLastAutoSavedAt(new Date());
+
+      setSummaryGenerating(true);
+      try {
+        const summaryText = await generateInspectionSummaryAction(buildSummaryInput());
+        const cleanedSummary = summaryText.trim();
+        if (cleanedSummary) {
+          setReportSummary(cleanedSummary);
+          await updateDoc(doc(db, COLLECTIONS.INSPECTIONS, inspection.id), {
+            reportSummary: cleanedSummary,
+            reportSummaryUpdatedAt: Timestamp.now(),
+          });
+        }
+      } catch (error) {
+        console.warn("Failed to generate inspection summary:", error);
+      } finally {
+        setSummaryGenerating(false);
+      }
+
+      toast({
+        title: "Inspection submitted",
+        description: "Inspection submitted. Generate and send the quote to the client when ready.",
+      });
+    } catch (error) {
+      toast({
+        title: "Unable to submit inspection",
+        description: getErrorMessage(error, "Please check your connection and try again."),
+        variant: "destructive",
+      });
+    }
   };
 
   const runQuoteAction = async (action: "generate" | "send" | "generate_and_send") => {
@@ -1918,6 +2080,18 @@ export default function InspectionDetailPage() {
             )}
           </div>
         </div>
+        {(inspection.status === "draft" || inspection.status === "submitted") && (
+          <p className="text-xs text-muted-foreground">
+            {autoSaving
+              ? "Auto-saving draft changes..."
+              : lastAutoSavedAt
+                ? `Draft auto-saved at ${lastAutoSavedAt.toLocaleTimeString("en-AU", {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}`
+                : "Draft auto-save is active while you edit."}
+          </p>
+        )}
       </div>
 
       {user?.role === "admin" && inspection.status !== "draft" && (
