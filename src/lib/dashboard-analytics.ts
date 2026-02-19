@@ -219,6 +219,7 @@ export function calculateDashboardMetrics(params: {
 
   params.jobs.forEach((job) => {
     if (job.isDeleted) return;
+    const isActive = !["completed", "closed", "cancelled"].includes(job.status);
     const jobValue = getJobRevenue(job);
 
     if (job.status === "pending") {
@@ -255,17 +256,15 @@ export function calculateDashboardMetrics(params: {
       }
     }
 
-    if (scheduledDate && scheduledDate < now) {
-      if (!["completed", "closed", "cancelled"].includes(job.status)) {
-        overdueJobs += 1;
-      }
+    if (isActive && scheduledDate && scheduledDate < now) {
+      overdueJobs += 1;
     }
 
-    if (hasOnHoldWork(job)) {
+    if (isActive && hasOnHoldWork(job)) {
       onHoldJobs += 1;
     }
 
-    if (!job.assignedTechnicians?.length) {
+    if (isActive && !job.assignedTechnicians?.length) {
       unassignedJobs += 1;
     }
 
@@ -328,11 +327,12 @@ export function calculateDashboardMetrics(params: {
     ? (complianceEligible.filter((entry) => entry.approvedAt).length / complianceEligible.length) * 100
     : 0;
 
-  const jobsCompleted = params.jobs.filter(
+  const activeJobs = params.jobs.filter((job) => !job.isDeleted);
+  const jobsCompleted = activeJobs.filter(
     (job) => job.status === "completed" || job.status === "closed"
   ).length;
-  const jobsInProgress = params.jobs.filter((job) => job.status === "in_progress").length;
-  const jobsScheduled = params.jobs.filter((job) => job.status === "scheduled").length;
+  const jobsInProgress = activeJobs.filter((job) => job.status === "in_progress").length;
+  const jobsScheduled = activeJobs.filter((job) => job.status === "scheduled").length;
 
   return {
     dateKey,

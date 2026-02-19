@@ -879,6 +879,40 @@ export default function InspectionDetailPage() {
     return { totalCost, totalLabour, totalMaterials };
   }, [vehicleReports]);
 
+  const quotePhotoGroups = useMemo(() => {
+    return vehicleReports.flatMap((vehicle, vehicleIndex) => {
+      const vehicleLabel =
+        vehicle.vehicle.registration ||
+        vehicle.vehicle.fleetAssetNumber ||
+        vehicle.vehicle.vin ||
+        `Vehicle ${vehicleIndex + 1}`;
+
+      return vehicle.damages.reduce<{ id: string; label: string; photos: string[] }[]>(
+        (acc, damage, damageIndex) => {
+          const prePhotos = Array.isArray(damage.preWorkPhotos) ? damage.preWorkPhotos : [];
+          const legacyPhotos = Array.isArray(damage.photoUrls) ? damage.photoUrls : [];
+          const postPhotos = Array.isArray(damage.postWorkPhotos) ? damage.postWorkPhotos : [];
+          const photos = Array.from(
+            new Set(
+              [...prePhotos, ...legacyPhotos, ...postPhotos].filter(
+                (url): url is string => typeof url === "string" && url.trim().length > 0
+              )
+            )
+          );
+          if (photos.length === 0) return acc;
+
+          acc.push({
+            id: `${vehicle.vehicleId}-${damage.id || damageIndex}`,
+            label: `${vehicleLabel} - ${BOOKING_TYPE_LABELS[damage.repairType]} - ${damage.location || "-"}`,
+            photos,
+          });
+          return acc;
+        },
+        []
+      );
+    });
+  }, [vehicleReports]);
+
   const handleSelectOrganization = (orgId: string) => {
     const org = organizations.find((item) => item.id === orgId) || null;
     setSelectedOrganization(org);
@@ -3127,10 +3161,14 @@ export default function InspectionDetailPage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <FileText className="h-5 w-5 text-primary" />
-                Quote summary
+                Inspection report summary
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
+              <p className="text-sm text-muted-foreground">
+                Client-facing sequence: 1) Inspection/Job summary 2) Inspection photos 3) Reply by
+                email to approve.
+              </p>
               {vehicleReports.length === 0 ? (
                 <p className="text-center text-muted-foreground py-6">
                   Add vehicles and repair sites to see the quote summary.
@@ -3235,7 +3273,9 @@ export default function InspectionDetailPage() {
               <div className="grid gap-4 md:grid-cols-4">
                 <Card className="bg-muted/40">
                   <CardContent className="p-4">
-                    <Label className="text-xs text-muted-foreground">Estimated downtime</Label>
+                    <Label className="text-xs text-muted-foreground">
+                      Works Downtime Allocation Required
+                    </Label>
                     <p className="text-2xl font-bold">
                       {estimatedDowntimeHours > 0
                         ? `${(Math.round(estimatedDowntimeHours * 10) / 10)
@@ -3273,6 +3313,67 @@ export default function InspectionDetailPage() {
               <p className="text-sm text-muted-foreground">
                 Totals are calculated using the same labour/materials split as live job costing.
               </p>
+            </CardContent>
+          </Card>
+          <Card className="bg-card/50 backdrop-blur">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Camera className="h-5 w-5 text-primary" />
+                Section 2 - Inspection photos
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {quotePhotoGroups.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No inspection photos available.</p>
+              ) : (
+                quotePhotoGroups.map((group) => (
+                  <div key={group.id} className="space-y-2">
+                    <div className="text-sm font-medium">{group.label}</div>
+                    <div className="grid gap-2 sm:grid-cols-3 md:grid-cols-4">
+                      {group.photos.map((url, index) => (
+                        <button
+                          key={`${group.id}-${index}`}
+                          type="button"
+                          onClick={() => setPhotoPreview({ url, label: group.label })}
+                          className="group relative overflow-hidden rounded-lg border border-border/40 bg-muted/20"
+                        >
+                          <img
+                            src={url}
+                            alt={`${group.label} photo ${index + 1}`}
+                            className="h-32 w-full object-cover transition group-hover:scale-105"
+                          />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="bg-card/50 backdrop-blur">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <FileText className="h-5 w-5 text-primary" />
+                Section 3 - Client approval by email
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              <p className="text-muted-foreground">
+                Client approvals are handled by email reply only.
+              </p>
+              <ol className="list-decimal space-y-1 pl-5 text-muted-foreground">
+                <li>Confirm approved scope of works (full or partial line items).</li>
+                <li>Provide PO/Works Order Number.</li>
+                <li>Provide allocated works date and time window.</li>
+              </ol>
+              <div className="rounded-md border border-border/50 bg-muted/20 p-3">
+                <div className="text-xs text-muted-foreground">Inspection reference</div>
+                <div className="font-medium">{inspection.inspectionNumber}</div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  Reply recipient: {quoteRecipientEmail || inspection.clientEmail || "Not set"}
+                </div>
+              </div>
             </CardContent>
           </Card>
           <Card className="bg-card/50 backdrop-blur">

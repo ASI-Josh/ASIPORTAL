@@ -96,20 +96,15 @@ export default function JobLifecyclePage() {
     });
   }, [pipelineJobs, selectedOrganisation]);
 
-  const listJobs = useMemo(
-    () => filteredJobs.filter((job) => job.status !== "pending"),
-    [filteredJobs]
-  );
-
   const sortedJobs = useMemo(() => {
-    return [...listJobs].sort((a, b) => {
+    return [...filteredJobs].sort((a, b) => {
       const aDate = resolveScheduledDate(a);
       const bDate = resolveScheduledDate(b);
       const aMillis = aDate?.toMillis ? aDate.toMillis() : aDate ? new Date(aDate).getTime() : 0;
       const bMillis = bDate?.toMillis ? bDate.toMillis() : bDate ? new Date(bDate).getTime() : 0;
       return aMillis - bMillis;
     });
-  }, [listJobs]);
+  }, [filteredJobs]);
 
   const selectedJob = useMemo(
     () => jobs.find((job) => job.id === selectedJobId) || null,
@@ -124,17 +119,22 @@ export default function JobLifecyclePage() {
       },
       {} as Record<JobLifecycleStage, number>
     );
-    pipelineJobs.forEach((job) => {
+    filteredJobs.forEach((job) => {
       const stage = getLifecycleStageFromStatus(job.status);
       counts[stage] += 1;
     });
     return counts;
-  }, [pipelineJobs]);
+  }, [filteredJobs]);
 
   const activeStageJobs = useMemo(
     () => sortedJobs.filter((job) => getLifecycleStageFromStatus(job.status) === activeStage),
     [sortedJobs, activeStage]
   );
+
+  const getStageItemLabel = (stage: JobLifecycleStage, count: number) => {
+    if (stage === "rfq") return count === 1 ? "RFQ" : "RFQs";
+    return count === 1 ? "job" : "jobs";
+  };
 
   useEffect(() => {
     if (stageCounts[activeStage] > 0) return;
@@ -219,7 +219,7 @@ export default function JobLifecyclePage() {
                   </CardHeader>
                   <CardContent>
                     <p className="text-xs text-muted-foreground">
-                      {stageCounts[stage]} jobs in this stage.
+                      {stageCounts[stage]} {getStageItemLabel(stage, stageCounts[stage])} in this stage.
                     </p>
                   </CardContent>
                 </Card>
@@ -230,10 +230,14 @@ export default function JobLifecyclePage() {
           <Card className="bg-card/50 backdrop-blur-lg border-border/20">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                {JOB_LIFECYCLE_LABELS[activeStage]} jobs
+                {activeStage === "rfq"
+                  ? JOB_LIFECYCLE_LABELS[activeStage]
+                  : `${JOB_LIFECYCLE_LABELS[activeStage]} jobs`}
               </CardTitle>
               <CardDescription>
-                Showing all jobs currently in this pipeline stage.
+                {activeStage === "rfq"
+                  ? "Showing all RFQs currently in this pipeline stage."
+                  : "Showing all jobs currently in this pipeline stage."}
               </CardDescription>
             </CardHeader>
             <CardContent>
