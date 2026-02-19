@@ -11,6 +11,11 @@ export const runtime = "nodejs";
 
 const PAGE_SIZE: [number, number] = [595.28, 841.89]; // A4
 const MARGIN = 36;
+const TITLE_FONT_SIZE = 17;
+const SECTION_TITLE_SIZE = 11;
+const LABEL_FONT_SIZE = 9.6;
+const BODY_FONT_SIZE = 10;
+const BODY_LINE_HEIGHT = 12.6;
 const REPAIR_TYPE_LABELS: Record<string, string> = {
   windscreen_crack_chip_repair: "Windscreen Crack/Chip Repair",
   windscreen_replacement: "Windscreen Replacement",
@@ -333,9 +338,9 @@ async function generateCompletionPdf(job: Record<string, any>, generatedBy: stri
 
   const drawHeader = () => {
     const topY = height - MARGIN;
-    const titleX = logoImage ? MARGIN + logoImage.scale(0.18).width + 12 : MARGIN;
-    if (logoImage) {
-      const logoDims = logoImage.scale(0.18);
+    const logoDims = logoImage ? logoImage.scale(0.14) : null;
+    const titleX = logoDims ? MARGIN + logoDims.width + 12 : MARGIN;
+    if (logoDims) {
       page.drawImage(logoImage, {
         x: MARGIN,
         y: topY - logoDims.height,
@@ -346,41 +351,41 @@ async function generateCompletionPdf(job: Record<string, any>, generatedBy: stri
 
     page.drawText("Job Completion Report", {
       x: titleX,
-      y: topY - 18,
-      size: 16,
+      y: topY - 16,
+      size: TITLE_FONT_SIZE,
       font: bold,
       color: rgb(0.08, 0.08, 0.1),
     });
     page.drawText(`Job ref: ${safeJobNumber} | Generated: ${generatedAtText}`, {
       x: titleX,
-      y: topY - 34,
-      size: 9,
+      y: topY - 33,
+      size: LABEL_FONT_SIZE,
       font,
       color: rgb(0.35, 0.35, 0.35),
     });
     page.drawText(`Prepared by: ${generatedBy}`, {
       x: titleX,
       y: topY - 46,
-      size: 9,
+      size: LABEL_FONT_SIZE,
       font,
       color: rgb(0.35, 0.35, 0.35),
     });
     page.drawText(`Page ${pageNumber}`, {
       x: width - MARGIN - 40,
       y: MARGIN - 12,
-      size: 8,
+      size: 8.5,
       font,
       color: rgb(0.5, 0.5, 0.5),
     });
     page.drawText("Controlled record. Uncontrolled if printed.", {
       x: MARGIN,
       y: MARGIN - 12,
-      size: 8,
+      size: 8.5,
       font,
       color: rgb(0.5, 0.5, 0.5),
     });
 
-    cursorY = topY - Math.max(logoImage ? logoImage.scale(0.18).height : 0, 58) - 8;
+    cursorY = topY - Math.max(logoDims?.height ?? 0, 52) - 12;
   };
 
   const addPage = () => {
@@ -394,63 +399,80 @@ async function generateCompletionPdf(job: Record<string, any>, generatedBy: stri
   };
 
   const drawSectionTitle = (title: string) => {
-    ensureSpace(24);
+    ensureSpace(30);
     page.drawRectangle({
       x: MARGIN,
-      y: cursorY - 16,
+      y: cursorY - 20,
       width: width - MARGIN * 2,
-      height: 16,
+      height: 20,
       color: rgb(0.94, 0.96, 0.99),
       borderColor: rgb(0.82, 0.86, 0.92),
       borderWidth: 1,
     });
     page.drawText(title, {
-      x: MARGIN + 6,
-      y: cursorY - 12,
-      size: 10,
+      x: MARGIN + 8,
+      y: cursorY - 14,
+      size: SECTION_TITLE_SIZE,
       font: bold,
       color: rgb(0.14, 0.16, 0.2),
     });
-    cursorY -= 22;
+    cursorY -= 28;
   };
 
   const drawLabelValue = (label: string, value: string) => {
+    const labelWidth = 126;
     const displayValue = value.trim() || "-";
-    const wrapped = wrapText(displayValue, width - MARGIN * 2 - 130, font, 9.5);
-    ensureSpace(12 + wrapped.length * 12);
+    const wrapped = wrapText(displayValue, width - MARGIN * 2 - labelWidth - 4, font, BODY_FONT_SIZE);
+    ensureSpace(10 + wrapped.length * BODY_LINE_HEIGHT + 2);
     page.drawText(`${label}:`, {
       x: MARGIN,
       y: cursorY,
-      size: 9.5,
+      size: LABEL_FONT_SIZE,
       font: bold,
       color: rgb(0.18, 0.18, 0.2),
     });
     wrapped.forEach((line, lineIndex) => {
       page.drawText(line, {
-        x: MARGIN + 120,
-        y: cursorY - lineIndex * 11,
-        size: 9.5,
+        x: MARGIN + labelWidth,
+        y: cursorY - lineIndex * BODY_LINE_HEIGHT,
+        size: BODY_FONT_SIZE,
         font,
         color: rgb(0.14, 0.14, 0.16),
       });
     });
-    cursorY -= Math.max(13, wrapped.length * 11 + 2);
+    cursorY -= Math.max(15, wrapped.length * BODY_LINE_HEIGHT + 3);
   };
 
   const drawBullet = (value: string) => {
-    const wrapped = wrapText(value, width - MARGIN * 2 - 14, font, 9.2);
-    ensureSpace(wrapped.length * 11 + 2);
+    const wrapped = wrapText(value, width - MARGIN * 2 - 16, font, BODY_FONT_SIZE);
+    ensureSpace(wrapped.length * BODY_LINE_HEIGHT + 4);
     wrapped.forEach((line, idx) => {
       page.drawText(idx === 0 ? `- ${line}` : `  ${line}`, {
-        x: MARGIN,
+        x: MARGIN + 2,
         y: cursorY,
-        size: 9.2,
+        size: BODY_FONT_SIZE,
         font,
         color: rgb(0.14, 0.14, 0.16),
       });
-      cursorY -= 10.5;
+      cursorY -= BODY_LINE_HEIGHT;
     });
-    cursorY -= 1;
+    cursorY -= 2;
+  };
+
+  const drawParagraph = (value: string) => {
+    const wrapped = wrapText(value, width - MARGIN * 2, font, BODY_FONT_SIZE);
+    ensureSpace(wrapped.length * BODY_LINE_HEIGHT + 4);
+    wrapped.forEach((line) => {
+      page.drawText(line, {
+        x: MARGIN,
+        y: cursorY,
+        size: BODY_FONT_SIZE,
+        font,
+        color: rgb(0.14, 0.14, 0.16),
+      });
+      cursorY -= BODY_LINE_HEIGHT;
+    });
+    cursorY -= 2;
   };
 
   drawHeader();
@@ -488,15 +510,15 @@ async function generateCompletionPdf(job: Record<string, any>, generatedBy: stri
     lineItems.forEach((item) => {
       if (item.vehicleLabel !== lastVehicle) {
         lastVehicle = item.vehicleLabel;
-        ensureSpace(28);
+        ensureSpace(36);
         page.drawText(`Vehicle: ${item.vehicleLabel}`, {
           x: MARGIN,
           y: cursorY,
-          size: 10,
+          size: 11,
           font: bold,
           color: rgb(0.12, 0.12, 0.15),
         });
-        cursorY -= 12;
+        cursorY -= 14;
         const vehicleMeta = [
           item.fleetAssetNumber ? `Fleet/Asset: ${item.fleetAssetNumber}` : "",
           item.poWorksOrderNumber ? `PO/WO: ${item.poWorksOrderNumber}` : "",
@@ -507,23 +529,31 @@ async function generateCompletionPdf(job: Record<string, any>, generatedBy: stri
           page.drawText(vehicleMeta, {
             x: MARGIN,
             y: cursorY,
-            size: 8.8,
+            size: LABEL_FONT_SIZE,
             font,
             color: rgb(0.35, 0.35, 0.4),
           });
-          cursorY -= 10;
+          cursorY -= 12;
         }
       }
 
-      const lineOne =
-        `${item.repairType} | ${item.location} | ${item.status}` +
-        ` | Labour ${formatCurrency(item.labour)} | Materials ${formatCurrency(item.materials)} | Total ${formatCurrency(
-          item.total
-        )}`;
-      drawBullet(lineOne);
+      drawBullet(`${item.repairType} - ${item.location}`);
+      drawBullet(
+        `Status: ${item.status} | Labour: ${formatCurrency(item.labour)} | Materials: ${formatCurrency(
+          item.materials
+        )} | Total: ${formatCurrency(item.total)}`
+      );
       if (item.description !== "-") {
         drawBullet(`Notes: ${item.description}`);
       }
+      ensureSpace(8);
+      page.drawLine({
+        start: { x: MARGIN + 6, y: cursorY },
+        end: { x: width - MARGIN - 6, y: cursorY },
+        thickness: 0.5,
+        color: rgb(0.87, 0.89, 0.92),
+      });
+      cursorY -= 7;
     });
   }
 
@@ -549,16 +579,12 @@ async function generateCompletionPdf(job: Record<string, any>, generatedBy: stri
   if (!notesForReport) {
     drawBullet("No additional notes were recorded.");
   } else {
-    wrapText(notesForReport, width - MARGIN * 2, font, 9.2).forEach((line) => {
-      ensureSpace(11);
-      page.drawText(line, {
-        x: MARGIN,
-        y: cursorY,
-        size: 9.2,
-        font,
-        color: rgb(0.14, 0.14, 0.16),
-      });
-      cursorY -= 10.5;
+    const noteParagraphs = notesForReport
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    noteParagraphs.forEach((paragraph) => {
+      drawParagraph(paragraph);
     });
   }
 
@@ -575,11 +601,11 @@ async function generateCompletionPdf(job: Record<string, any>, generatedBy: stri
       page.drawText(`${index + 1}. ${truncate(photo.label, 95)}`, {
         x: MARGIN,
         y: cursorY,
-        size: 8.8,
+        size: LABEL_FONT_SIZE,
         font: bold,
         color: rgb(0.15, 0.15, 0.18),
       });
-      cursorY -= 12;
+      cursorY -= 14;
 
       const boxX = MARGIN;
       const boxY = cursorY - imageBoxHeight;
