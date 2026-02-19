@@ -90,6 +90,7 @@ import {
   Briefcase,
   Car,
   Camera,
+  Pencil,
   Plus,
   Trash2,
   ArrowLeft,
@@ -139,6 +140,24 @@ const vehicleStatusColors = {
   in_progress: "bg-purple-500/20 text-purple-400",
   completed: "bg-green-500/20 text-green-400",
   on_hold: "bg-red-500/20 text-red-400",
+};
+
+type VehicleFormState = {
+  registration: string;
+  vin: string;
+  fleetAssetNumber: string;
+  bodyManufacturer: string;
+  year: string;
+  poWorksOrderNumber: string;
+};
+
+const EMPTY_VEHICLE_FORM: VehicleFormState = {
+  registration: "",
+  vin: "",
+  fleetAssetNumber: "",
+  bodyManufacturer: "",
+  year: "",
+  poWorksOrderNumber: "",
 };
 
 const repairStatusColors: Record<RepairWorkStatus, string> = {
@@ -343,8 +362,10 @@ export default function JobCardPage() {
   // Local state for editing
   const [jobVehicles, setJobVehicles] = useState<JobVehicle[]>(job?.jobVehicles || []);
   const [showAddVehicleDialog, setShowAddVehicleDialog] = useState(false);
+  const [showEditVehicleDialog, setShowEditVehicleDialog] = useState(false);
   const [showAddRepairDialog, setShowAddRepairDialog] = useState(false);
   const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
+  const [editingVehicleId, setEditingVehicleId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!job) return;
@@ -361,14 +382,8 @@ export default function JobCardPage() {
   }, [job?.jobVehicles, jobVehicles]);
 
   // New vehicle form state
-  const [newVehicle, setNewVehicle] = useState({
-    registration: "",
-    vin: "",
-    fleetAssetNumber: "",
-    bodyManufacturer: "",
-    year: "",
-    poWorksOrderNumber: "",
-  });
+  const [newVehicle, setNewVehicle] = useState<VehicleFormState>(EMPTY_VEHICLE_FORM);
+  const [editVehicle, setEditVehicle] = useState<VehicleFormState>(EMPTY_VEHICLE_FORM);
   const [fleetVehicles, setFleetVehicles] = useState<FleetVehicle[]>([]);
   const [fleetSeeded, setFleetSeeded] = useState(false);
 
@@ -1503,20 +1518,48 @@ export default function JobCardPage() {
     });
   };
 
+  const mapVehicleToForm = (vehicle: JobVehicle): VehicleFormState => ({
+    registration: vehicle.registration ?? "",
+    vin: vehicle.vin ?? "",
+    fleetAssetNumber: vehicle.fleetAssetNumber ?? "",
+    bodyManufacturer: vehicle.bodyManufacturer ?? "",
+    year: vehicle.year ? String(vehicle.year) : "",
+    poWorksOrderNumber: vehicle.poWorksOrderNumber ?? "",
+  });
+
+  const buildVehicleFieldsFromForm = (
+    form: VehicleFormState
+  ): Pick<
+    JobVehicle,
+    "registration" | "vin" | "fleetAssetNumber" | "bodyManufacturer" | "year" | "poWorksOrderNumber"
+  > => {
+    const parsedYear = form.year.trim() ? Number.parseInt(form.year, 10) : NaN;
+    return {
+      registration: form.registration.trim().toUpperCase(),
+      vin: form.vin.trim().toUpperCase() || undefined,
+      fleetAssetNumber: form.fleetAssetNumber.trim().toUpperCase() || undefined,
+      bodyManufacturer: form.bodyManufacturer.trim().toUpperCase() || undefined,
+      year: Number.isFinite(parsedYear) ? parsedYear : undefined,
+      poWorksOrderNumber: form.poWorksOrderNumber.trim().toUpperCase() || undefined,
+    };
+  };
+
+  const resetEditVehicleState = () => {
+    setShowEditVehicleDialog(false);
+    setEditingVehicleId(null);
+    setEditVehicle(EMPTY_VEHICLE_FORM);
+  };
+
   // Add new vehicle
   const handleAddVehicle = () => {
     if (!newVehicle.registration.trim()) {
       return;
     }
 
+    const vehicleFields = buildVehicleFieldsFromForm(newVehicle);
     const vehicle: JobVehicle = {
       id: `vehicle-${Date.now()}`,
-      registration: newVehicle.registration.trim().toUpperCase(),
-      vin: newVehicle.vin.trim().toUpperCase() || undefined,
-      fleetAssetNumber: newVehicle.fleetAssetNumber.trim().toUpperCase() || undefined,
-      bodyManufacturer: newVehicle.bodyManufacturer.trim().toUpperCase() || undefined,
-      year: newVehicle.year ? parseInt(newVehicle.year, 10) : undefined,
-      poWorksOrderNumber: newVehicle.poWorksOrderNumber.trim().toUpperCase() || undefined,
+      ...vehicleFields,
       repairSites: [],
       microfiberDisksUsed: [],
       consumablesUsed: [],
@@ -1529,15 +1572,25 @@ export default function JobCardPage() {
     const updatedVehicles = [...jobVehicles, vehicle];
     setJobVehicles(updatedVehicles);
     scheduleJobVehiclesSave(updatedVehicles);
-    setNewVehicle({
-      registration: "",
-      vin: "",
-      fleetAssetNumber: "",
-      bodyManufacturer: "",
-      year: "",
-      poWorksOrderNumber: "",
-    });
+    setNewVehicle(EMPTY_VEHICLE_FORM);
     setShowAddVehicleDialog(false);
+  };
+
+  const handleStartEditVehicle = (vehicle: JobVehicle) => {
+    setEditingVehicleId(vehicle.id);
+    setEditVehicle(mapVehicleToForm(vehicle));
+    setShowEditVehicleDialog(true);
+  };
+
+  const handleSaveEditedVehicle = () => {
+    if (!editingVehicleId || !editVehicle.registration.trim()) return;
+    const updatedFields = buildVehicleFieldsFromForm(editVehicle);
+    const updatedVehicles = jobVehicles.map((vehicle) =>
+      vehicle.id === editingVehicleId ? { ...vehicle, ...updatedFields } : vehicle
+    );
+    setJobVehicles(updatedVehicles);
+    scheduleJobVehiclesSave(updatedVehicles);
+    resetEditVehicleState();
   };
 
   // Add repair site to vehicle
@@ -3837,7 +3890,15 @@ export default function JobCardPage() {
                     </Card>
 
                     {/* Delete Vehicle Button */}
-                    <div className="flex justify-end">
+                    <div className="flex justify-end gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleStartEditVehicle(vehicle)}
+                      >
+                        <Pencil className="mr-2 h-4 w-4" />
+                        Edit Vehicle
+                      </Button>
                       <Button
                         variant="destructive"
                         size="sm"
@@ -4578,6 +4639,126 @@ export default function JobCardPage() {
               disabled={!newVehicle.registration.trim()}
             >
               Add Vehicle
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Vehicle Dialog */}
+      <Dialog
+        open={showEditVehicleDialog}
+        onOpenChange={(open) => {
+          if (!open) {
+            resetEditVehicleState();
+            return;
+          }
+          setShowEditVehicleDialog(true);
+        }}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Edit Vehicle</DialogTitle>
+            <DialogDescription>Update vehicle details. Registration is required.</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="edit-registration">Registration *</Label>
+                <Input
+                  id="edit-registration"
+                  placeholder="ABC-123"
+                  value={editVehicle.registration}
+                  onChange={(e) =>
+                    setEditVehicle((prev) => ({
+                      ...prev,
+                      registration: e.target.value.toUpperCase(),
+                    }))
+                  }
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-vin">VIN</Label>
+                <Input
+                  id="edit-vin"
+                  placeholder="Vehicle Identification Number"
+                  value={editVehicle.vin}
+                  onChange={(e) =>
+                    setEditVehicle((prev) => ({
+                      ...prev,
+                      vin: e.target.value.toUpperCase(),
+                    }))
+                  }
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="edit-fleetAsset">Fleet/Asset Number</Label>
+                <Input
+                  id="edit-fleetAsset"
+                  placeholder="Optional"
+                  value={editVehicle.fleetAssetNumber}
+                  onChange={(e) =>
+                    setEditVehicle((prev) => ({
+                      ...prev,
+                      fleetAssetNumber: e.target.value.toUpperCase(),
+                    }))
+                  }
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-bodyManufacturer">Body Manufacturer</Label>
+                <Input
+                  id="edit-bodyManufacturer"
+                  placeholder="e.g., Volgren, Custom Denning"
+                  value={editVehicle.bodyManufacturer}
+                  onChange={(e) =>
+                    setEditVehicle((prev) => ({
+                      ...prev,
+                      bodyManufacturer: e.target.value.toUpperCase(),
+                    }))
+                  }
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="edit-year">Year</Label>
+                <Input
+                  id="edit-year"
+                  type="number"
+                  placeholder="e.g., 2024"
+                  value={editVehicle.year}
+                  onChange={(e) =>
+                    setEditVehicle((prev) => ({
+                      ...prev,
+                      year: e.target.value,
+                    }))
+                  }
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-poNumber">PO/Works Order Number</Label>
+                <Input
+                  id="edit-poNumber"
+                  placeholder="e.g., PO-12345"
+                  value={editVehicle.poWorksOrderNumber}
+                  onChange={(e) =>
+                    setEditVehicle((prev) => ({
+                      ...prev,
+                      poWorksOrderNumber: e.target.value.toUpperCase(),
+                    }))
+                  }
+                />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={resetEditVehicleState}>
+              Cancel
+            </Button>
+            <Button onClick={handleSaveEditedVehicle} disabled={!editVehicle.registration.trim()}>
+              Save Changes
             </Button>
           </DialogFooter>
         </DialogContent>

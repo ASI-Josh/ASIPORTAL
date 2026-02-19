@@ -29,6 +29,7 @@ import {
   CheckCircle,
   ClipboardCheck,
   FileText,
+  Pencil,
   Plus,
   Trash2,
   Upload,
@@ -86,6 +87,15 @@ type StaffMember = {
   email?: string;
 };
 
+type VehicleFormState = {
+  registration: string;
+  vin: string;
+  fleetAssetNumber: string;
+  bodyManufacturer: string;
+  year: string;
+  poWorksOrderNumber: string;
+};
+
 const STATUS_BADGE: Record<InspectionStatus, string> = {
   draft: "bg-muted text-muted-foreground",
   submitted: "bg-amber-500/20 text-amber-400 border-amber-500/30",
@@ -103,6 +113,14 @@ const timeSlots = [
 
 const DEFAULT_INSPECTION_BOOKING_TYPE: RepairType = "scratch_graffiti_removal";
 const AUTO_SAVE_DEBOUNCE_MS = 1500;
+const EMPTY_VEHICLE_FORM: VehicleFormState = {
+  registration: "",
+  vin: "",
+  fleetAssetNumber: "",
+  bodyManufacturer: "",
+  year: "",
+  poWorksOrderNumber: "",
+};
 
 function deriveBookingTypeFromVehicleReports(reports: VehicleReport[]): RepairType {
   const weights = new Map<RepairType, number>();
@@ -375,8 +393,10 @@ export default function InspectionDetailPage() {
   const [quoteSending, setQuoteSending] = useState(false);
   const [vehicleReports, setVehicleReports] = useState<VehicleReport[]>([]);
   const [showAddVehicleDialog, setShowAddVehicleDialog] = useState(false);
+  const [showEditVehicleDialog, setShowEditVehicleDialog] = useState(false);
   const [showAddDamageDialog, setShowAddDamageDialog] = useState(false);
   const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
+  const [editingVehicleId, setEditingVehicleId] = useState<string | null>(null);
   const [uploadingPhotos, setUploadingPhotos] = useState<Record<string, boolean>>({});
   const [photoPreview, setPhotoPreview] = useState<{ url: string; label: string } | null>(null);
   const [showRecycleDialog, setShowRecycleDialog] = useState(false);
@@ -411,14 +431,8 @@ export default function InspectionDetailPage() {
     state: "VIC",
     postcode: "",
   });
-  const [newVehicle, setNewVehicle] = useState({
-    registration: "",
-    vin: "",
-    fleetAssetNumber: "",
-    bodyManufacturer: "",
-    year: "",
-    poWorksOrderNumber: "",
-  });
+  const [newVehicle, setNewVehicle] = useState<VehicleFormState>(EMPTY_VEHICLE_FORM);
+  const [editVehicle, setEditVehicle] = useState<VehicleFormState>(EMPTY_VEHICLE_FORM);
   const [fleetVehicles, setFleetVehicles] = useState<FleetVehicle[]>([]);
   const [fleetSeeded, setFleetSeeded] = useState(false);
   const [newDamage, setNewDamage] = useState({
@@ -934,6 +948,31 @@ export default function InspectionDetailPage() {
       return [...prev, staff];
     });
   };
+
+  const mapVehicleToForm = useCallback(
+    (vehicle: Vehicle): VehicleFormState => ({
+      registration: vehicle.registration ?? "",
+      vin: vehicle.vin ?? "",
+      fleetAssetNumber: vehicle.fleetAssetNumber ?? "",
+      bodyManufacturer: vehicle.bodyManufacturer ?? "",
+      year: vehicle.year ? String(vehicle.year) : "",
+      poWorksOrderNumber: vehicle.poWorksOrderNumber ?? "",
+    }),
+    []
+  );
+
+  const buildVehicleFromForm = useCallback((form: VehicleFormState): Vehicle => {
+    const parsedYear = form.year.trim() ? Number.parseInt(form.year, 10) : NaN;
+    return {
+      registration: form.registration.trim().toUpperCase(),
+      vin: form.vin.trim().toUpperCase() || undefined,
+      fleetAssetNumber: form.fleetAssetNumber.trim().toUpperCase() || undefined,
+      bodyManufacturer: form.bodyManufacturer.trim().toUpperCase() || undefined,
+      year: Number.isFinite(parsedYear) ? parsedYear : undefined,
+      poWorksOrderNumber: form.poWorksOrderNumber.trim().toUpperCase() || undefined,
+    };
+  }, []);
+
   const handleAddVehicle = () => {
     if (!newVehicle.registration.trim()) {
       toast({
@@ -943,14 +982,7 @@ export default function InspectionDetailPage() {
       });
       return;
     }
-    const vehicle: Vehicle = {
-      registration: newVehicle.registration.trim().toUpperCase(),
-      vin: newVehicle.vin.trim().toUpperCase() || undefined,
-      fleetAssetNumber: newVehicle.fleetAssetNumber.trim().toUpperCase() || undefined,
-      bodyManufacturer: newVehicle.bodyManufacturer.trim().toUpperCase() || undefined,
-      year: newVehicle.year ? parseInt(newVehicle.year, 10) : undefined,
-      poWorksOrderNumber: newVehicle.poWorksOrderNumber.trim().toUpperCase() || undefined,
-    };
+    const vehicle = buildVehicleFromForm(newVehicle);
     const report: VehicleReport = {
       vehicleId: `vehicle-${Date.now()}`,
       vehicle,
@@ -959,14 +991,38 @@ export default function InspectionDetailPage() {
     };
     setVehicleReports((prev) => [...prev, report]);
     setShowAddVehicleDialog(false);
-    setNewVehicle({
-      registration: "",
-      vin: "",
-      fleetAssetNumber: "",
-      bodyManufacturer: "",
-      year: "",
-      poWorksOrderNumber: "",
-    });
+    setNewVehicle(EMPTY_VEHICLE_FORM);
+  };
+
+  const handleStartEditVehicle = (report: VehicleReport) => {
+    setEditingVehicleId(report.vehicleId);
+    setEditVehicle(mapVehicleToForm(report.vehicle));
+    setShowEditVehicleDialog(true);
+  };
+
+  const resetEditVehicleState = () => {
+    setShowEditVehicleDialog(false);
+    setEditingVehicleId(null);
+    setEditVehicle(EMPTY_VEHICLE_FORM);
+  };
+
+  const handleSaveEditedVehicle = () => {
+    if (!editingVehicleId) return;
+    if (!editVehicle.registration.trim()) {
+      toast({
+        title: "Missing vehicle details",
+        description: "Add the registration before saving.",
+        variant: "destructive",
+      });
+      return;
+    }
+    const updatedVehicle = buildVehicleFromForm(editVehicle);
+    setVehicleReports((prev) =>
+      prev.map((report) =>
+        report.vehicleId === editingVehicleId ? { ...report, vehicle: updatedVehicle } : report
+      )
+    );
+    resetEditVehicleState();
   };
 
   const handleAddDamage = () => {
@@ -2745,6 +2801,110 @@ export default function InspectionDetailPage() {
                   </div>
                 </DialogContent>
               </Dialog>
+              <Dialog
+                open={showEditVehicleDialog}
+                onOpenChange={(open) => {
+                  if (!open) {
+                    resetEditVehicleState();
+                    return;
+                  }
+                  setShowEditVehicleDialog(true);
+                }}
+              >
+                <DialogContent className="max-w-lg">
+                  <DialogHeader>
+                    <DialogTitle>Edit vehicle</DialogTitle>
+                  </DialogHeader>
+                  <div className="space-y-4">
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label>Registration *</Label>
+                        <Input
+                          value={editVehicle.registration}
+                          onChange={(e) =>
+                            setEditVehicle((prev) => ({
+                              ...prev,
+                              registration: e.target.value.toUpperCase(),
+                            }))
+                          }
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>VIN</Label>
+                        <Input
+                          value={editVehicle.vin}
+                          onChange={(e) =>
+                            setEditVehicle((prev) => ({
+                              ...prev,
+                              vin: e.target.value.toUpperCase(),
+                            }))
+                          }
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Fleet/Stock No.</Label>
+                        <Input
+                          value={editVehicle.fleetAssetNumber}
+                          onChange={(e) =>
+                            setEditVehicle((prev) => ({
+                              ...prev,
+                              fleetAssetNumber: e.target.value.toUpperCase(),
+                            }))
+                          }
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Body Manufacturer</Label>
+                        <Input
+                          value={editVehicle.bodyManufacturer}
+                          onChange={(e) =>
+                            setEditVehicle((prev) => ({
+                              ...prev,
+                              bodyManufacturer: e.target.value.toUpperCase(),
+                            }))
+                          }
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Year</Label>
+                        <Input
+                          type="number"
+                          value={editVehicle.year}
+                          onChange={(e) =>
+                            setEditVehicle((prev) => ({
+                              ...prev,
+                              year: e.target.value,
+                            }))
+                          }
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>PO/Works Order Number</Label>
+                        <Input
+                          value={editVehicle.poWorksOrderNumber}
+                          onChange={(e) =>
+                            setEditVehicle((prev) => ({
+                              ...prev,
+                              poWorksOrderNumber: e.target.value.toUpperCase(),
+                            }))
+                          }
+                        />
+                      </div>
+                    </div>
+                    <div className="flex justify-end gap-3">
+                      <Button variant="outline" onClick={resetEditVehicleState}>
+                        Cancel
+                      </Button>
+                      <Button
+                        onClick={handleSaveEditedVehicle}
+                        disabled={!editVehicle.registration.trim()}
+                      >
+                        Save changes
+                      </Button>
+                    </div>
+                  </div>
+                </DialogContent>
+              </Dialog>
             </CardHeader>
             <CardContent className="space-y-6">
               {vehicleReports.length === 0 ? (
@@ -3046,7 +3206,15 @@ export default function InspectionDetailPage() {
                             </CardContent>
                           </Card>
 
-                          <div className="flex justify-end">
+                          <div className="flex justify-end gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleStartEditVehicle(vehicle)}
+                            >
+                              <Pencil className="mr-2 h-4 w-4" />
+                              Edit Vehicle
+                            </Button>
                             <Button
                               variant="destructive"
                               size="sm"
