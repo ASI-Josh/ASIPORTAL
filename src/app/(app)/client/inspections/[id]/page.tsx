@@ -341,16 +341,14 @@ export default function ClientInspectionDetailPage() {
               {summaryItems.every((item) => {
                 const pre = Array.isArray(item.damage.preWorkPhotos) ? item.damage.preWorkPhotos : [];
                 const fallback = Array.isArray(item.damage.photoUrls) ? item.damage.photoUrls : [];
-                const post = Array.isArray(item.damage.postWorkPhotos) ? item.damage.postWorkPhotos : [];
-                return [...pre, ...fallback, ...post].length === 0;
+                return [...pre, ...fallback].length === 0;
               }) ? (
                 <p className="text-sm text-muted-foreground">No inspection photos available.</p>
               ) : (
                 summaryItems.map((item) => {
                   const pre = Array.isArray(item.damage.preWorkPhotos) ? item.damage.preWorkPhotos : [];
                   const fallback = Array.isArray(item.damage.photoUrls) ? item.damage.photoUrls : [];
-                  const post = Array.isArray(item.damage.postWorkPhotos) ? item.damage.postWorkPhotos : [];
-                  const photos = Array.from(new Set([...pre, ...fallback, ...post]));
+                  const photos = Array.from(new Set([...pre, ...fallback]));
                   if (photos.length === 0) return null;
                   const label = `${item.vehicleLabel} - ${BOOKING_TYPE_LABELS[item.damage.repairType]} - ${item.damage.location}`;
                   return (

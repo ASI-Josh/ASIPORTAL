@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { JobLifecycleStage, JOB_LIFECYCLE_LABELS } from "@/lib/types";
+import { collection, onSnapshot, orderBy, query } from "firebase/firestore";
+import { JobLifecycleStage, JOB_LIFECYCLE_LABELS, type Inspection, type Job } from "@/lib/types";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -24,6 +25,8 @@ import {
 import { GitBranch, Plus } from "lucide-react";
 import { useJobs } from "@/contexts/JobsContext";
 import { getLifecycleStageFromStatus } from "@/lib/jobs-data";
+import { db } from "@/lib/firebaseClient";
+import { COLLECTIONS } from "@/lib/collections";
 import { cn } from "@/lib/utils";
 
 const STAGE_COLORS: Record<JobLifecycleStage, string> = {
@@ -50,26 +53,101 @@ const stages: JobLifecycleStage[] = [
   "management_closeoff",
 ];
 
+type RfqRow =
+  | {
+      kind: "job";
+      id: string;
+      reference: string;
+      clientName: string;
+      serviceType: string;
+      statusLabel: string;
+      scheduledLabel: string;
+      sortMillis: number;
+      route: string;
+    }
+  | {
+      kind: "inspection";
+      id: string;
+      reference: string;
+      clientName: string;
+      serviceType: string;
+      statusLabel: string;
+      scheduledLabel: string;
+      sortMillis: number;
+      route: string;
+    };
+
 export default function JobLifecyclePage() {
   const router = useRouter();
   const { jobs } = useJobs();
+  const [inspections, setInspections] = useState<Inspection[]>([]);
   const [selectedOrganisation, setSelectedOrganisation] = useState("all");
-  const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null);
   const [activeStage, setActiveStage] = useState<JobLifecycleStage>("job_scheduled");
 
-  const getServiceType = (notes?: string) => {
+  useEffect(() => {
+    const inspectionsQuery = query(
+      collection(db, COLLECTIONS.INSPECTIONS),
+      orderBy("createdAt", "desc")
+    );
+    const unsubscribe = onSnapshot(
+      inspectionsQuery,
+      (snapshot) => {
+        setInspections(
+          snapshot.docs.map((docSnap) => ({
+            id: docSnap.id,
+            ...(docSnap.data() as Omit<Inspection, "id">),
+          }))
+        );
+      },
+      () => setInspections([])
+    );
+    return () => unsubscribe();
+  }, []);
+
+  const getServiceType = (notes?: string, fallback = "Service") => {
     const match = notes?.match(/^Service: (.+)$/m);
-    return match?.[1] || "Service";
+    return match?.[1] || fallback;
+  };
+
+  const toDateValue = (value: any): Date | null => {
+    if (!value) return null;
+    if (value instanceof Date) return value;
+    if (typeof value?.toDate === "function") return value.toDate();
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
   };
 
   const formatDate = (timestamp: any) => {
-    if (!timestamp) return "N/A";
-    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+    const date = toDateValue(timestamp);
+    if (!date) return "N/A";
     return date.toLocaleDateString("en-AU", { day: "2-digit", month: "short", year: "numeric" });
   };
 
-  const resolveScheduledDate = (job: any) => {
+  const toMillis = (value: any) => toDateValue(value)?.getTime() ?? 0;
+
+  const resolveScheduledDate = (job: Job) => {
     return job.scheduledDate || job.booking?.preferredDate || job.updatedAt || job.createdAt;
+  };
+
+  const resolveInspectionDate = (inspection: Inspection) =>
+    inspection.scheduledDate || inspection.updatedAt || inspection.createdAt;
+
+  const resolveJobOrganisationKey = (job: Job) => job.organizationId || job.clientId || job.clientName;
+  const resolveInspectionOrganisationKey = (inspection: Inspection) =>
+    inspection.organizationId || inspection.clientId || inspection.organizationName || inspection.clientName;
+
+  const isInspectionRfq = (inspection: Inspection) =>
+    !inspection.convertedToJobId &&
+    inspection.status !== "converted" &&
+    inspection.status !== "rejected" &&
+    (inspection.status === "submitted" || inspection.status === "approved");
+
+  const getInspectionRfqStatusLabel = (inspection: Inspection) => {
+    if (inspection.quote?.status === "sent") return "Quote Sent";
+    if (inspection.quote?.status === "generated") return "Quote Generated";
+    if (inspection.status === "approved") return "Approved";
+    return "Submitted";
   };
 
   const pipelineJobs = useMemo(
@@ -77,38 +155,61 @@ export default function JobLifecyclePage() {
     [jobs]
   );
 
+  const pipelineRfqInspections = useMemo(
+    () => inspections.filter((inspection) => isInspectionRfq(inspection)),
+    [inspections]
+  );
+
   const organisations = useMemo(() => {
     const orgMap = new Map<string, string>();
     pipelineJobs.forEach((job) => {
-      const key = job.organizationId || job.clientId || job.clientName;
+      const key = resolveJobOrganisationKey(job);
       if (key && !orgMap.has(key)) {
         orgMap.set(key, job.clientName);
       }
     });
+    pipelineRfqInspections.forEach((inspection) => {
+      const key = resolveInspectionOrganisationKey(inspection);
+      const name = inspection.organizationName || inspection.clientName;
+      if (key && name && !orgMap.has(key)) {
+        orgMap.set(key, name);
+      }
+    });
     return Array.from(orgMap.entries()).map(([id, name]) => ({ id, name }));
-  }, [pipelineJobs]);
+  }, [pipelineJobs, pipelineRfqInspections]);
 
   const filteredJobs = useMemo(() => {
     if (selectedOrganisation === "all") return pipelineJobs;
     return pipelineJobs.filter((job) => {
-      const key = job.organizationId || job.clientId || job.clientName;
+      const key = resolveJobOrganisationKey(job);
       return key === selectedOrganisation;
     });
   }, [pipelineJobs, selectedOrganisation]);
+
+  const filteredRfqInspections = useMemo(() => {
+    if (selectedOrganisation === "all") return pipelineRfqInspections;
+    return pipelineRfqInspections.filter((inspection) => {
+      const key = resolveInspectionOrganisationKey(inspection);
+      return key === selectedOrganisation;
+    });
+  }, [pipelineRfqInspections, selectedOrganisation]);
 
   const sortedJobs = useMemo(() => {
     return [...filteredJobs].sort((a, b) => {
       const aDate = resolveScheduledDate(a);
       const bDate = resolveScheduledDate(b);
-      const aMillis = aDate?.toMillis ? aDate.toMillis() : aDate ? new Date(aDate).getTime() : 0;
-      const bMillis = bDate?.toMillis ? bDate.toMillis() : bDate ? new Date(bDate).getTime() : 0;
+      const aMillis = toMillis(aDate);
+      const bMillis = toMillis(bDate);
       return aMillis - bMillis;
     });
   }, [filteredJobs]);
 
-  const selectedJob = useMemo(
-    () => jobs.find((job) => job.id === selectedJobId) || null,
-    [jobs, selectedJobId]
+  const sortedRfqInspections = useMemo(
+    () =>
+      [...filteredRfqInspections].sort(
+        (a, b) => toMillis(resolveInspectionDate(a)) - toMillis(resolveInspectionDate(b))
+      ),
+    [filteredRfqInspections]
   );
 
   const stageCounts = useMemo(() => {
@@ -123,13 +224,74 @@ export default function JobLifecyclePage() {
       const stage = getLifecycleStageFromStatus(job.status);
       counts[stage] += 1;
     });
+    counts.rfq += filteredRfqInspections.length;
     return counts;
-  }, [filteredJobs]);
+  }, [filteredJobs, filteredRfqInspections.length]);
 
   const activeStageJobs = useMemo(
     () => sortedJobs.filter((job) => getLifecycleStageFromStatus(job.status) === activeStage),
     [sortedJobs, activeStage]
   );
+
+  const activeRfqRows = useMemo(() => {
+    if (activeStage !== "rfq") return [];
+
+    const jobRows: RfqRow[] = sortedJobs
+      .filter((job) => getLifecycleStageFromStatus(job.status) === "rfq")
+      .map((job) => {
+        const scheduled = resolveScheduledDate(job);
+        return {
+          kind: "job",
+          id: job.id,
+          reference: job.jobNumber,
+          clientName: job.clientName,
+          serviceType: getServiceType(job.notes),
+          statusLabel: "RFQ",
+          scheduledLabel: formatDate(scheduled),
+          sortMillis: toMillis(scheduled),
+          route: `/dashboard/jobs/${job.id}`,
+        };
+      });
+
+    const inspectionRows: RfqRow[] = sortedRfqInspections.map((inspection) => {
+      const scheduled = resolveInspectionDate(inspection);
+      return {
+        kind: "inspection",
+        id: inspection.id,
+        reference: inspection.inspectionNumber,
+        clientName: inspection.organizationName || inspection.clientName || "-",
+        serviceType: "Inspection RFQ",
+        statusLabel: getInspectionRfqStatusLabel(inspection),
+        scheduledLabel: formatDate(scheduled),
+        sortMillis: toMillis(scheduled),
+        route: `/dashboard/inspections/${inspection.id}`,
+      };
+    });
+
+    return [...jobRows, ...inspectionRows].sort((a, b) => a.sortMillis - b.sortMillis);
+  }, [activeStage, sortedJobs, sortedRfqInspections]);
+
+  const activeRows = useMemo(() => {
+    if (activeStage === "rfq") return activeRfqRows;
+
+    return activeStageJobs.map((job) => {
+      const stage = getLifecycleStageFromStatus(job.status);
+      const scheduled = resolveScheduledDate(job);
+      return {
+        kind: "job" as const,
+        id: job.id,
+        reference: job.jobNumber,
+        clientName: job.clientName,
+        serviceType: getServiceType(job.notes),
+        statusLabel: JOB_LIFECYCLE_LABELS[stage],
+        scheduledLabel: formatDate(scheduled),
+        sortMillis: toMillis(scheduled),
+        route: `/dashboard/jobs/${job.id}`,
+      };
+    });
+  }, [activeRfqRows, activeStage, activeStageJobs]);
+
+  const hasPipelineEntries = pipelineJobs.length + pipelineRfqInspections.length > 0;
 
   const getStageItemLabel = (stage: JobLifecycleStage, count: number) => {
     if (stage === "rfq") return count === 1 ? "RFQ" : "RFQs";
@@ -154,7 +316,7 @@ export default function JobLifecyclePage() {
               <h1 className="text-3xl font-bold">Job Lifecycle Pipeline</h1>
             </div>
             <p className="text-muted-foreground">
-              Select a job to see where it sits in the lifecycle.
+              Select a record to see where it sits in the lifecycle.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
@@ -179,17 +341,17 @@ export default function JobLifecyclePage() {
         </div>
       </div>
 
-      {pipelineJobs.length === 0 ? (
+      {!hasPipelineEntries ? (
         <Card className="bg-background/60 backdrop-blur-sm">
           <CardContent className="py-16 text-center">
             <GitBranch className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-            <h3 className="text-lg font-medium mb-2">No Jobs Yet</h3>
+            <h3 className="text-lg font-medium mb-2">No Pipeline Items Yet</h3>
             <p className="text-muted-foreground mb-4">
-              Create a booking to generate your first job and see it appear here.
+              Create a booking or complete an inspection RFQ to see it appear here.
             </p>
             <Button onClick={() => router.push("/dashboard/bookings")}>
               <Plus className="mr-2 h-4 w-4" />
-              Create Booking
+              Create booking
             </Button>
           </CardContent>
         </Card>
@@ -214,7 +376,7 @@ export default function JobLifecyclePage() {
                       <Badge className={STAGE_COLORS[stage]}>{stageCounts[stage]}</Badge>
                     </div>
                     <CardDescription className="text-xs">
-                      {isSelected ? "Showing jobs below" : "Click to view stage"}
+                      {isSelected ? "Showing records below" : "Click to view stage"}
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
@@ -241,15 +403,15 @@ export default function JobLifecyclePage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {activeStageJobs.length === 0 ? (
+              {activeRows.length === 0 ? (
                 <div className="py-8 text-center text-muted-foreground">
-                  No jobs are currently in this stage.
+                  No records are currently in this stage.
                 </div>
               ) : (
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Job Number</TableHead>
+                      <TableHead>{activeStage === "rfq" ? "Reference" : "Job Number"}</TableHead>
                       <TableHead>Client</TableHead>
                       <TableHead>Service</TableHead>
                       <TableHead>Status</TableHead>
@@ -258,39 +420,44 @@ export default function JobLifecyclePage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {activeStageJobs.map((job) => {
-                      const stage = getLifecycleStageFromStatus(job.status);
-                      const isSelected = job.id === selectedJobId;
+                    {activeRows.map((row) => {
+                      const rowKey = `${row.kind}:${row.id}`;
+                      const isSelected = rowKey === selectedRecordId;
                       return (
                         <TableRow
-                          key={job.id}
+                          key={rowKey}
                           className={cn(
                             "cursor-pointer hover:bg-muted/20",
                             isSelected && "bg-primary/5"
                           )}
                           onClick={() => {
-                            setSelectedJobId(job.id);
-                            setActiveStage(stage);
+                            setSelectedRecordId(rowKey);
                           }}
                         >
                           <TableCell className="font-medium text-primary">
-                            {job.jobNumber}
+                            {row.reference}
                           </TableCell>
-                          <TableCell>{job.clientName}</TableCell>
-                          <TableCell>{getServiceType(job.notes)}</TableCell>
+                          <TableCell>{row.clientName}</TableCell>
+                          <TableCell>{row.serviceType}</TableCell>
                           <TableCell>
-                            <Badge className={STAGE_COLORS[stage]}>
-                              {JOB_LIFECYCLE_LABELS[stage]}
+                            <Badge
+                              className={
+                                row.kind === "inspection"
+                                  ? "bg-cyan-500/20 text-cyan-300 border-cyan-500/30"
+                                  : STAGE_COLORS[activeStage]
+                              }
+                            >
+                              {row.statusLabel}
                             </Badge>
                           </TableCell>
-                          <TableCell>{formatDate(resolveScheduledDate(job))}</TableCell>
+                          <TableCell>{row.scheduledLabel}</TableCell>
                           <TableCell className="text-right">
                             <Button
                               variant="ghost"
                               size="sm"
                               onClick={(event) => {
                                 event.stopPropagation();
-                                router.push(`/dashboard/jobs/${job.id}`);
+                                router.push(row.route);
                               }}
                             >
                               View

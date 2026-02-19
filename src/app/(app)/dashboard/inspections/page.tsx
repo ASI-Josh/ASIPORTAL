@@ -16,7 +16,7 @@ import {
   setDoc,
   where,
 } from "firebase/firestore";
-import { ClipboardCheck, Plus, Trash2 } from "lucide-react";
+import { ClipboardCheck, Plus, Search, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -70,6 +70,55 @@ const STATUS_BADGE: Record<InspectionStatus, string> = {
   rejected: "bg-red-500/20 text-red-400 border-red-500/30",
 };
 
+type InspectionDisplayStatus = InspectionStatus | "quote_generated" | "quote_sent";
+type InspectionStatusFilter = "all" | InspectionDisplayStatus;
+type InspectionSortOption =
+  | "updated_desc"
+  | "updated_asc"
+  | "scheduled_desc"
+  | "scheduled_asc"
+  | "inspection_number_desc"
+  | "inspection_number_asc";
+
+const DISPLAY_STATUS_LABELS: Record<InspectionDisplayStatus, string> = {
+  draft: "Draft",
+  submitted: "Completed (internal)",
+  quote_generated: "Quote Generated",
+  quote_sent: "Quote Sent",
+  approved: "Approved",
+  converted: "Converted",
+  rejected: "Rejected",
+};
+
+const DISPLAY_STATUS_BADGE: Record<InspectionDisplayStatus, string> = {
+  draft: STATUS_BADGE.draft,
+  submitted: STATUS_BADGE.submitted,
+  quote_generated: "bg-indigo-500/20 text-indigo-300 border-indigo-500/30",
+  quote_sent: "bg-cyan-500/20 text-cyan-300 border-cyan-500/30",
+  approved: STATUS_BADGE.approved,
+  converted: STATUS_BADGE.converted,
+  rejected: STATUS_BADGE.rejected,
+};
+
+const INSPECTION_STATUS_ORDER: InspectionDisplayStatus[] = [
+  "draft",
+  "submitted",
+  "quote_generated",
+  "quote_sent",
+  "approved",
+  "converted",
+  "rejected",
+];
+
+const INSPECTION_SORT_LABELS: Record<InspectionSortOption, string> = {
+  updated_desc: "Updated (Newest first)",
+  updated_asc: "Updated (Oldest first)",
+  scheduled_desc: "Scheduled (Newest first)",
+  scheduled_asc: "Scheduled (Oldest first)",
+  inspection_number_desc: "Inspection # (High to low)",
+  inspection_number_asc: "Inspection # (Low to high)",
+};
+
 function isTraversableObject(value: unknown): value is Record<string, unknown> {
   if (value === null || typeof value !== "object") return false;
   if (value instanceof Timestamp) return false;
@@ -103,6 +152,9 @@ export default function InspectionsPage() {
   const { toast } = useToast();
   const { user } = useAuth();
   const [inspections, setInspections] = useState<Inspection[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<InspectionStatusFilter>("all");
+  const [sortOption, setSortOption] = useState<InspectionSortOption>("updated_desc");
   const [creating, setCreating] = useState(false);
   const [showNewInspectionDialog, setShowNewInspectionDialog] = useState(false);
   const [organizations, setOrganizations] = useState<ContactOrganization[]>([]);
@@ -248,6 +300,81 @@ export default function InspectionsPage() {
     () => contacts.find((contact) => contact.id === selectedContactId) || null,
     [contacts, selectedContactId]
   );
+
+  const getInspectionDisplayStatus = (inspection: Inspection): InspectionDisplayStatus => {
+    if (inspection.status === "rejected") return "rejected";
+    if (inspection.convertedToJobId || inspection.status === "converted") return "converted";
+    if (inspection.status === "approved") return "approved";
+    if (inspection.quote?.status === "sent") return "quote_sent";
+    if (inspection.quote?.status === "generated") return "quote_generated";
+    return inspection.status;
+  };
+
+  const getReferenceSortValue = (value: string) =>
+    (value.match(/\d+/g) || []).reduce(
+      (acc, part) => acc * 1_000_000 + Number.parseInt(part, 10),
+      0
+    );
+
+  const getUpdatedMillis = (inspection: Inspection) => {
+    const updated = toDateValue(inspection.updatedAt);
+    return updated ? updated.getTime() : 0;
+  };
+
+  const getScheduledMillis = (inspection: Inspection) => {
+    const scheduled = toDateValue(inspection.scheduledDate);
+    if (!scheduled) return 0;
+    const withTime = new Date(scheduled);
+    const [hours, minutes] = (inspection.scheduledTime || "")
+      .split(":")
+      .map((part) => Number.parseInt(part, 10));
+    if (Number.isFinite(hours)) withTime.setHours(hours);
+    if (Number.isFinite(minutes)) withTime.setMinutes(minutes);
+    withTime.setSeconds(0, 0);
+    return withTime.getTime();
+  };
+
+  const inspectionStatusOptions = useMemo(() => {
+    const available = new Set<InspectionDisplayStatus>();
+    inspections.forEach((inspection) => {
+      available.add(getInspectionDisplayStatus(inspection));
+    });
+    return INSPECTION_STATUS_ORDER.filter((status) => available.has(status));
+  }, [inspections]);
+
+  const normalizedSearch = searchQuery.trim().toLowerCase();
+  const filteredInspections = useMemo(() => {
+    return [...inspections.filter((inspection) => {
+      const displayStatus = getInspectionDisplayStatus(inspection);
+      const matchesSearch =
+        inspection.inspectionNumber.toLowerCase().includes(normalizedSearch) ||
+        (inspection.organizationName || "").toLowerCase().includes(normalizedSearch) ||
+        (inspection.clientName || "").toLowerCase().includes(normalizedSearch) ||
+        (inspection.contactName || "").toLowerCase().includes(normalizedSearch);
+      const matchesStatus = statusFilter === "all" || displayStatus === statusFilter;
+      return matchesSearch && matchesStatus;
+    })].sort((a, b) => {
+      switch (sortOption) {
+        case "updated_asc":
+          return getUpdatedMillis(a) - getUpdatedMillis(b);
+        case "scheduled_desc":
+          return getScheduledMillis(b) - getScheduledMillis(a);
+        case "scheduled_asc":
+          return getScheduledMillis(a) - getScheduledMillis(b);
+        case "inspection_number_desc": {
+          const diff = getReferenceSortValue(b.inspectionNumber) - getReferenceSortValue(a.inspectionNumber);
+          return diff !== 0 ? diff : b.inspectionNumber.localeCompare(a.inspectionNumber);
+        }
+        case "inspection_number_asc": {
+          const diff = getReferenceSortValue(a.inspectionNumber) - getReferenceSortValue(b.inspectionNumber);
+          return diff !== 0 ? diff : a.inspectionNumber.localeCompare(b.inspectionNumber);
+        }
+        case "updated_desc":
+        default:
+          return getUpdatedMillis(b) - getUpdatedMillis(a);
+      }
+    });
+  }, [inspections, normalizedSearch, sortOption, statusFilter]);
 
   const handleCreateInspection = async () => {
     if (creating) return;
@@ -732,16 +859,71 @@ export default function InspectionsPage() {
       </Dialog>
 
       <Card className="bg-card/50 backdrop-blur-lg border-border/20">
+        <CardContent className="p-4">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="Search inspections..."
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                className="pl-10"
+              />
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Select
+                value={statusFilter}
+                onValueChange={(value) => setStatusFilter(value as InspectionStatusFilter)}
+              >
+                <SelectTrigger className="w-[190px]">
+                  <SelectValue placeholder="Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Status</SelectItem>
+                  {inspectionStatusOptions.map((status) => (
+                    <SelectItem key={status} value={status}>
+                      {DISPLAY_STATUS_LABELS[status]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select
+                value={sortOption}
+                onValueChange={(value) => setSortOption(value as InspectionSortOption)}
+              >
+                <SelectTrigger className="w-[220px]">
+                  <SelectValue placeholder="Sort by" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(Object.entries(INSPECTION_SORT_LABELS) as [InspectionSortOption, string][]).map(
+                    ([value, label]) => (
+                      <SelectItem key={value} value={value}>
+                        {label}
+                      </SelectItem>
+                    )
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="bg-card/50 backdrop-blur-lg border-border/20">
         <CardHeader>
           <CardTitle>Inspection register</CardTitle>
           <CardDescription>
-            {inspections.length} inspection{inspections.length !== 1 && "s"} logged
+            {filteredInspections.length} inspection
+            {filteredInspections.length !== 1 && "s"} shown
+            {filteredInspections.length !== inspections.length
+              ? ` (${inspections.length} total)`
+              : ""}
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {inspections.length === 0 ? (
+          {filteredInspections.length === 0 ? (
             <div className="py-12 text-center text-muted-foreground">
-              No inspections yet. Create your first inspection to get started.
+              No inspections match the current filters.
             </div>
           ) : (
             <Table>
@@ -756,58 +938,61 @@ export default function InspectionsPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {inspections.map((inspection) => (
-                  <TableRow
-                    key={inspection.id}
-                    className="cursor-pointer hover:bg-muted/20"
-                    onClick={() => router.push(`/dashboard/inspections/${inspection.id}`)}
-                  >
-                    <TableCell className="font-medium text-primary">
-                      {inspection.inspectionNumber}
-                    </TableCell>
-                    <TableCell>{inspection.organizationName || inspection.clientName || "-"}</TableCell>
-                    <TableCell>
-                      <Badge className={STATUS_BADGE[inspection.status]} variant="outline">
-                        {STATUS_LABELS[inspection.status]}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      {toDateValue(inspection.scheduledDate)
-                        ? toDateValue(inspection.scheduledDate)!.toLocaleDateString("en-AU")
-                        : "-"}
-                    </TableCell>
-                    <TableCell>
-                      {toDateValue(inspection.updatedAt)
-                        ? toDateValue(inspection.updatedAt)!.toLocaleDateString("en-AU")
-                        : "-"}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            router.push(`/dashboard/inspections/${inspection.id}`);
-                          }}
-                        >
-                          View
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            setInspectionToDelete(inspection);
-                          }}
-                          aria-label="Delete inspection"
-                        >
-                          <Trash2 className="h-4 w-4 text-muted-foreground" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {filteredInspections.map((inspection) => {
+                  const displayStatus = getInspectionDisplayStatus(inspection);
+                  return (
+                    <TableRow
+                      key={inspection.id}
+                      className="cursor-pointer hover:bg-muted/20"
+                      onClick={() => router.push(`/dashboard/inspections/${inspection.id}`)}
+                    >
+                      <TableCell className="font-medium text-primary">
+                        {inspection.inspectionNumber}
+                      </TableCell>
+                      <TableCell>{inspection.organizationName || inspection.clientName || "-"}</TableCell>
+                      <TableCell>
+                        <Badge className={DISPLAY_STATUS_BADGE[displayStatus]} variant="outline">
+                          {DISPLAY_STATUS_LABELS[displayStatus]}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        {toDateValue(inspection.scheduledDate)
+                          ? toDateValue(inspection.scheduledDate)!.toLocaleDateString("en-AU")
+                          : "-"}
+                      </TableCell>
+                      <TableCell>
+                        {toDateValue(inspection.updatedAt)
+                          ? toDateValue(inspection.updatedAt)!.toLocaleDateString("en-AU")
+                          : "-"}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              router.push(`/dashboard/inspections/${inspection.id}`);
+                            }}
+                          >
+                            View
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setInspectionToDelete(inspection);
+                            }}
+                            aria-label="Delete inspection"
+                          >
+                            <Trash2 className="h-4 w-4 text-muted-foreground" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           )}

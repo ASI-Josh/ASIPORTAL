@@ -3,27 +3,9 @@
 import { generateJobDescription } from "@/ai/flows/generate-job-descriptions";
 import { generateInspectionSummary } from "@/ai/flows/generate-inspection-summary";
 import { summarizeLeadNotes } from "@/ai/flows/summarize-lead-notes";
+import { extractJsonCandidate, normalizeAiGeneratedText } from "@/lib/ai-text-format";
 import { runWorkflowJson } from "@/lib/openai-workflow";
 import { z } from "zod";
-
-function extractJsonCandidate(text: string) {
-  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
-  if (fenced?.[1]) return fenced[1].trim();
-  const trimmed = text.trim();
-  if (trimmed.startsWith("{") && trimmed.endsWith("}")) return trimmed;
-  const start = trimmed.indexOf("{");
-  const end = trimmed.lastIndexOf("}");
-  if (start !== -1 && end !== -1 && end > start) {
-    const candidate = trimmed.slice(start, end + 1);
-    const looksRelevant =
-      candidate.includes('"jobTitle"') ||
-      candidate.includes('"jobSummary"') ||
-      candidate.includes('"scopeOfWork"') ||
-      candidate.includes('"technicianResponsibilities"');
-    if (looksRelevant) return candidate;
-  }
-  return null;
-}
 
 function safeString(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
@@ -64,7 +46,7 @@ function formatStructuredJobDescription(value: Record<string, unknown>) {
       const qty = safeNumber(record.quantity);
       const unit = safeString(record.unit);
       const qtyText = qty !== null ? `${qty} ${unit || ""}`.trim() : "";
-      const heading = qtyText ? `${task} — ${qtyText}` : task;
+      const heading = qtyText ? `${task} - ${qtyText}` : task;
       lines.push(`- ${heading}`);
       const notes = safeString(record.notes);
       if (notes) lines.push(`  - ${notes}`);
@@ -142,14 +124,16 @@ function normalizeJobDescriptionOutput(raw: string) {
   if (!trimmed) return trimmed;
 
   const candidate = extractJsonCandidate(trimmed);
-  if (!candidate) return trimmed;
+  if (!candidate) return normalizeAiGeneratedText(trimmed);
   try {
     const parsed = JSON.parse(candidate);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return trimmed;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return normalizeAiGeneratedText(trimmed);
+    }
     const formatted = formatStructuredJobDescription(parsed as Record<string, unknown>);
-    return formatted || trimmed;
+    return normalizeAiGeneratedText(formatted || trimmed);
   } catch {
-    return trimmed;
+    return normalizeAiGeneratedText(trimmed);
   }
 }
 
@@ -195,5 +179,6 @@ export async function summarizeLeadNotesAction(notes: string) {
 
 export async function generateInspectionSummaryAction(inspectionData: string) {
   const result = await generateInspectionSummary({ inspectionData });
-  return result.summary;
+  return normalizeAiGeneratedText(result.summary);
 }
+

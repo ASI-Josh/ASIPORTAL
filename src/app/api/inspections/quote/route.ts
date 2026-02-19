@@ -745,6 +745,22 @@ export async function POST(req: NextRequest) {
       )}`.trim();
       const quoteData = extractQuoteData(inspection);
       const totalCostText = quoteData.totals.total > 0 ? formatCurrency(quoteData.totals.total) : "";
+      const vehicleSummaryLines = quoteData.vehicleReports.map((report: any, reportIndex: number) => {
+        const vehicle = report?.vehicle || {};
+        const fleetAssetNumber = safeString(vehicle.fleetAssetNumber) || "-";
+        const regoNumber = safeString(vehicle.registration) || "-";
+        return `Vehicle ${reportIndex + 1}: Fleet/Asset Number ${fleetAssetNumber} | Rego Number ${regoNumber}`;
+      });
+      const vehicleSummaryText =
+        vehicleSummaryLines.length > 0
+          ? `Vehicle summary:\n${vehicleSummaryLines.map((line) => `- ${line}`).join("\n")}\n`
+          : "";
+      const vehicleSummaryHtml =
+        vehicleSummaryLines.length > 0
+          ? `<div><strong>Vehicle summary:</strong></div><ul style="margin:4px 0 0 18px; padding:0;">${vehicleSummaryLines
+              .map((line) => `<li>${line}</li>`)
+              .join("")}</ul>`
+          : "";
       const fallbackDowntimeValue = safeNumber(inspection?.estimatedDowntime?.value);
       const fallbackDowntimeUnit = safeString(inspection?.estimatedDowntime?.unit);
       const fallbackDowntimeText =
@@ -762,7 +778,7 @@ Please find your ASI inspection quote for ${clientName || "your organisation"}.
 
 Inspection reference: ${inspectionNumber}
 Inspection date/time: ${scheduled || "N/A"}
-${totalCostText ? `Total estimate: ${totalCostText}\n` : ""}${downtimeText ? `Works Downtime Allocation Required: ${downtimeText}\n` : ""}
+${vehicleSummaryText}${totalCostText ? `Total estimate: ${totalCostText}\n` : ""}${downtimeText ? `Works Downtime Allocation Required: ${downtimeText}\n` : ""}
 
 View/download quote (PDF): ${file?.downloadUrl || ""}
 View inspection details and enlarge photos in ASI Portal: ${portalInspectionUrl}
@@ -782,6 +798,7 @@ Advanced Surface Innovations (ASI) Australia`;
   <div style="padding:12px 14px; border:1px solid #e2e8f0; border-radius:10px; background:#f8fafc;">
     <div><strong>Inspection reference:</strong> ${inspectionNumber}</div>
     <div><strong>Inspection date/time:</strong> ${scheduled || "N/A"}</div>
+    ${vehicleSummaryHtml}
     ${totalCostText ? `<div><strong>Total estimate:</strong> ${totalCostText}</div>` : ""}
     ${downtimeText ? `<div><strong>Works Downtime Allocation Required:</strong> ${downtimeText}</div>` : ""}
     <div><strong>Quote PDF:</strong> <a href="${file?.downloadUrl || "#"}">Download / view</a></div>

@@ -134,6 +134,37 @@ type StaffMember = {
   email?: string;
 };
 
+type BookingDisplayStatus = Booking["status"] | Job["status"] | "on_hold" | "converted_to_job";
+type BookingStatusFilter = "all" | BookingDisplayStatus;
+type BookingSortOption =
+  | "scheduled_asc"
+  | "scheduled_desc"
+  | "created_desc"
+  | "created_asc"
+  | "booking_number_asc"
+  | "booking_number_desc";
+
+const BOOKING_SORT_LABELS: Record<BookingSortOption, string> = {
+  scheduled_asc: "Date/Time (Oldest first)",
+  scheduled_desc: "Date/Time (Newest first)",
+  created_desc: "Created (Newest first)",
+  created_asc: "Created (Oldest first)",
+  booking_number_asc: "Booking # (Low to high)",
+  booking_number_desc: "Booking # (High to low)",
+};
+
+const BOOKING_STATUS_ORDER: BookingDisplayStatus[] = [
+  "pending",
+  "confirmed",
+  "converted_to_job",
+  "scheduled",
+  "in_progress",
+  "on_hold",
+  "completed",
+  "closed",
+  "cancelled",
+];
+
 type CalendarEventPayload = {
   summary: string;
   description?: string;
@@ -331,6 +362,9 @@ export default function BookingsPage() {
 
   // State for booking list view
   const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<BookingStatusFilter>("all");
+  const [serviceFilter, setServiceFilter] = useState<BookingType | "all">("all");
+  const [sortOption, setSortOption] = useState<BookingSortOption>("scheduled_asc");
   const [includeCancelledBookings, setIncludeCancelledBookings] = useState(false);
 
   // State for new booking form
@@ -1642,7 +1676,7 @@ export default function BookingsPage() {
   const editSubcontractors = editStaffOptions.filter((s) => s.type === "subcontractor");
 
   const jobsById = useMemo(() => new Map(jobs.map((job) => [job.id, job])), [jobs]);
-  const getBookingDisplayStatus = (booking: Booking) => {
+  const getBookingDisplayStatus = (booking: Booking): BookingDisplayStatus => {
     if (booking.status === "cancelled") return "cancelled";
     if (booking.convertedJobId) {
       const job = jobsById.get(booking.convertedJobId);
@@ -1657,11 +1691,11 @@ export default function BookingsPage() {
     }
     return booking.status;
   };
-  const getBookingStatusLabel = (status: string) =>
+  const getBookingStatusLabel = (status: BookingDisplayStatus) =>
     status === "converted_to_job"
       ? "Converted"
       : status.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
-  const getBookingStatusVariant = (status: string) => {
+  const getBookingStatusVariant = (status: BookingDisplayStatus) => {
     switch (status) {
       case "completed":
       case "closed":
@@ -1682,8 +1716,6 @@ export default function BookingsPage() {
     }
   };
 
-  const isClosedStatus = (status: string) => status === "completed" || status === "closed";
-
   const getBookingSortTimestamp = (booking: Booking) => {
     const scheduledDate = booking.scheduledDate?.toDate?.();
     if (scheduledDate) {
@@ -1699,27 +1731,59 @@ export default function BookingsPage() {
     return booking.createdAt?.toMillis?.() ?? 0;
   };
 
+  const getBookingCreatedTimestamp = (booking: Booking) => booking.createdAt?.toMillis?.() ?? 0;
+
+  const getReferenceSortValue = (value: string) =>
+    (value.match(/\d+/g) || []).reduce(
+      (acc, part) => acc * 1_000_000 + Number.parseInt(part, 10),
+      0
+    );
+
+  const bookingStatusOptions = useMemo(() => {
+    const available = new Set<BookingDisplayStatus>();
+    bookings.forEach((booking) => {
+      available.add(getBookingDisplayStatus(booking));
+    });
+    return BOOKING_STATUS_ORDER.filter((status) => available.has(status));
+  }, [bookings, jobsById]);
+
   const deletedJobIds = new Set(deletedJobs.map((job) => job.id));
+  const normalizedSearch = searchQuery.trim().toLowerCase();
   const filteredBookings = [...bookings.filter((booking) => {
+    const displayStatus = getBookingDisplayStatus(booking);
     const matchesSearch =
-      booking.bookingNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      booking.organizationName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      booking.contactName.toLowerCase().includes(searchQuery.toLowerCase());
+      booking.bookingNumber.toLowerCase().includes(normalizedSearch) ||
+      booking.organizationName.toLowerCase().includes(normalizedSearch) ||
+      booking.contactName.toLowerCase().includes(normalizedSearch);
     const hasDeletedJob =
       booking.convertedJobId && deletedJobIds.has(booking.convertedJobId);
-    const matchesCancelled = includeCancelledBookings ? true : booking.status !== "cancelled";
-    return matchesSearch && matchesCancelled && !hasDeletedJob;
+    const matchesCancelled =
+      includeCancelledBookings || statusFilter === "cancelled"
+        ? true
+        : displayStatus !== "cancelled";
+    const matchesStatus = statusFilter === "all" || displayStatus === statusFilter;
+    const matchesService = serviceFilter === "all" || booking.bookingType === serviceFilter;
+    return matchesSearch && matchesCancelled && matchesStatus && matchesService && !hasDeletedJob;
   })].sort((a, b) => {
-    const statusA = getBookingDisplayStatus(a);
-    const statusB = getBookingDisplayStatus(b);
-    const closedA = isClosedStatus(statusA);
-    const closedB = isClosedStatus(statusB);
-    if (closedA !== closedB) return closedA ? 1 : -1;
-
-    const timeA = getBookingSortTimestamp(a);
-    const timeB = getBookingSortTimestamp(b);
-    if (timeA !== timeB) return timeA - timeB;
-    return a.bookingNumber.localeCompare(b.bookingNumber);
+    switch (sortOption) {
+      case "scheduled_desc":
+        return getBookingSortTimestamp(b) - getBookingSortTimestamp(a);
+      case "created_desc":
+        return getBookingCreatedTimestamp(b) - getBookingCreatedTimestamp(a);
+      case "created_asc":
+        return getBookingCreatedTimestamp(a) - getBookingCreatedTimestamp(b);
+      case "booking_number_asc": {
+        const diff = getReferenceSortValue(a.bookingNumber) - getReferenceSortValue(b.bookingNumber);
+        return diff !== 0 ? diff : a.bookingNumber.localeCompare(b.bookingNumber);
+      }
+      case "booking_number_desc": {
+        const diff = getReferenceSortValue(b.bookingNumber) - getReferenceSortValue(a.bookingNumber);
+        return diff !== 0 ? diff : b.bookingNumber.localeCompare(a.bookingNumber);
+      }
+      case "scheduled_asc":
+      default:
+        return getBookingSortTimestamp(a) - getBookingSortTimestamp(b);
+    }
   });
 
   return (
@@ -3021,25 +3085,49 @@ export default function BookingsPage() {
               />
             </div>
             <div className="flex gap-2">
-              <Select defaultValue="all">
+              <Select
+                value={statusFilter}
+                onValueChange={(value) => setStatusFilter(value as BookingStatusFilter)}
+              >
                 <SelectTrigger className="w-[150px]">
                   <SelectValue placeholder="Status" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Status</SelectItem>
-                  <SelectItem value="pending">Pending</SelectItem>
-                  <SelectItem value="confirmed">Confirmed</SelectItem>
-                  <SelectItem value="converted">Converted</SelectItem>
-                  <SelectItem value="cancelled">Cancelled</SelectItem>
+                  {bookingStatusOptions.map((status) => (
+                    <SelectItem key={status} value={status}>
+                      {getBookingStatusLabel(status)}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
-              <Select defaultValue="all">
+              <Select
+                value={serviceFilter}
+                onValueChange={(value) => setServiceFilter(value as BookingType | "all")}
+              >
                 <SelectTrigger className="w-[180px]">
                   <SelectValue placeholder="Service Type" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Services</SelectItem>
                   {(Object.entries(BOOKING_TYPE_LABELS) as [BookingType, string][]).map(
+                    ([value, label]) => (
+                      <SelectItem key={value} value={value}>
+                        {label}
+                      </SelectItem>
+                    )
+                  )}
+                </SelectContent>
+              </Select>
+              <Select
+                value={sortOption}
+                onValueChange={(value) => setSortOption(value as BookingSortOption)}
+              >
+                <SelectTrigger className="w-[220px]">
+                  <SelectValue placeholder="Sort by" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(Object.entries(BOOKING_SORT_LABELS) as [BookingSortOption, string][]).map(
                     ([value, label]) => (
                       <SelectItem key={value} value={value}>
                         {label}

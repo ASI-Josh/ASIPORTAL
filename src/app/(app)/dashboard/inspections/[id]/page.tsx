@@ -48,6 +48,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
+import { FormattedSummary } from "@/components/ai/formatted-summary";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
@@ -891,10 +892,9 @@ export default function InspectionDetailPage() {
         (acc, damage, damageIndex) => {
           const prePhotos = Array.isArray(damage.preWorkPhotos) ? damage.preWorkPhotos : [];
           const legacyPhotos = Array.isArray(damage.photoUrls) ? damage.photoUrls : [];
-          const postPhotos = Array.isArray(damage.postWorkPhotos) ? damage.postWorkPhotos : [];
           const photos = Array.from(
             new Set(
-              [...prePhotos, ...legacyPhotos, ...postPhotos].filter(
+              [...prePhotos, ...legacyPhotos].filter(
                 (url): url is string => typeof url === "string" && url.trim().length > 0
               )
             )
@@ -994,7 +994,6 @@ export default function InspectionDetailPage() {
       severity: "minor",
       photoUrls: [],
       preWorkPhotos: [],
-      postWorkPhotos: [],
       totalCost: cost,
       estimatedCost: cost,
       labourCost,
@@ -1076,18 +1075,17 @@ export default function InspectionDetailPage() {
   const handleDamagePhotoUpload = async (
     vehicleId: string,
     damageId: string,
-    kind: "pre" | "post",
     files: FileList | null
   ) => {
     if (!files || files.length === 0) return;
-    const key = `${vehicleId}-${damageId}-${kind}`;
+    const key = `${vehicleId}-${damageId}-pre`;
     setUploadingPhotos((prev) => ({ ...prev, [key]: true }));
 
     try {
       const uploadedUrls = await Promise.all(
         Array.from(files).map(async (file) => {
           const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-          const path = `inspections/${inspectionId}/vehicles/${vehicleId}/repairs/${damageId}/${kind}/${Date.now()}-${safeName}`;
+          const path = `inspections/${inspectionId}/vehicles/${vehicleId}/repairs/${damageId}/pre/${Date.now()}-${safeName}`;
           const fileRef = ref(storage, path);
           await uploadBytes(fileRef, file, { contentType: file.type });
           return getDownloadURL(fileRef);
@@ -1100,11 +1098,7 @@ export default function InspectionDetailPage() {
           const damages = vehicle.damages.map((damage) => {
             if (damage.id !== damageId) return damage;
             const existingPre = damage.preWorkPhotos ?? damage.photoUrls ?? [];
-            const existingPost = damage.postWorkPhotos ?? [];
-            if (kind === "pre") {
-              return { ...damage, preWorkPhotos: [...existingPre, ...uploadedUrls] };
-            }
-            return { ...damage, postWorkPhotos: [...existingPost, ...uploadedUrls] };
+            return { ...damage, preWorkPhotos: [...existingPre, ...uploadedUrls] };
           });
           return { ...vehicle, damages };
         })
@@ -2844,15 +2838,10 @@ export default function InspectionDetailPage() {
                               <div className="space-y-3">
                                 {vehicle.damages.map((damage) => {
                                   const preKey = `${vehicle.vehicleId}-${damage.id}-pre`;
-                                  const postKey = `${vehicle.vehicleId}-${damage.id}-post`;
                                   const preCameraId = `${preKey}-camera`;
                                   const preUploadId = `${preKey}-upload`;
-                                  const postCameraId = `${postKey}-camera`;
-                                  const postUploadId = `${postKey}-upload`;
                                   const preUploading = uploadingPhotos[preKey];
-                                  const postUploading = uploadingPhotos[postKey];
                                   const prePhotos = damage.preWorkPhotos ?? damage.photoUrls ?? [];
-                                  const postPhotos = damage.postWorkPhotos ?? [];
                                   const damageCost = damage.totalCost ?? damage.estimatedCost ?? 0;
                                   const breakdown = calculateCostBreakdown(damageCost);
                                   const labourCost = damage.labourCost ?? breakdown.labourCost;
@@ -2883,7 +2872,7 @@ export default function InspectionDetailPage() {
                                           </Button>
                                         </div>
 
-                                        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                                        <div className="grid grid-cols-1 gap-4">
                                           <div className="space-y-2">
                                             <Label className="text-xs">Pre-Work Photos</Label>
                                             <div className="flex gap-2 flex-wrap">
@@ -2920,7 +2909,6 @@ export default function InspectionDetailPage() {
                                                   void handleDamagePhotoUpload(
                                                     vehicle.vehicleId,
                                                     damage.id,
-                                                    "pre",
                                                     event.target.files
                                                   );
                                                   event.currentTarget.value = "";
@@ -2942,7 +2930,6 @@ export default function InspectionDetailPage() {
                                                   void handleDamagePhotoUpload(
                                                     vehicle.vehicleId,
                                                     damage.id,
-                                                    "pre",
                                                     event.target.files
                                                   );
                                                   event.currentTarget.value = "";
@@ -2955,83 +2942,6 @@ export default function InspectionDetailPage() {
                                                 </Label>
                                               </Button>
                                               {preUploading && (
-                                                <span className="text-xs text-muted-foreground">
-                                                  Uploading...
-                                                </span>
-                                              )}
-                                            </div>
-                                          </div>
-                                          <div className="space-y-2">
-                                            <Label className="text-xs">Post-Work Photos</Label>
-                                            <div className="flex gap-2 flex-wrap">
-                                              {postPhotos.map((url, idx) => (
-                                                <button
-                                                  key={`${url}-${idx}`}
-                                                  type="button"
-                                                  className="h-16 w-16 overflow-hidden rounded border border-border/50"
-                                                  onClick={() => setPhotoPreview({ url, label: "Post-Work Photo" })}
-                                                >
-                                                  <img
-                                                    src={url}
-                                                    alt="Post-work"
-                                                    className="h-full w-full object-cover"
-                                                    loading="lazy"
-                                                  />
-                                                </button>
-                                              ))}
-                                              {postPhotos.length === 0 && (
-                                                <div className="h-16 w-16 rounded bg-muted flex items-center justify-center text-xs text-muted-foreground">
-                                                  No photos
-                                                </div>
-                                              )}
-                                            </div>
-                                            <div className="flex flex-wrap gap-2">
-                                              <input
-                                                id={postCameraId}
-                                                type="file"
-                                                accept="image/*"
-                                                capture="environment"
-                                                multiple
-                                                className="hidden"
-                                                onChange={(event) => {
-                                                  void handleDamagePhotoUpload(
-                                                    vehicle.vehicleId,
-                                                    damage.id,
-                                                    "post",
-                                                    event.target.files
-                                                  );
-                                                  event.currentTarget.value = "";
-                                                }}
-                                              />
-                                              <Button size="sm" variant="outline" asChild disabled={postUploading}>
-                                                <Label htmlFor={postCameraId} className="cursor-pointer">
-                                                  <Camera className="mr-1 h-4 w-4" />
-                                                  Camera
-                                                </Label>
-                                              </Button>
-                                              <input
-                                                id={postUploadId}
-                                                type="file"
-                                                accept="image/*"
-                                                multiple
-                                                className="hidden"
-                                                onChange={(event) => {
-                                                  void handleDamagePhotoUpload(
-                                                    vehicle.vehicleId,
-                                                    damage.id,
-                                                    "post",
-                                                    event.target.files
-                                                  );
-                                                  event.currentTarget.value = "";
-                                                }}
-                                              />
-                                              <Button size="sm" variant="outline" asChild disabled={postUploading}>
-                                                <Label htmlFor={postUploadId} className="cursor-pointer">
-                                                  <Upload className="mr-1 h-4 w-4" />
-                                                  Upload
-                                                </Label>
-                                              </Button>
-                                              {postUploading && (
                                                 <span className="text-xs text-muted-foreground">
                                                   Uploading...
                                                 </span>
@@ -3387,7 +3297,7 @@ export default function InspectionDetailPage() {
               {summaryGenerating ? (
                 <p className="text-sm text-muted-foreground">Generating summary...</p>
               ) : reportSummary ? (
-                <Textarea value={reportSummary} readOnly className="min-h-[180px]" />
+                <FormattedSummary content={reportSummary} />
               ) : (
                 <p className="text-sm text-muted-foreground">
                   The summary appears after the inspection is completed.

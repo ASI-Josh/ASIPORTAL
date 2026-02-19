@@ -21,6 +21,7 @@ import { buildFleetDocId, getFleetSeedForOrgName, normalizeVehicleKey } from "@/
 import { generateJobDescriptionAction } from "@/app/actions/ai";
 import { useToast } from "@/hooks/use-toast";
 import { db, storage } from "@/lib/firebaseClient";
+import { normalizeAiInlineText } from "@/lib/ai-text-format";
 import { COLLECTIONS } from "@/lib/firestore";
 import type {
   FleetVehicle,
@@ -121,6 +122,7 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { InternalKnowledgeAssistant } from "@/components/assistant/internal-knowledge-assistant";
+import { FormattedSummary } from "@/components/ai/formatted-summary";
 import { HseRiskMatrix } from "@/components/hse/hse-risk-matrix";
 
 const statusColors: Record<JobStatus, string> = {
@@ -575,6 +577,7 @@ export default function JobCardPage() {
       minute: "2-digit",
     });
   };
+  const formatAuditItem = (value: string) => normalizeAiInlineText(value) || value.trim() || "-";
 
   const mapsApiKey = getPublicEnv("NEXT_PUBLIC_GOOGLE_MAPS_API_KEY") || "";
 
@@ -2497,7 +2500,7 @@ export default function JobCardPage() {
               {aiResult && (
                 <div className="space-y-2">
                   <Label>Generated Description</Label>
-                  <Textarea value={aiResult} readOnly rows={6} />
+                  <FormattedSummary content={aiResult} />
                 </div>
               )}
             </CardContent>
@@ -4116,7 +4119,9 @@ export default function JobCardPage() {
                         <ul className="list-disc space-y-1 pl-4 text-sm text-muted-foreground">
                           {(auditCompliance.length
                             ? auditCompliance
-                            : ["No compliance gaps flagged."])}
+                            : ["No compliance gaps flagged."]).map((item, itemIndex) => (
+                            <li key={`audit-compliance-${itemIndex}`}>{formatAuditItem(item)}</li>
+                          ))}
                         </ul>
                       </div>
                       <div className="space-y-2">
@@ -4126,7 +4131,9 @@ export default function JobCardPage() {
                         <ul className="list-disc space-y-1 pl-4 text-sm text-muted-foreground">
                           {(auditIssues.length
                             ? auditIssues
-                            : ["No critical issues flagged."])}
+                            : ["No critical issues flagged."]).map((item, itemIndex) => (
+                            <li key={`audit-issues-${itemIndex}`}>{formatAuditItem(item)}</li>
+                          ))}
                         </ul>
                       </div>
                       <div className="space-y-2">
@@ -4136,7 +4143,9 @@ export default function JobCardPage() {
                         <ul className="list-disc space-y-1 pl-4 text-sm text-muted-foreground">
                           {(auditBilling.length
                             ? auditBilling
-                            : ["No billing notes flagged."])}
+                            : ["No billing notes flagged."]).map((item, itemIndex) => (
+                            <li key={`audit-billing-${itemIndex}`}>{formatAuditItem(item)}</li>
+                          ))}
                         </ul>
                       </div>
                       <div className="space-y-2">
@@ -4146,7 +4155,9 @@ export default function JobCardPage() {
                         <ul className="list-disc space-y-1 pl-4 text-sm text-muted-foreground">
                           {(auditOpportunities.length
                             ? auditOpportunities
-                            : ["No opportunities flagged."])}
+                            : ["No opportunities flagged."]).map((item, itemIndex) => (
+                            <li key={`audit-opportunities-${itemIndex}`}>{formatAuditItem(item)}</li>
+                          ))}
                         </ul>
                       </div>
                     </div>
@@ -4157,7 +4168,9 @@ export default function JobCardPage() {
                       <ul className="list-disc space-y-1 pl-4 text-sm text-muted-foreground">
                         {(auditImprovements.length
                           ? auditImprovements
-                          : ["No improvement actions flagged."])}
+                          : ["No improvement actions flagged."]).map((item, itemIndex) => (
+                          <li key={`audit-improvements-${itemIndex}`}>{formatAuditItem(item)}</li>
+                        ))}
                       </ul>
                     </div>
                   </>
