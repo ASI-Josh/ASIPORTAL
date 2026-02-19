@@ -111,6 +111,7 @@ import {
   Clock,
   Navigation,
   Upload,
+  Download,
   Shield as ShieldIcon,
   Bot,
 } from "lucide-react";
@@ -551,6 +552,7 @@ export default function JobCardPage() {
   const [showNextJobDialog, setShowNextJobDialog] = useState(false);
   const [nextJobCandidate, setNextJobCandidate] = useState<Job | null>(null);
   const [sendingCompletionNotice, setSendingCompletionNotice] = useState(false);
+  const [downloadingCompletionReport, setDownloadingCompletionReport] = useState(false);
   const [sendingClientNotice, setSendingClientNotice] = useState<
     "job_started" | "job_on_hold" | "job_completed" | null
   >(null);
@@ -1235,6 +1237,83 @@ export default function JobCardPage() {
       false
     );
     void triggerCompletionAudit("auto");
+  };
+
+  const handleDownloadCompletionReport = async () => {
+    if (!job) return;
+    if (!firebaseUser) {
+      toast({
+        title: "Sign-in required",
+        description: "Please sign in again before downloading the completion report.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (job.status !== "completed" && job.status !== "closed") {
+      toast({
+        title: "Report unavailable",
+        description: "Completion report is only available for completed or closed jobs.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setDownloadingCompletionReport(true);
+    try {
+      const token = await firebaseUser.getIdToken();
+      const response = await fetch("/api/jobs/completion-report", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ jobId: job.id }),
+      });
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(payload?.error || "Unable to generate completion report.");
+      }
+
+      const blob = await response.blob();
+      const fallbackName = `${(job.jobNumber || job.id).replace(/[^a-zA-Z0-9._-]/g, "_")}_Completion_Report.pdf`;
+      const disposition = response.headers.get("content-disposition") || "";
+      const fileNameMatch =
+        disposition.match(/filename\*=UTF-8''([^;]+)/i) ||
+        disposition.match(/filename=\"?([^\";]+)\"?/i);
+      let parsedName = "";
+      if (fileNameMatch?.[1]) {
+        try {
+          parsedName = decodeURIComponent(fileNameMatch[1]);
+        } catch {
+          parsedName = fileNameMatch[1];
+        }
+      }
+      const fileName = parsedName || fallbackName;
+
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = downloadUrl;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(downloadUrl);
+
+      toast({
+        title: "Completion report ready",
+        description: "The PDF has been downloaded.",
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to download report.";
+      toast({
+        title: "Download failed",
+        description: message,
+        variant: "destructive",
+      });
+    } finally {
+      setDownloadingCompletionReport(false);
+    }
   };
 
   const handleSendCompletionNotice = async () => {
@@ -2259,14 +2338,26 @@ export default function JobCardPage() {
           </div>
           <div className="flex flex-wrap gap-2">
             {(job.status === "completed" || job.status === "closed") && (
-              <Button
-                variant="outline"
-                onClick={handleSendCompletionNotice}
-                disabled={sendingCompletionNotice}
-              >
-                <Mail className="mr-2 h-4 w-4" />
-                {sendingCompletionNotice ? "Sending..." : "Send Completion Notice"}
-              </Button>
+              <>
+                <Button
+                  variant="outline"
+                  onClick={handleDownloadCompletionReport}
+                  disabled={downloadingCompletionReport}
+                >
+                  <Download className="mr-2 h-4 w-4" />
+                  {downloadingCompletionReport
+                    ? "Generating PDF..."
+                    : "Download Completion Report"}
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={handleSendCompletionNotice}
+                  disabled={sendingCompletionNotice}
+                >
+                  <Mail className="mr-2 h-4 w-4" />
+                  {sendingCompletionNotice ? "Sending..." : "Send Completion Notice"}
+                </Button>
+              </>
             )}
             <Button
               onClick={handleSaveChanges}
