@@ -17,7 +17,6 @@ import {
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { useJobs } from "@/contexts/JobsContext";
 import { useAuth } from "@/contexts/AuthContext";
-import { asiStaff } from "@/lib/contacts-data";
 import { buildFleetDocId, getFleetSeedForOrgName, normalizeVehicleKey } from "@/lib/fleet-data";
 import { generateJobDescriptionAction } from "@/app/actions/ai";
 import { useToast } from "@/hooks/use-toast";
@@ -38,6 +37,8 @@ import type {
   JobRiskAssessment,
   JobRiskAssessmentHazard,
   ImsRiskRegisterEntry,
+  ContactOrganization,
+  OrganizationContact,
 } from "@/lib/types";
 import {
   BOOKING_TYPE_LABELS,
@@ -307,6 +308,17 @@ const DEFAULT_RISK_HAZARDS: JobRiskAssessmentHazard[] = [
   },
 ];
 
+type StaffMember = {
+  id: string;
+  name: string;
+  type: "asi_staff" | "subcontractor";
+  email?: string;
+};
+
+function getStaffMemberKey(staff: StaffMember) {
+  return staff.email?.toLowerCase().trim() || staff.id;
+}
+
 export default function JobCardPage() {
   const params = useParams();
   const router = useRouter();
@@ -317,6 +329,7 @@ export default function JobCardPage() {
     deleteJob,
     worksRegister,
     completeWorksRegisterEntry,
+    updateWorksRegisterEntry,
     jobs,
   } = useJobs();
   const { user, firebaseUser } = useAuth();
@@ -381,6 +394,7 @@ export default function JobCardPage() {
     Record<string, { item: string; quantity: string }>
   >({});
   const saveTimeouts = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const skipNextTeamSyncRef = useRef(false);
   const [jobDescription, setJobDescription] = useState(() =>
     job?.jobDescription ?? extractAiDescription(job?.notes)
   );
@@ -392,6 +406,14 @@ export default function JobCardPage() {
     repairId: string;
   } | null>(null);
   const [showCompleteDialog, setShowCompleteDialog] = useState(false);
+  const [organizations, setOrganizations] = useState<ContactOrganization[]>([]);
+  const [roleStaffList, setRoleStaffList] = useState<StaffMember[]>([]);
+  const [contactStaffList, setContactStaffList] = useState<StaffMember[]>([]);
+  const [staffList, setStaffList] = useState<StaffMember[]>([]);
+  const [staffError, setStaffError] = useState<string | null>(null);
+  const [selectedTeam, setSelectedTeam] = useState<StaffMember[]>([]);
+  const [teamDirty, setTeamDirty] = useState(false);
+  const [savingTeam, setSavingTeam] = useState(false);
 
   const buildRiskAssessmentDraft = (
     existing?: JobRiskAssessment
@@ -665,6 +687,146 @@ export default function JobCardPage() {
   }, [job]);
 
   useEffect(() => {
+    const organizationsQuery = query(collection(db, COLLECTIONS.CONTACT_ORGANIZATIONS));
+    const unsubscribe = onSnapshot(
+      organizationsQuery,
+      (snapshot) => {
+        const loaded = snapshot.docs
+          .map((docSnap) => ({
+            id: docSnap.id,
+            ...(docSnap.data() as Omit<ContactOrganization, "id">),
+          }))
+          .sort((a, b) => a.name.localeCompare(b.name));
+        setOrganizations(loaded);
+      },
+      (error) => {
+        console.warn("Failed to load organisations:", error);
+        setOrganizations([]);
+      }
+    );
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    const usersQuery = query(
+      collection(db, COLLECTIONS.USERS),
+      where("role", "in", ["technician", "contractor", "admin"])
+    );
+    const unsubscribe = onSnapshot(
+      usersQuery,
+      (snapshot) => {
+        const loaded = snapshot.docs
+          .map((docSnap) => {
+            const data = docSnap.data() as { name?: string; role?: string; email?: string };
+            return {
+              id: docSnap.id,
+              name: data.name || data.email || "Staff",
+              type: data.role === "contractor" ? "subcontractor" : "asi_staff",
+              email: data.email,
+            } satisfies StaffMember;
+          })
+          .sort((a, b) => a.name.localeCompare(b.name));
+        setRoleStaffList(loaded);
+        setStaffError(null);
+      },
+      (error) => {
+        console.warn("Failed to load staff list:", error);
+        setRoleStaffList([]);
+        setStaffError(error.message || "Unable to load staff.");
+      }
+    );
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    const staffOrgs = organizations
+      .map((org) => {
+        const isAsiOrg =
+          org.category === "asi_staff" ||
+          org.domains?.some(
+            (domain) => domain.toLowerCase().trim() === "asi-australia.com.au"
+          );
+        if (isAsiOrg) return { id: org.id, type: "asi_staff" as const };
+
+        const isSubcontractorOrg =
+          org.category === "subcontractor" || org.portalRole === "contractor";
+        if (isSubcontractorOrg) return { id: org.id, type: "subcontractor" as const };
+
+        return null;
+      })
+      .filter((entry): entry is { id: string; type: StaffMember["type"] } => Boolean(entry));
+
+    if (staffOrgs.length === 0) {
+      setContactStaffList([]);
+      return;
+    }
+
+    const staffByOrg = new Map<string, StaffMember[]>();
+    const mergeStaff = () => {
+      const merged = new Map<string, StaffMember>();
+      for (const orgStaff of staffByOrg.values()) {
+        orgStaff.forEach((staff) => {
+          const key = getStaffMemberKey(staff);
+          if (!merged.has(key)) {
+            merged.set(key, staff);
+          }
+        });
+      }
+      setContactStaffList(
+        Array.from(merged.values()).sort((a, b) => a.name.localeCompare(b.name))
+      );
+    };
+
+    const unsubscribers = staffOrgs.map(({ id: orgId, type }) => {
+      const contactsQuery = query(
+        collection(db, COLLECTIONS.ORGANIZATION_CONTACTS),
+        where("organizationId", "==", orgId)
+      );
+      return onSnapshot(
+        contactsQuery,
+        (snapshot) => {
+          const loaded = snapshot.docs.reduce<StaffMember[]>((acc, docSnap) => {
+            const data = docSnap.data() as OrganizationContact;
+            if (data.status === "inactive") return acc;
+            const fullName = `${data.firstName} ${data.lastName}`.trim();
+            acc.push({
+              id: data.portalUserId || docSnap.id,
+              name: fullName || data.email || "Staff",
+              type,
+              email: data.email || undefined,
+            });
+            return acc;
+          }, []);
+          loaded.sort((a, b) => a.name.localeCompare(b.name));
+          staffByOrg.set(orgId, loaded);
+          mergeStaff();
+        },
+        (error) => {
+          console.warn("Failed to load org contact staff:", error);
+          staffByOrg.set(orgId, []);
+          mergeStaff();
+        }
+      );
+    });
+
+    return () => {
+      unsubscribers.forEach((unsubscribe) => unsubscribe());
+    };
+  }, [organizations]);
+
+  useEffect(() => {
+    const merged = new Map<string, StaffMember>();
+    const addStaff = (staff: StaffMember) => {
+      const key = getStaffMemberKey(staff);
+      if (!merged.has(key)) merged.set(key, staff);
+    };
+
+    roleStaffList.forEach(addStaff);
+    contactStaffList.forEach(addStaff);
+    setStaffList(Array.from(merged.values()).sort((a, b) => a.name.localeCompare(b.name)));
+  }, [roleStaffList, contactStaffList]);
+
+  useEffect(() => {
     setFleetSeeded(false);
   }, [job?.organizationId]);
 
@@ -800,6 +962,64 @@ export default function JobCardPage() {
   const lookupRegoKey = normalizeVehicleKey(newVehicle.registration);
   const lookupFleetKey = normalizeVehicleKey(newVehicle.fleetAssetNumber);
   const canLookupFleet = lookupRegoKey.length >= 5 || lookupFleetKey.length >= 1;
+  const teamOptions = useMemo(() => {
+    const merged = new Map<string, StaffMember>();
+    const addStaff = (staff: StaffMember) => {
+      const key = getStaffMemberKey(staff);
+      if (!merged.has(key)) merged.set(key, staff);
+    };
+
+    staffList.forEach(addStaff);
+    job?.assignedTechnicians?.forEach((assignment) => {
+      const match = staffList.find((staff) => staff.id === assignment.technicianId);
+      addStaff(
+        match || {
+          id: assignment.technicianId,
+          name: assignment.technicianName || assignment.technicianId,
+          type: "asi_staff" as const,
+        }
+      );
+    });
+
+    return Array.from(merged.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [job?.assignedTechnicians, staffList]);
+
+  useEffect(() => {
+    if (skipNextTeamSyncRef.current) {
+      skipNextTeamSyncRef.current = false;
+      return;
+    }
+    if (!job) {
+      setSelectedTeam([]);
+      setTeamDirty(false);
+      return;
+    }
+    if (teamDirty) return;
+    const nextTeam = job.assignedTechnicians.map((assignment) => {
+      const match = teamOptions.find((staff) => staff.id === assignment.technicianId);
+      return (
+        match || {
+          id: assignment.technicianId,
+          name: assignment.technicianName || assignment.technicianId,
+          type: "asi_staff" as const,
+        }
+      );
+    });
+    setSelectedTeam(nextTeam);
+  }, [job, teamDirty, teamOptions]);
+
+  useEffect(() => {
+    setTeamDirty(false);
+  }, [job?.id]);
+
+  const teamAsiStaff = useMemo(
+    () => teamOptions.filter((staff) => staff.type === "asi_staff"),
+    [teamOptions]
+  );
+  const teamSubcontractors = useMemo(
+    () => teamOptions.filter((staff) => staff.type === "subcontractor"),
+    [teamOptions]
+  );
 
   if (!job) {
     return (
@@ -818,13 +1038,19 @@ export default function JobCardPage() {
   // Parse job notes for service type
   const notesLines = job.notes?.split("\n") || [];
   const serviceType = notesLines[0]?.replace("Service: ", "") || "Not specified";
+  const canEditTeamAssignments =
+    (user?.role === "admin" || user?.role === "technician") &&
+    job.status !== "closed" &&
+    job.status !== "cancelled";
 
   // Get technician details
-  const assignedTechs = job.assignedTechnicians.map((assignment) => {
-    const staff = asiStaff.find((s) => s.id === assignment.technicianId);
+  const assignedTechs = selectedTeam.map((staff, index) => {
+    const assignment = job.assignedTechnicians.find((item) => item.technicianId === staff.id);
     return {
-      ...assignment,
-      name: assignment.technicianName || staff?.name || assignment.technicianId,
+      technicianId: staff.id,
+      name: staff.name,
+      role: assignment?.role || (index === 0 ? "primary" : "secondary"),
+      type: staff.type,
     };
   });
 
@@ -1104,6 +1330,97 @@ export default function JobCardPage() {
     return { repairs, allCompleted };
   };
 
+  const mapAssignedTeamFromJob = () =>
+    job.assignedTechnicians.map((assignment) => {
+      const match = teamOptions.find((staff) => staff.id === assignment.technicianId);
+      return (
+        match || {
+          id: assignment.technicianId,
+          name: assignment.technicianName || assignment.technicianId,
+          type: "asi_staff" as const,
+        }
+      );
+    });
+
+  const handleToggleTeamMember = (staff: StaffMember) => {
+    if (!canEditTeamAssignments || savingTeam) return;
+    setSelectedTeam((prev) => {
+      const exists = prev.some((member) => member.id === staff.id);
+      if (exists) {
+        return prev.filter((member) => member.id !== staff.id);
+      }
+      return [...prev, staff];
+    });
+    setTeamDirty(true);
+  };
+
+  const handleResetTeamSelection = () => {
+    setSelectedTeam(mapAssignedTeamFromJob());
+    setTeamDirty(false);
+  };
+
+  const handleSaveTeamAssignments = async () => {
+    if (!canEditTeamAssignments || !teamDirty || savingTeam) return;
+    setSavingTeam(true);
+    try {
+      const now = Timestamp.now();
+      const assignedBy = user?.uid || "system";
+      const assignedTechnicians = selectedTeam.map((staff, index) => ({
+        technicianId: staff.id,
+        technicianName: staff.name,
+        role: (index === 0 ? "primary" : "secondary") as "primary" | "secondary",
+        assignedAt: now,
+        assignedBy,
+      }));
+      const assignedTechnicianIds = assignedTechnicians.map((assignment) => assignment.technicianId);
+      const assignedStaffNames = selectedTeam.map((staff) => staff.name);
+
+      const updates: Partial<Job> = {
+        assignedTechnicians,
+        assignedTechnicianIds,
+      };
+      if (job.riskAssessment) {
+        updates.riskAssessment = {
+          ...job.riskAssessment,
+          coveredStaffIds: assignedTechnicianIds,
+          coveredStaffNames: assignedStaffNames,
+        };
+      }
+
+      await updateJob(job.id, updates);
+      const worksEntry =
+        worksRegister.find((entry) => entry.jobId === job.id) ||
+        worksRegister.find((entry) => entry.jobNumber === job.jobNumber);
+      if (worksEntry) {
+        await updateWorksRegisterEntry(worksEntry.id, {
+          technicianId: selectedTeam[0]?.id || "unassigned",
+          technicianName: selectedTeam[0]?.name || "Unassigned",
+        });
+      }
+      if (job.riskAssessment) {
+        setRiskAssessment((prev) => ({
+          ...prev,
+          coveredStaffIds: assignedTechnicianIds,
+          coveredStaffNames: assignedStaffNames,
+        }));
+      }
+      skipNextTeamSyncRef.current = true;
+      setTeamDirty(false);
+      toast({
+        title: "Team updated",
+        description: "Assigned ASI staff and subcontractors have been saved.",
+      });
+    } catch (error: any) {
+      toast({
+        title: "Unable to update team",
+        description: error?.message || "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setSavingTeam(false);
+    }
+  };
+
   const handleSaveChanges = async () => {
     const { allCompleted } = getRepairCompletionState(jobVehicles);
 
@@ -1298,10 +1615,8 @@ export default function JobCardPage() {
   const handleSaveRiskAssessment = async (markComplete: boolean) => {
     if (!job) return;
     const now = Timestamp.now();
-    const staffNames =
-      job.assignedTechnicians
-        ?.map((tech) => tech.technicianName)
-        .filter((name): name is string => Boolean(name)) ?? [];
+    const coverageTeam = selectedTeam.length > 0 ? selectedTeam : mapAssignedTeamFromJob();
+    const staffNames = coverageTeam.map((staff) => staff.name);
     const nextAssessment: JobRiskAssessment = {
       ...riskAssessment,
       hazards: riskAssessment.hazards.map((hazard) => {
@@ -1343,7 +1658,7 @@ export default function JobCardPage() {
         id: user?.uid || "system",
         name: user?.name || user?.email || "ASI Staff",
       };
-      nextAssessment.coveredStaffIds = job.assignedTechnicianIds || [];
+      nextAssessment.coveredStaffIds = coverageTeam.map((staff) => staff.id);
       nextAssessment.coveredStaffNames = staffNames;
     }
 
@@ -3875,29 +4190,154 @@ export default function JobCardPage() {
                 <Users className="h-5 w-5 text-primary" />
                 Assigned Team
               </CardTitle>
+              <CardDescription>
+                Add, change, or remove ASI staff and subcontractors while this job is active.
+              </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
-              {assignedTechs.map((tech) => (
-                <div
-                  key={tech.technicianId}
-                  className="flex items-center justify-between p-3 rounded-lg bg-muted/30"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="h-10 w-10 rounded-full bg-primary/20 flex items-center justify-center">
-                      <Wrench className="h-5 w-5 text-primary" />
-                    </div>
-                    <div>
-                      <p className="font-medium">{tech.name}</p>
-                      <p className="text-xs text-muted-foreground capitalize">
-                        {tech.role} Technician
+            <CardContent className="space-y-6">
+              {staffError && (
+                <p className="text-sm text-destructive">
+                  Unable to load some team options. {staffError}
+                </p>
+              )}
+
+              <div className="space-y-4">
+                <div>
+                  <h4 className="text-sm font-medium mb-2 flex items-center gap-2">
+                    <Users className="h-4 w-4" />
+                    ASI Staff
+                  </h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {teamAsiStaff.map((staff) => {
+                      const checked = selectedTeam.some((member) => member.id === staff.id);
+                      return (
+                        <Card
+                          key={staff.id}
+                          className={`transition-all ${
+                            canEditTeamAssignments ? "cursor-pointer hover:border-primary/50" : "opacity-80"
+                          } ${checked ? "border-primary bg-primary/5" : "border-border/50"}`}
+                          onClick={() => handleToggleTeamMember(staff)}
+                        >
+                          <CardContent className="p-4">
+                            <div className="flex items-center gap-3">
+                              <Checkbox
+                                checked={checked}
+                                onCheckedChange={() => handleToggleTeamMember(staff)}
+                                disabled={!canEditTeamAssignments || savingTeam}
+                              />
+                              <div className="flex items-center gap-2">
+                                <Wrench className="h-4 w-4 text-muted-foreground" />
+                                <span className="font-medium">{staff.name}</span>
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      );
+                    })}
+                    {!staffError && teamAsiStaff.length === 0 && (
+                      <p className="text-sm text-muted-foreground">
+                        No ASI staff accounts found.
                       </p>
-                    </div>
+                    )}
                   </div>
-                  <Badge variant="outline" className="capitalize">
-                    {tech.role}
-                  </Badge>
                 </div>
-              ))}
+
+                <div>
+                  <h4 className="text-sm font-medium mb-2 flex items-center gap-2">
+                    <Building2 className="h-4 w-4" />
+                    Subcontractors
+                  </h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {teamSubcontractors.map((staff) => {
+                      const checked = selectedTeam.some((member) => member.id === staff.id);
+                      return (
+                        <Card
+                          key={staff.id}
+                          className={`transition-all ${
+                            canEditTeamAssignments ? "cursor-pointer hover:border-primary/50" : "opacity-80"
+                          } ${checked ? "border-primary bg-primary/5" : "border-border/50"}`}
+                          onClick={() => handleToggleTeamMember(staff)}
+                        >
+                          <CardContent className="p-4">
+                            <div className="flex items-center gap-3">
+                              <Checkbox
+                                checked={checked}
+                                onCheckedChange={() => handleToggleTeamMember(staff)}
+                                disabled={!canEditTeamAssignments || savingTeam}
+                              />
+                              <div className="flex items-center gap-2">
+                                <Building2 className="h-4 w-4 text-muted-foreground" />
+                                <span className="font-medium">{staff.name}</span>
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      );
+                    })}
+                    {!staffError && teamSubcontractors.length === 0 && (
+                      <p className="text-sm text-muted-foreground">
+                        No subcontractor accounts found. Add one in Contacts or Users.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <Separator />
+
+              <div className="space-y-3">
+                <h4 className="text-sm font-medium">Current Assignment</h4>
+                {assignedTechs.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No staff assigned to this job.</p>
+                ) : (
+                  assignedTechs.map((tech) => (
+                    <div
+                      key={tech.technicianId}
+                      className="flex items-center justify-between p-3 rounded-lg bg-muted/30"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="h-10 w-10 rounded-full bg-primary/20 flex items-center justify-center">
+                          {tech.type === "subcontractor" ? (
+                            <Building2 className="h-5 w-5 text-primary" />
+                          ) : (
+                            <Wrench className="h-5 w-5 text-primary" />
+                          )}
+                        </div>
+                        <div>
+                          <p className="font-medium">{tech.name}</p>
+                          <p className="text-xs text-muted-foreground capitalize">
+                            {tech.role} {tech.type === "subcontractor" ? "subcontractor" : "technician"}
+                          </p>
+                        </div>
+                      </div>
+                      <Badge variant="outline" className="capitalize">
+                        {tech.role}
+                      </Badge>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  variant="outline"
+                  onClick={handleResetTeamSelection}
+                  disabled={!teamDirty || savingTeam}
+                >
+                  Reset
+                </Button>
+                <Button
+                  onClick={handleSaveTeamAssignments}
+                  disabled={!canEditTeamAssignments || !teamDirty || savingTeam}
+                >
+                  {savingTeam ? "Saving..." : "Save Team"}
+                </Button>
+                {!canEditTeamAssignments && (
+                  <span className="text-xs text-muted-foreground">
+                    Team editing is only available to internal staff on active jobs.
+                  </span>
+                )}
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
