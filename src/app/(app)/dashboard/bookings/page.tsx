@@ -364,7 +364,7 @@ export default function BookingsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<BookingStatusFilter>("all");
   const [serviceFilter, setServiceFilter] = useState<BookingType | "all">("all");
-  const [sortOption, setSortOption] = useState<BookingSortOption>("scheduled_asc");
+  const [sortOption, setSortOption] = useState<BookingSortOption>("scheduled_desc");
   const [includeCancelledBookings, setIncludeCancelledBookings] = useState(false);
 
   // State for new booking form
