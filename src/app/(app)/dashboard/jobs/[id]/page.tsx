@@ -951,10 +951,10 @@ export default function JobCardPage() {
     }
     setNewVehicle((prev) => ({
       ...prev,
-      registration: resolvedMatch.registration || prev.registration,
-      vin: resolvedMatch.vin ?? prev.vin,
-      fleetAssetNumber: resolvedMatch.fleetAssetNumber ?? prev.fleetAssetNumber,
-      bodyManufacturer: resolvedMatch.bodyManufacturer ?? prev.bodyManufacturer,
+      registration: (resolvedMatch.registration || prev.registration).toUpperCase(),
+      vin: (resolvedMatch.vin ?? prev.vin).toUpperCase(),
+      fleetAssetNumber: (resolvedMatch.fleetAssetNumber ?? prev.fleetAssetNumber).toUpperCase(),
+      bodyManufacturer: (resolvedMatch.bodyManufacturer ?? prev.bodyManufacturer).toUpperCase(),
       year: resolvedMatch.year ? String(resolvedMatch.year) : prev.year,
     }));
   };
@@ -1510,10 +1510,10 @@ export default function JobCardPage() {
       id: `vehicle-${Date.now()}`,
       registration: newVehicle.registration.trim().toUpperCase(),
       vin: newVehicle.vin.trim().toUpperCase() || undefined,
-      fleetAssetNumber: newVehicle.fleetAssetNumber.trim() || undefined,
-      bodyManufacturer: newVehicle.bodyManufacturer.trim() || undefined,
+      fleetAssetNumber: newVehicle.fleetAssetNumber.trim().toUpperCase() || undefined,
+      bodyManufacturer: newVehicle.bodyManufacturer.trim().toUpperCase() || undefined,
       year: newVehicle.year ? parseInt(newVehicle.year, 10) : undefined,
-      poWorksOrderNumber: newVehicle.poWorksOrderNumber.trim() || undefined,
+      poWorksOrderNumber: newVehicle.poWorksOrderNumber.trim().toUpperCase() || undefined,
       repairSites: [],
       microfiberDisksUsed: [],
       consumablesUsed: [],
@@ -2335,11 +2335,11 @@ export default function JobCardPage() {
 
       {/* Tabs */}
       <Tabs defaultValue="vehicles" className="space-y-4">
-        <TabsList className="grid w-full grid-cols-3 lg:grid-cols-5 bg-muted/50">
+        <TabsList className="grid w-full grid-cols-4 lg:grid-cols-5 bg-muted/50">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="vehicles">Vehicles & Repairs</TabsTrigger>
           <TabsTrigger value="summary">Job Summary</TabsTrigger>
-          <TabsTrigger value="team" className="hidden lg:inline-flex">
+          <TabsTrigger value="team">
             Team
           </TabsTrigger>
           <TabsTrigger value="history" className="hidden lg:inline-flex">
@@ -4498,7 +4498,10 @@ export default function JobCardPage() {
                   placeholder="Optional"
                   value={newVehicle.fleetAssetNumber}
                   onChange={(e) =>
-                    setNewVehicle({ ...newVehicle, fleetAssetNumber: e.target.value })
+                    setNewVehicle({
+                      ...newVehicle,
+                      fleetAssetNumber: e.target.value.toUpperCase(),
+                    })
                   }
                 />
               </div>
@@ -4509,7 +4512,10 @@ export default function JobCardPage() {
                   placeholder="e.g., Volgren, Custom Denning"
                   value={newVehicle.bodyManufacturer}
                   onChange={(e) =>
-                    setNewVehicle({ ...newVehicle, bodyManufacturer: e.target.value })
+                    setNewVehicle({
+                      ...newVehicle,
+                      bodyManufacturer: e.target.value.toUpperCase(),
+                    })
                   }
                 />
               </div>
@@ -4532,7 +4538,10 @@ export default function JobCardPage() {
                   placeholder="e.g., PO-12345"
                   value={newVehicle.poWorksOrderNumber}
                   onChange={(e) =>
-                    setNewVehicle({ ...newVehicle, poWorksOrderNumber: e.target.value })
+                    setNewVehicle({
+                      ...newVehicle,
+                      poWorksOrderNumber: e.target.value.toUpperCase(),
+                    })
                   }
                 />
               </div>

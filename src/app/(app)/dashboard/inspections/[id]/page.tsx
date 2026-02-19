@@ -851,10 +851,10 @@ export default function InspectionDetailPage() {
     }
     setNewVehicle((prev) => ({
       ...prev,
-      registration: resolvedMatch.registration || prev.registration,
-      vin: resolvedMatch.vin ?? prev.vin,
-      fleetAssetNumber: resolvedMatch.fleetAssetNumber ?? prev.fleetAssetNumber,
-      bodyManufacturer: resolvedMatch.bodyManufacturer ?? prev.bodyManufacturer,
+      registration: (resolvedMatch.registration || prev.registration).toUpperCase(),
+      vin: (resolvedMatch.vin ?? prev.vin).toUpperCase(),
+      fleetAssetNumber: (resolvedMatch.fleetAssetNumber ?? prev.fleetAssetNumber).toUpperCase(),
+      bodyManufacturer: (resolvedMatch.bodyManufacturer ?? prev.bodyManufacturer).toUpperCase(),
       year: resolvedMatch.year ? String(resolvedMatch.year) : prev.year,
     }));
   };
@@ -912,10 +912,10 @@ export default function InspectionDetailPage() {
     const vehicle: Vehicle = {
       registration: newVehicle.registration.trim().toUpperCase(),
       vin: newVehicle.vin.trim().toUpperCase() || undefined,
-      fleetAssetNumber: newVehicle.fleetAssetNumber.trim() || undefined,
-      bodyManufacturer: newVehicle.bodyManufacturer.trim() || undefined,
+      fleetAssetNumber: newVehicle.fleetAssetNumber.trim().toUpperCase() || undefined,
+      bodyManufacturer: newVehicle.bodyManufacturer.trim().toUpperCase() || undefined,
       year: newVehicle.year ? parseInt(newVehicle.year, 10) : undefined,
-      poWorksOrderNumber: newVehicle.poWorksOrderNumber.trim() || undefined,
+      poWorksOrderNumber: newVehicle.poWorksOrderNumber.trim().toUpperCase() || undefined,
     };
     const report: VehicleReport = {
       vehicleId: `vehicle-${Date.now()}`,
@@ -2656,7 +2656,10 @@ export default function InspectionDetailPage() {
                         <Input
                           value={newVehicle.fleetAssetNumber}
                           onChange={(e) =>
-                            setNewVehicle({ ...newVehicle, fleetAssetNumber: e.target.value })
+                            setNewVehicle({
+                              ...newVehicle,
+                              fleetAssetNumber: e.target.value.toUpperCase(),
+                            })
                           }
                         />
                       </div>
@@ -2665,7 +2668,10 @@ export default function InspectionDetailPage() {
                         <Input
                           value={newVehicle.bodyManufacturer}
                           onChange={(e) =>
-                            setNewVehicle({ ...newVehicle, bodyManufacturer: e.target.value })
+                            setNewVehicle({
+                              ...newVehicle,
+                              bodyManufacturer: e.target.value.toUpperCase(),
+                            })
                           }
                         />
                       </div>
@@ -2686,7 +2692,7 @@ export default function InspectionDetailPage() {
                           onChange={(e) =>
                             setNewVehicle({
                               ...newVehicle,
-                              poWorksOrderNumber: e.target.value,
+                              poWorksOrderNumber: e.target.value.toUpperCase(),
                             })
                           }
                         />
