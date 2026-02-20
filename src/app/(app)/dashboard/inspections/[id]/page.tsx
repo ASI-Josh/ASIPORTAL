@@ -1387,6 +1387,16 @@ export default function InspectionDetailPage() {
 
     const now = Timestamp.now();
     const bookingType = deriveBookingTypeFromVehicleReports(vehicleReports.length ? vehicleReports : inspection.vehicleReports || []);
+    const bookingVehicles = (vehicleReports.length ? vehicleReports : inspection.vehicleReports || []).map(
+      (report) => ({
+        registration: report.vehicle.registration?.trim().toUpperCase() || "",
+        vin: report.vehicle.vin?.trim().toUpperCase() || undefined,
+        fleetAssetNumber: report.vehicle.fleetAssetNumber?.trim().toUpperCase() || undefined,
+        bodyManufacturer: report.vehicle.bodyManufacturer?.trim().toUpperCase() || undefined,
+        year: report.vehicle.year || undefined,
+        poWorksOrderNumber: report.vehicle.poWorksOrderNumber?.trim().toUpperCase() || undefined,
+      })
+    );
 
     const existingQuery = query(
       collection(db, COLLECTIONS.BOOKINGS),
@@ -1413,6 +1423,7 @@ export default function InspectionDetailPage() {
           finishTime: resolvedFinishDate ? resolvedFinishTime || undefined : undefined,
           allocatedStaff,
           allocatedStaffIds: allocatedStaff.map((staff) => staff.id),
+          vehicles: bookingVehicles,
           notes: notes || inspection.notes || undefined,
           status: "converted_to_job",
           updatedAt: now,
@@ -1443,6 +1454,7 @@ export default function InspectionDetailPage() {
         finishTime: resolvedFinishDate ? resolvedFinishTime || undefined : undefined,
         allocatedStaff,
         allocatedStaffIds: allocatedStaff.map((staff) => staff.id),
+        vehicles: bookingVehicles,
         notes: notes || inspection.notes || undefined,
         status: "converted_to_job",
         convertedJobId: jobId,

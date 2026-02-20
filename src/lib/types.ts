@@ -277,6 +277,8 @@ export interface Booking {
   id: string;
   bookingNumber: string;
   bookingType: BookingType;
+  // Optional booking-level vehicle details (legacy/fallback)
+  vehicles?: Vehicle[];
   resourceDurationTemplate?: ResourceDurationTemplate;
   resourceDurationOverrideDays?: number;
   resourceDurationOverrideHours?: number;

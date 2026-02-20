@@ -136,6 +136,10 @@ type StaffMember = {
 
 type BookingDisplayStatus = Booking["status"] | Job["status"] | "on_hold" | "converted_to_job";
 type BookingStatusFilter = "all" | BookingDisplayStatus;
+type BookingVehicleDisplay = {
+  registration: string;
+  fleetAssetNumber: string;
+};
 type BookingSortOption =
   | "scheduled_asc"
   | "scheduled_desc"
@@ -1676,6 +1680,46 @@ export default function BookingsPage() {
   const editSubcontractors = editStaffOptions.filter((s) => s.type === "subcontractor");
 
   const jobsById = useMemo(() => new Map(jobs.map((job) => [job.id, job])), [jobs]);
+  const getBookingVehicles = (booking: Booking): BookingVehicleDisplay[] => {
+    const resolvedVehicles: BookingVehicleDisplay[] = [];
+    const seen = new Set<string>();
+    const addVehicle = (registration?: string, fleetAssetNumber?: string) => {
+      const normalizedRegistration =
+        typeof registration === "string" ? registration.trim().toUpperCase() : "";
+      const normalizedFleet =
+        typeof fleetAssetNumber === "string" ? fleetAssetNumber.trim().toUpperCase() : "";
+      if (!normalizedRegistration && !normalizedFleet) return;
+      const key = `${normalizedRegistration}|${normalizedFleet}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      resolvedVehicles.push({
+        registration: normalizedRegistration,
+        fleetAssetNumber: normalizedFleet,
+      });
+    };
+
+    if (booking.convertedJobId) {
+      const linkedJob = jobsById.get(booking.convertedJobId);
+      if (linkedJob) {
+        linkedJob.jobVehicles?.forEach((vehicle) =>
+          addVehicle(vehicle.registration, vehicle.fleetAssetNumber)
+        );
+        if (resolvedVehicles.length === 0) {
+          linkedJob.vehicles?.forEach((vehicle) =>
+            addVehicle(vehicle.registration, vehicle.fleetAssetNumber)
+          );
+        }
+      }
+    }
+
+    if (resolvedVehicles.length === 0) {
+      booking.vehicles?.forEach((vehicle) =>
+        addVehicle(vehicle.registration, vehicle.fleetAssetNumber)
+      );
+    }
+
+    return resolvedVehicles;
+  };
   const getBookingDisplayStatus = (booking: Booking): BookingDisplayStatus => {
     if (booking.status === "cancelled") return "cancelled";
     if (booking.convertedJobId) {
@@ -3171,6 +3215,7 @@ export default function BookingsPage() {
                 <TableHead>Booking #</TableHead>
                 <TableHead>Service</TableHead>
                 <TableHead>Customer</TableHead>
+                <TableHead>Vehicle</TableHead>
                 <TableHead>Contact</TableHead>
                 <TableHead>Date & Time</TableHead>
                 <TableHead>Assigned</TableHead>
@@ -3181,6 +3226,7 @@ export default function BookingsPage() {
             <TableBody>
               {filteredBookings.map((booking) => {
                 const displayStatus = getBookingDisplayStatus(booking);
+                const bookingVehicles = getBookingVehicles(booking);
                 return (
                 <TableRow
                   key={booking.id}
@@ -3211,6 +3257,32 @@ export default function BookingsPage() {
                         {booking.siteLocation.address.suburb}, {booking.siteLocation.address.state}
                       </p>
                     </div>
+                  </TableCell>
+                  <TableCell>
+                    {bookingVehicles.length === 0 ? (
+                      <span className="text-xs text-muted-foreground">-</span>
+                    ) : (
+                      <div className="space-y-1">
+                        {bookingVehicles.slice(0, 2).map((vehicle, index) => (
+                          <p
+                            key={`${vehicle.registration}-${vehicle.fleetAssetNumber}-${index}`}
+                            className="text-xs leading-tight"
+                          >
+                            <span className="text-muted-foreground">Fleet:</span>{" "}
+                            <span className="font-medium">
+                              {vehicle.fleetAssetNumber || "-"}
+                            </span>{" "}
+                            <span className="text-muted-foreground">| Rego:</span>{" "}
+                            <span className="font-mono">{vehicle.registration || "-"}</span>
+                          </p>
+                        ))}
+                        {bookingVehicles.length > 2 && (
+                          <p className="text-xs text-muted-foreground">
+                            +{bookingVehicles.length - 2} more vehicle(s)
+                          </p>
+                        )}
+                      </div>
+                    )}
                   </TableCell>
                   <TableCell>
                     <div>
@@ -3304,7 +3376,7 @@ export default function BookingsPage() {
               })}
               {filteredBookings.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
                     No bookings found. Create your first booking to get started.
                   </TableCell>
                 </TableRow>
