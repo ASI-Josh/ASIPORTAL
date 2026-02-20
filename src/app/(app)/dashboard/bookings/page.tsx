@@ -3212,13 +3212,13 @@ export default function BookingsPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Booking #</TableHead>
-                <TableHead>Service</TableHead>
+                <TableHead className="w-[120px]">Booking #</TableHead>
+                <TableHead className="hidden lg:table-cell">Service</TableHead>
                 <TableHead>Customer</TableHead>
-                <TableHead>Vehicle</TableHead>
-                <TableHead>Contact</TableHead>
-                <TableHead>Date & Time</TableHead>
-                <TableHead>Assigned</TableHead>
+                <TableHead className="hidden md:table-cell">Vehicle</TableHead>
+                <TableHead className="hidden xl:table-cell">Contact</TableHead>
+                <TableHead className="hidden lg:table-cell">Date & Time</TableHead>
+                <TableHead className="hidden md:table-cell">Assigned</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
@@ -3227,6 +3227,7 @@ export default function BookingsPage() {
               {filteredBookings.map((booking) => {
                 const displayStatus = getBookingDisplayStatus(booking);
                 const bookingVehicles = getBookingVehicles(booking);
+                const primaryVehicle = bookingVehicles[0];
                 return (
                 <TableRow
                   key={booking.id}
@@ -3243,54 +3244,76 @@ export default function BookingsPage() {
                     });
                   }}
                 >
-                  <TableCell className="font-medium">{booking.bookingNumber}</TableCell>
-                  <TableCell>
+                  <TableCell className="font-medium align-top">
+                    <p>{booking.bookingNumber}</p>
+                    <div className="mt-1 lg:hidden">
+                      <Badge variant="outline" className="text-[11px]">
+                        {BOOKING_TYPE_LABELS[booking.bookingType]}
+                      </Badge>
+                    </div>
+                    <p className="mt-1 text-[11px] text-muted-foreground lg:hidden">
+                      {format(booking.scheduledDate.toDate(), "dd MMM yyyy")} at{" "}
+                      {booking.scheduledTime}
+                    </p>
+                  </TableCell>
+                  <TableCell className="hidden lg:table-cell align-top">
                     <Badge variant="outline">
                       {BOOKING_TYPE_LABELS[booking.bookingType]}
                     </Badge>
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="align-top">
                     <div>
                       <p className="font-medium">{booking.organizationName}</p>
                       <p className="text-xs text-muted-foreground flex items-center gap-1">
                         <MapPin className="h-3 w-3" />
                         {booking.siteLocation.address.suburb}, {booking.siteLocation.address.state}
                       </p>
+                      <div className="mt-2 space-y-2 md:hidden">
+                        {primaryVehicle ? (
+                          <div className="rounded-md border border-border/60 bg-muted/20 px-2 py-1.5">
+                            <p className="text-[11px] text-muted-foreground">
+                              Fleet:{" "}
+                              <span className="font-semibold text-foreground">
+                                {primaryVehicle.fleetAssetNumber || "-"}
+                              </span>{" "}
+                              | Rego:{" "}
+                              <span className="font-mono font-semibold text-foreground">
+                                {primaryVehicle.registration || "-"}
+                              </span>
+                            </p>
+                          </div>
+                        ) : (
+                          <p className="text-[11px] text-muted-foreground">Vehicle: -</p>
+                        )}
+                        <p className="text-[11px] text-muted-foreground xl:hidden">
+                          Contact: {booking.contactName}
+                        </p>
+                      </div>
                     </div>
                   </TableCell>
-                  <TableCell>
-                    {bookingVehicles.length === 0 ? (
+                  <TableCell className="hidden md:table-cell align-top">
+                    {!primaryVehicle ? (
                       <span className="text-xs text-muted-foreground">-</span>
                     ) : (
                       <div className="space-y-1">
-                        {bookingVehicles.slice(0, 2).map((vehicle, index) => (
-                          <p
-                            key={`${vehicle.registration}-${vehicle.fleetAssetNumber}-${index}`}
-                            className="text-xs leading-tight"
-                          >
-                            <span className="text-muted-foreground">Fleet:</span>{" "}
-                            <span className="font-medium">
-                              {vehicle.fleetAssetNumber || "-"}
-                            </span>{" "}
-                            <span className="text-muted-foreground">| Rego:</span>{" "}
-                            <span className="font-mono">{vehicle.registration || "-"}</span>
-                          </p>
-                        ))}
-                        {bookingVehicles.length > 2 && (
-                          <p className="text-xs text-muted-foreground">
-                            +{bookingVehicles.length - 2} more vehicle(s)
-                          </p>
-                        )}
+                        <p className="text-xs leading-tight">
+                          <span className="text-muted-foreground">Fleet:</span>{" "}
+                          <span className="font-medium">
+                            {primaryVehicle.fleetAssetNumber || "-"}
+                          </span>{" "}
+                          <span className="text-muted-foreground">| Rego:</span>{" "}
+                          <span className="font-mono">{primaryVehicle.registration || "-"}</span>
+                        </p>
                       </div>
                     )}
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="hidden xl:table-cell align-top">
                     <div>
                       <p>{booking.contactName}</p>
                       <p className="text-xs text-muted-foreground">{booking.contactEmail}</p>
                     </div>
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="hidden lg:table-cell align-top">
                     <div className="flex items-center gap-2">
                       <CalendarIcon className="h-4 w-4 text-muted-foreground" />
                       <div>
@@ -3302,7 +3325,7 @@ export default function BookingsPage() {
                       </div>
                     </div>
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="hidden md:table-cell align-top">
                     <div className="flex flex-wrap gap-1">
                       {booking.allocatedStaff.map((staff) => (
                         <Badge
@@ -3315,7 +3338,7 @@ export default function BookingsPage() {
                       ))}
                     </div>
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="align-top">
                     <Badge
                       variant={getBookingStatusVariant(displayStatus)}
                     >
