@@ -1427,6 +1427,13 @@ export default function JobCardPage() {
     return { repairs, allCompleted };
   };
 
+  const hasAnyHold = (vehicles: JobVehicle[]) =>
+    vehicles.some(
+      (vehicle) =>
+        vehicle.status === "on_hold" ||
+        vehicle.repairSites.some((repair) => getRepairStatus(repair) === "on_hold")
+    );
+
   const mapAssignedTeamFromJob = () =>
     job.assignedTechnicians.map((assignment) => {
       const match = teamOptions.find((staff) => staff.id === assignment.technicianId);
@@ -2002,16 +2009,58 @@ export default function JobCardPage() {
   };
 
   // Update vehicle status
-  const handleUpdateVehicleStatus = (
+  const handleUpdateVehicleStatus = async (
     vehicleId: string,
     status: JobVehicle["status"],
     holdReason?: string
   ) => {
-    setJobVehicles(
-      jobVehicles.map((v) =>
-        v.id === vehicleId ? { ...v, status, holdReason: status === "on_hold" ? holdReason : undefined } : v
-      )
-    );
+    const wasOnHold = hasAnyHold(jobVehicles);
+    const normalizedHoldReason = holdReason?.trim();
+    const updatedVehicles = jobVehicles.map((vehicle) => {
+      if (vehicle.id !== vehicleId) return vehicle;
+
+      const updatedRepairs = (vehicle.repairSites || []).map((repair) => {
+        const repairStatus = getRepairStatus(repair);
+        if (status === "on_hold") {
+          if (repairStatus === "completed") return repair;
+          return {
+            ...repair,
+            workStatus: "on_hold" as RepairWorkStatus,
+            holdReason: normalizedHoldReason || repair.holdReason,
+          };
+        }
+        if (repairStatus === "on_hold") {
+          return {
+            ...repair,
+            workStatus: "in_progress" as RepairWorkStatus,
+            holdReason: undefined,
+          };
+        }
+        return repair;
+      });
+
+      return {
+        ...vehicle,
+        status,
+        holdReason: status === "on_hold" ? normalizedHoldReason || vehicle.holdReason : undefined,
+        repairSites: updatedRepairs,
+      };
+    });
+
+    setJobVehicles(updatedVehicles);
+    scheduleJobVehiclesSave(updatedVehicles);
+    const isOnHold = hasAnyHold(updatedVehicles);
+    const changedBy = user?.name || user?.email || user?.uid || "System";
+    if (!wasOnHold && isOnHold && job.status !== "in_progress" && job.status !== "cancelled") {
+      await updateJobStatus(job.id, "in_progress", changedBy, "Job placed on hold");
+    } else if (
+      wasOnHold &&
+      !isOnHold &&
+      job.status !== "in_progress" &&
+      job.status !== "cancelled"
+    ) {
+      await updateJobStatus(job.id, "in_progress", changedBy, "Job resumed from hold");
+    }
   };
 
   const handleRepairAction = async (
@@ -2030,6 +2079,7 @@ export default function JobCardPage() {
     }
     const now = Timestamp.now();
     const changedBy = user?.name || user?.email || user?.uid || "System";
+    const wasOnHold = hasAnyHold(jobVehicles);
     const actionToStatus: Record<"start" | "hold" | "resume" | "complete", RepairWorkStatus> = {
       start: "in_progress",
       hold: "on_hold",
@@ -2068,15 +2118,44 @@ export default function JobCardPage() {
           isCompleted,
           completedAt: isCompleted ? now : repair.completedAt,
           completedBy: isCompleted ? changedBy : repair.completedBy,
-          holdReason: action === "hold" ? note || repair.holdReason : repair.holdReason,
+          holdReason: action === "hold" ? note || repair.holdReason : undefined,
         };
       });
-      return { ...v, repairSites: updatedRepairs };
+      const hasOnHoldRepairs = updatedRepairs.some((repair) => getRepairStatus(repair) === "on_hold");
+      const hasInProgressRepairs = updatedRepairs.some(
+        (repair) => getRepairStatus(repair) === "in_progress"
+      );
+      const allVehicleRepairsCompleted =
+        updatedRepairs.length > 0 && updatedRepairs.every((repair) => getRepairStatus(repair) === "completed");
+
+      const nextVehicleStatus: JobVehicle["status"] = hasOnHoldRepairs
+        ? "on_hold"
+        : allVehicleRepairsCompleted
+          ? "completed"
+          : hasInProgressRepairs
+            ? "in_progress"
+            : "pending";
+
+      return {
+        ...v,
+        repairSites: updatedRepairs,
+        status: nextVehicleStatus,
+        holdReason: hasOnHoldRepairs ? note || v.holdReason : undefined,
+      };
     });
 
     await updateJobVehiclesState(updatedVehicles);
+    const isOnHold = hasAnyHold(updatedVehicles);
 
     const allRepairs = updatedVehicles.flatMap((vehicle) => vehicle.repairSites);
+    let statusSyncedToInProgress = false;
+    if (!wasOnHold && isOnHold && job.status !== "in_progress" && job.status !== "cancelled") {
+      await updateJobStatus(job.id, "in_progress", changedBy, "Job placed on hold");
+      statusSyncedToInProgress = true;
+    } else if (wasOnHold && !isOnHold && job.status !== "in_progress" && job.status !== "cancelled") {
+      await updateJobStatus(job.id, "in_progress", changedBy, "Job resumed from hold");
+      statusSyncedToInProgress = true;
+    }
     if (allRepairs.length > 0) {
       const allCompleted = allRepairs.every((repair) => getRepairStatus(repair) === "completed");
       const anyActive = allRepairs.some((repair) => {
@@ -2084,7 +2163,11 @@ export default function JobCardPage() {
         return status === "in_progress" || status === "on_hold";
       });
 
-      if (anyActive && (job.status === "scheduled" || job.status === "pending")) {
+      if (
+        !statusSyncedToInProgress &&
+        anyActive &&
+        (job.status === "scheduled" || job.status === "pending")
+      ) {
         await updateJobStatus(job.id, "in_progress", changedBy, "Repair work started");
         if (action === "start") {
           await notifyClients(

@@ -277,8 +277,18 @@ export function jobToLifecycleCard(job: Job, serviceType: string): JobLifecycleC
 
 export function isJobOnHold(job: Job): boolean {
   const vehicles = job.jobVehicles || [];
+  if (vehicles.length === 0) return false;
+
+  const hasVehicleHold = vehicles.some((vehicle) => vehicle.status === "on_hold");
+  if (hasVehicleHold) return true;
+
+  // Legacy fallback only when explicit vehicle status is missing.
+  const hasExplicitVehicleStatuses = vehicles.some(
+    (vehicle) => typeof vehicle.status === "string" && vehicle.status.length > 0
+  );
+  if (hasExplicitVehicleStatuses) return false;
+
   return vehicles.some((vehicle) => {
-    if (vehicle.status === "on_hold") return true;
     return vehicle.repairSites?.some((repair) => repair.workStatus === "on_hold") ?? false;
   });
 }
