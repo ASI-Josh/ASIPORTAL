@@ -1681,10 +1681,9 @@ export default function BookingsPage() {
     if (booking.convertedJobId) {
       const job = jobsById.get(booking.convertedJobId);
       if (job) {
-        if (job.status === "completed" || job.status === "closed" || job.status === "cancelled") {
-          return job.status;
-        }
+        if (job.status === "cancelled") return "cancelled";
         if (isJobOnHold(job)) return "on_hold";
+        if (job.status === "completed" || job.status === "closed") return job.status;
         return job.status;
       }
       return "converted_to_job";
