@@ -1633,10 +1633,14 @@ export default function InspectionDetailPage() {
 
   const handleCompleteInspection = async () => {
     if (!inspection) return;
-    if (!selectedOrganization || !selectedContact || !scheduledDate || !scheduledTime) {
+    const resolvedOrganizationName =
+      selectedOrganization?.name || inspection.organizationName || inspection.clientName || "";
+    const resolvedContactEmail = (selectedContact?.email || inspection.clientEmail || "").trim();
+    if (!resolvedOrganizationName || !resolvedContactEmail || !scheduledDate || !scheduledTime) {
       toast({
         title: "Missing details",
-        description: "Add the organisation, contact, and inspection schedule before completing.",
+        description:
+          "Add the organisation, contact email, and inspection schedule before completing.",
         variant: "destructive",
       });
       return;
@@ -1772,10 +1776,33 @@ export default function InspectionDetailPage() {
   const handleApproveInspection = async () => {
     if (!inspection) return;
     if (user?.role !== "admin") return;
-    if (!selectedOrganization || !selectedContact) {
+    const matchedOrgFromInspection =
+      organizations.find((org) => org.id === inspection.organizationId) ||
+      organizations.find((org) => org.id === inspection.clientId) ||
+      null;
+    const resolvedOrganization = selectedOrganization || matchedOrgFromInspection;
+    const resolvedOrganizationId =
+      resolvedOrganization?.id || inspection.organizationId || inspection.clientId || "";
+    const resolvedOrganizationName =
+      selectedOrganization?.name ||
+      resolvedOrganization?.name ||
+      inspection.organizationName ||
+      inspection.clientName ||
+      "";
+    const resolvedContactEmail = (selectedContact?.email || inspection.clientEmail || "").trim();
+    const resolvedContactPhone = [
+      selectedContact?.mobile,
+      selectedContact?.phone,
+      inspection.clientPhone,
+    ]
+      .map((value) => (typeof value === "string" ? value.trim() : ""))
+      .find((value) => value) || undefined;
+
+    if (!resolvedOrganizationId || !resolvedOrganizationName || !resolvedContactEmail) {
       toast({
         title: "Missing details",
-        description: "Select the organisation and contact before converting to a job.",
+        description:
+          "Set the organisation and contact email before converting to a job.",
         variant: "destructive",
       });
       return;
@@ -1796,173 +1823,193 @@ export default function InspectionDetailPage() {
       });
       return;
     }
-    const now = Timestamp.now();
-    const changedBy = user?.name || user?.email || user?.uid || "System";
-    let jobId = inspection.convertedToJobId || "";
 
-    if (!jobId) {
-      const jobNumber = await generateJobNumber(selectedOrganization);
-      const jobRef = doc(collection(db, COLLECTIONS.JOBS));
-      jobId = jobRef.id;
+    try {
+      const now = Timestamp.now();
+      const changedBy = user?.name || user?.email || user?.uid || "System";
+      let jobId = inspection.convertedToJobId || "";
 
-      const assignedTechnicians = selectedStaff.map((staff, index) => ({
-        technicianId: staff.id,
-        technicianName: staff.name,
-        role: index === 0 ? "primary" : "secondary",
-        assignedAt: now,
-        assignedBy: user?.uid || "system",
-      }));
+      if (!jobId) {
+        const organizationForNumbering: ContactOrganization =
+          resolvedOrganization ||
+          ({
+            id: resolvedOrganizationId,
+            name: resolvedOrganizationName,
+            category: "trade_client",
+            type: "customer",
+            status: "active",
+            sites: [],
+            createdAt: now,
+            updatedAt: now,
+          } as ContactOrganization);
 
-      const jobVehiclesFromInspection = buildJobVehiclesFromVehicleReports(vehicleReports);
-      const totalsForJob = totalsFromJobVehicles(jobVehiclesFromInspection);
-      const inspectionDamage = buildLegacyDamageItemsFromVehicleReports(vehicleReports);
+        const jobNumber = await generateJobNumber(organizationForNumbering);
+        const jobRef = doc(collection(db, COLLECTIONS.JOBS));
+        jobId = jobRef.id;
 
-      const resolvedClientPhone = [selectedContact.mobile, selectedContact.phone]
-        .map((value) => (typeof value === "string" ? value.trim() : ""))
-        .find((value) => value) || undefined;
+        const assignedTechnicians = selectedStaff.map((staff, index) => ({
+          technicianId: staff.id,
+          technicianName: staff.name,
+          role: index === 0 ? "primary" : "secondary",
+          assignedAt: now,
+          assignedBy: user?.uid || "system",
+        }));
 
-      const quoteFile = inspection.quote?.file;
-      const job = {
-        id: jobRef.id,
-        jobNumber,
-        clientId: selectedOrganization.id,
-        clientName: selectedOrganization.name,
-        clientEmail: selectedContact.email.trim(),
-        clientPhone: resolvedClientPhone,
-        organizationId: selectedOrganization.id,
-        vehicles: vehicleReports.map((report) => report.vehicle),
-        jobVehicles: jobVehiclesFromInspection,
-        damage: inspectionDamage,
-        status: "pending",
-        assignedTechnicians,
-        assignedTechnicianIds: assignedTechnicians.map((tech) => tech.technicianId),
-        booking: {
-          preferredDate: Timestamp.fromDate(scheduledDate),
-          preferredTime: scheduledTime,
-          urgency: "medium",
-          specialInstructions: notes || undefined,
-        },
-        statusLog: [
-          {
-            status: "pending",
-            changedAt: now,
-            changedBy: user?.uid || "System",
-            notes: `Job created from inspection ${inspection.inspectionNumber}`,
+        const jobVehiclesFromInspection = buildJobVehiclesFromVehicleReports(vehicleReports);
+        const totalsForJob = totalsFromJobVehicles(jobVehiclesFromInspection);
+        const inspectionDamage = buildLegacyDamageItemsFromVehicleReports(vehicleReports);
+
+        const quoteFile = inspection.quote?.file;
+        const job = {
+          id: jobRef.id,
+          jobNumber,
+          clientId: resolvedOrganizationId,
+          clientName: resolvedOrganizationName,
+          clientEmail: resolvedContactEmail,
+          clientPhone: resolvedContactPhone,
+          organizationId: resolvedOrganizationId,
+          vehicles: vehicleReports.map((report) => report.vehicle),
+          jobVehicles: jobVehiclesFromInspection,
+          damage: inspectionDamage,
+          status: "pending",
+          assignedTechnicians,
+          assignedTechnicianIds: assignedTechnicians.map((tech) => tech.technicianId),
+          booking: {
+            preferredDate: Timestamp.fromDate(scheduledDate),
+            preferredTime: scheduledTime,
+            urgency: "medium",
+            specialInstructions: notes || undefined,
           },
-        ],
-        scheduledDate: Timestamp.fromDate(scheduledDate),
-        createdAt: now,
-        createdBy: user?.uid || inspection.createdBy,
-        updatedAt: now,
-        notes: `Inspection RFQ: ${inspection.inspectionNumber}`,
-        totalJobCost: totalsForJob.totalCost,
-        totalLabourCost: totalsForJob.totalLabourCost,
-        totalMaterialsCost: totalsForJob.totalMaterialsCost,
-        sourceInspectionId: inspection.id,
-        sourceInspectionNumber: inspection.inspectionNumber,
-        sourceInspectionQuote: quoteFile
-          ? {
-              fileName: quoteFile.fileName,
-              storagePath: quoteFile.storagePath,
-              downloadUrl: quoteFile.downloadUrl,
-              contentType: quoteFile.contentType,
-              size: quoteFile.size,
-            }
-          : undefined,
-      };
+          statusLog: [
+            {
+              status: "pending",
+              changedAt: now,
+              changedBy: user?.uid || "System",
+              notes: `Job created from inspection ${inspection.inspectionNumber}`,
+            },
+          ],
+          scheduledDate: Timestamp.fromDate(scheduledDate),
+          createdAt: now,
+          createdBy: user?.uid || inspection.createdBy,
+          updatedAt: now,
+          notes: `Inspection RFQ: ${inspection.inspectionNumber}`,
+          totalJobCost: totalsForJob.totalCost,
+          totalLabourCost: totalsForJob.totalLabourCost,
+          totalMaterialsCost: totalsForJob.totalMaterialsCost,
+          sourceInspectionId: inspection.id,
+          sourceInspectionNumber: inspection.inspectionNumber,
+          sourceInspectionQuote: quoteFile
+            ? {
+                fileName: quoteFile.fileName,
+                storagePath: quoteFile.storagePath,
+                downloadUrl: quoteFile.downloadUrl,
+                contentType: quoteFile.contentType,
+                size: quoteFile.size,
+              }
+            : undefined,
+        };
 
-      await setDoc(jobRef, job);
+        await setDoc(jobRef, job);
+
+        const existingEntry =
+          (inspection.worksRegisterId
+            ? worksRegister.find((entry) => entry.id === inspection.worksRegisterId)
+            : null) || worksRegister.find((entry) => entry.jobId === jobRef.id);
+        if (existingEntry) {
+          await updateDoc(doc(db, COLLECTIONS.WORKS_REGISTER, existingEntry.id), {
+            jobId: jobRef.id,
+            jobNumber: job.jobNumber,
+            recordType: "job",
+            organizationId: job.organizationId || job.clientId,
+            clientName: job.clientName,
+            technicianId: selectedStaff[0]?.id || "unassigned",
+            technicianName: selectedStaff[0]?.name || "Unassigned",
+            startDate: job.scheduledDate || now,
+          });
+        } else {
+          const entryRef = doc(collection(db, COLLECTIONS.WORKS_REGISTER));
+          const entry = createWorksRegisterEntry({
+            job: job as any,
+            serviceType: "Inspection RFQ",
+            technicianName: selectedStaff[0]?.name || "Unassigned",
+            entryId: entryRef.id,
+          });
+          await setDoc(entryRef, entry);
+        }
+
+        await updateDoc(doc(db, COLLECTIONS.INSPECTIONS, inspection.id), {
+          convertedToJobId: jobRef.id,
+        });
+      }
+
+      if (!jobId) return;
+
+      await updateDoc(doc(db, COLLECTIONS.INSPECTIONS, inspection.id), {
+        status: "converted",
+        approvedAt: now,
+        clientApprovalStatus: "approved",
+        clientApprovalUpdatedAt: now,
+        updatedAt: now,
+      });
+
+      await updateJob(jobId, {
+        scheduledDate: Timestamp.fromDate(scheduledDate),
+      });
+      await updateJobStatus(jobId, "scheduled", changedBy, "Quote approved (client email)");
 
       const existingEntry =
         (inspection.worksRegisterId
           ? worksRegister.find((entry) => entry.id === inspection.worksRegisterId)
-          : null) || worksRegister.find((entry) => entry.jobId === jobRef.id);
+          : null) || worksRegister.find((entry) => entry.jobId === jobId);
       if (existingEntry) {
         await updateDoc(doc(db, COLLECTIONS.WORKS_REGISTER, existingEntry.id), {
-          jobId: jobRef.id,
-          jobNumber: job.jobNumber,
+          jobId,
+          jobNumber: getJobById(jobId)?.jobNumber || existingEntry.jobNumber,
           recordType: "job",
-          organizationId: job.organizationId || job.clientId,
-          clientName: job.clientName,
+          organizationId:
+            inspection.organizationId || inspection.clientId || existingEntry.organizationId,
+          clientName: inspection.clientName || existingEntry.clientName,
           technicianId: selectedStaff[0]?.id || "unassigned",
           technicianName: selectedStaff[0]?.name || "Unassigned",
-          startDate: job.scheduledDate || now,
+          startDate: scheduledDate ? Timestamp.fromDate(scheduledDate) : existingEntry.startDate,
         });
       } else {
-        const entryRef = doc(collection(db, COLLECTIONS.WORKS_REGISTER));
-        const entry = createWorksRegisterEntry({
-          job: job as any,
-          serviceType: "Inspection RFQ",
-          technicianName: selectedStaff[0]?.name || "Unassigned",
-          entryId: entryRef.id,
-        });
-        await setDoc(entryRef, entry);
+        const job = getJobById(jobId) || (await getDoc(doc(db, COLLECTIONS.JOBS, jobId))).data();
+        if (job) {
+          const entryRef = doc(collection(db, COLLECTIONS.WORKS_REGISTER));
+          const entry = createWorksRegisterEntry({
+            job: job as any,
+            serviceType: "Inspection RFQ",
+            technicianName: selectedStaff[0]?.name || "Unassigned",
+            entryId: entryRef.id,
+          });
+          await setDoc(entryRef, entry);
+        }
       }
 
-      await updateDoc(doc(db, COLLECTIONS.INSPECTIONS, inspection.id), {
-        convertedToJobId: jobRef.id,
-      });
-    }
-
-    if (!jobId) return;
-
-    await updateDoc(doc(db, COLLECTIONS.INSPECTIONS, inspection.id), {
-      status: "converted",
-      approvedAt: now,
-      clientApprovalStatus: "approved",
-      clientApprovalUpdatedAt: now,
-      updatedAt: now,
-    });
-
-    await updateJob(jobId, {
-      scheduledDate: Timestamp.fromDate(scheduledDate),
-    });
-    await updateJobStatus(jobId, "scheduled", changedBy, "Quote approved (client email)");
-
-    const existingEntry =
-      (inspection.worksRegisterId
-        ? worksRegister.find((entry) => entry.id === inspection.worksRegisterId)
-        : null) || worksRegister.find((entry) => entry.jobId === jobId);
-    if (existingEntry) {
-      await updateDoc(doc(db, COLLECTIONS.WORKS_REGISTER, existingEntry.id), {
-        jobId,
-        jobNumber: getJobById(jobId)?.jobNumber || existingEntry.jobNumber,
-        recordType: "job",
-        organizationId: inspection.organizationId || inspection.clientId || existingEntry.organizationId,
-        clientName: inspection.clientName || existingEntry.clientName,
-        technicianId: selectedStaff[0]?.id || "unassigned",
-        technicianName: selectedStaff[0]?.name || "Unassigned",
-        startDate: scheduledDate ? Timestamp.fromDate(scheduledDate) : existingEntry.startDate,
-      });
-    } else {
-      const job = getJobById(jobId) || (await getDoc(doc(db, COLLECTIONS.JOBS, jobId))).data();
-      if (job) {
-        const entryRef = doc(collection(db, COLLECTIONS.WORKS_REGISTER));
-        const entry = createWorksRegisterEntry({
-          job: job as any,
-          serviceType: "Inspection RFQ",
-          technicianName: selectedStaff[0]?.name || "Unassigned",
-          entryId: entryRef.id,
+      try {
+        await upsertBookingForConvertedJob(jobId);
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Unable to create booking for the approved RFQ.";
+        toast({
+          title: "Booking sync failed",
+          description: message,
+          variant: "destructive",
         });
-        await setDoc(entryRef, entry);
       }
-    }
 
-    try {
-      await upsertBookingForConvertedJob(jobId);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to create booking for the approved RFQ.";
       toast({
-        title: "Booking sync failed",
-        description: message,
+        title: "Job created",
+        description: "The quote has been approved and the job is now scheduled in the pipeline.",
+      });
+    } catch (error) {
+      toast({
+        title: "Unable to convert inspection",
+        description: getErrorMessage(error, "Please check required fields and try again."),
         variant: "destructive",
       });
     }
-
-    toast({
-      title: "Job created",
-      description: "The quote has been approved and the job is now scheduled in the pipeline.",
-    });
   };
 
   const handleRejectInspection = async () => {

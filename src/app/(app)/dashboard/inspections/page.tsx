@@ -303,10 +303,10 @@ export default function InspectionsPage() {
 
   const getInspectionDisplayStatus = (inspection: Inspection): InspectionDisplayStatus => {
     if (inspection.status === "rejected") return "rejected";
-    if (inspection.convertedToJobId || inspection.status === "converted") return "converted";
+    if (inspection.status === "converted") return "converted";
     if (inspection.status === "approved") return "approved";
-    if (inspection.quote?.status === "sent") return "quote_sent";
-    if (inspection.quote?.status === "generated") return "quote_generated";
+    if (inspection.status === "submitted" && inspection.quote?.status === "sent") return "quote_sent";
+    if (inspection.status === "submitted" && inspection.quote?.status === "generated") return "quote_generated";
     return inspection.status;
   };
 
