@@ -1914,6 +1914,44 @@ export default function BookingsPage() {
       conflicts.length > 2 ? ` +${conflicts.length - 2} more conflicting booking(s).` : "";
     return `${preview}${remainder}`;
   };
+  const pendingConflictCountByBookingId = useMemo(() => {
+    const conflictCounts = new Map<string, number>();
+
+    bookings.forEach((booking) => {
+      const displayStatus = getBookingDisplayStatus(booking);
+      if (displayStatus !== "pending") return;
+
+      const scheduledDateValue = booking.scheduledDate?.toDate?.();
+      if (!scheduledDateValue || !booking.scheduledTime) return;
+
+      const staffIds = (
+        booking.allocatedStaffIds?.length
+          ? booking.allocatedStaffIds
+          : booking.allocatedStaff.map((staff) => staff.id)
+      )
+        .map((id) => id.trim())
+        .filter((id) => id.length > 0);
+      if (staffIds.length === 0) return;
+
+      const conflicts = findBookingScheduleConflicts({
+        bookingIdToIgnore: booking.id,
+        scheduledDate: scheduledDateValue,
+        scheduledTime: booking.scheduledTime,
+        finishDate: booking.finishDate?.toDate?.(),
+        finishTime: booking.finishTime,
+        durationHours:
+          typeof booking.resourceDurationOverrideHours === "number"
+            ? booking.resourceDurationOverrideHours
+            : undefined,
+        staffIds,
+      });
+      if (conflicts.length > 0) {
+        conflictCounts.set(booking.id, conflicts.length);
+      }
+    });
+
+    return conflictCounts;
+  }, [bookings, jobsById]);
   const getBookingStatusLabel = (status: BookingDisplayStatus) =>
     status === "converted_to_job"
       ? "Converted"
@@ -3408,6 +3446,8 @@ export default function BookingsPage() {
                 const displayStatus = getBookingDisplayStatus(booking);
                 const bookingVehicles = getBookingVehicles(booking);
                 const primaryVehicle = bookingVehicles[0];
+                const pendingConflictCount = pendingConflictCountByBookingId.get(booking.id) || 0;
+                const hasPendingConflict = displayStatus === "pending" && pendingConflictCount > 0;
                 return (
                 <TableRow
                   key={booking.id}
@@ -3519,11 +3559,18 @@ export default function BookingsPage() {
                     </div>
                   </TableCell>
                   <TableCell className="align-top">
-                    <Badge
-                      variant={getBookingStatusVariant(displayStatus)}
-                    >
-                      {getBookingStatusLabel(displayStatus)}
-                    </Badge>
+                    <div className="space-y-1">
+                      <Badge
+                        variant={getBookingStatusVariant(displayStatus)}
+                      >
+                        {getBookingStatusLabel(displayStatus)}
+                      </Badge>
+                      {hasPendingConflict && (
+                        <Badge variant="destructive" className="text-[10px] leading-none">
+                          Conflict ({pendingConflictCount})
+                        </Badge>
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell className="text-right">
                     <Button
