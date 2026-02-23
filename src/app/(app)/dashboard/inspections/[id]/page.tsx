@@ -391,6 +391,8 @@ export default function InspectionDetailPage() {
   const [quoteNote, setQuoteNote] = useState("");
   const [quoteGenerating, setQuoteGenerating] = useState(false);
   const [quoteSending, setQuoteSending] = useState(false);
+  const [completingInspection, setCompletingInspection] = useState(false);
+  const [convertingInspection, setConvertingInspection] = useState(false);
   const [vehicleReports, setVehicleReports] = useState<VehicleReport[]>([]);
   const [showAddVehicleDialog, setShowAddVehicleDialog] = useState(false);
   const [showEditVehicleDialog, setShowEditVehicleDialog] = useState(false);
@@ -1633,6 +1635,7 @@ export default function InspectionDetailPage() {
 
   const handleCompleteInspection = async () => {
     if (!inspection) return;
+    if (completingInspection) return;
     const resolvedOrganizationName =
       selectedOrganization?.name || inspection.organizationName || inspection.clientName || "";
     const resolvedContactEmail = (selectedContact?.email || inspection.clientEmail || "").trim();
@@ -1657,6 +1660,7 @@ export default function InspectionDetailPage() {
       clearTimeout(autoSaveTimeoutRef.current);
       autoSaveTimeoutRef.current = null;
     }
+    setCompletingInspection(true);
     try {
       const now = Timestamp.now();
       const payload = buildInspectionPayload("submitted");
@@ -1665,6 +1669,17 @@ export default function InspectionDetailPage() {
         ...payload,
         submittedAt: now,
       });
+      setInspection((prev) =>
+        prev
+          ? {
+              ...prev,
+              ...(payload as Partial<Inspection>),
+              status: "submitted",
+              submittedAt: now,
+              updatedAt: now,
+            }
+          : prev
+      );
 
       lastAutoSaveSignatureRef.current = autoSaveSignature;
       autoSaveErrorShownRef.current = false;
@@ -1698,6 +1713,8 @@ export default function InspectionDetailPage() {
         description: getErrorMessage(error, "Please check your connection and try again."),
         variant: "destructive",
       });
+    } finally {
+      setCompletingInspection(false);
     }
   };
 
@@ -1776,6 +1793,7 @@ export default function InspectionDetailPage() {
   const handleApproveInspection = async () => {
     if (!inspection) return;
     if (user?.role !== "admin") return;
+    if (convertingInspection) return;
     const matchedOrgFromInspection =
       organizations.find((org) => org.id === inspection.organizationId) ||
       organizations.find((org) => org.id === inspection.clientId) ||
@@ -1824,6 +1842,7 @@ export default function InspectionDetailPage() {
       return;
     }
 
+    setConvertingInspection(true);
     try {
       const now = Timestamp.now();
       const changedBy = user?.name || user?.email || user?.uid || "System";
@@ -1909,7 +1928,7 @@ export default function InspectionDetailPage() {
             : undefined,
         };
 
-        await setDoc(jobRef, job);
+        await setDoc(jobRef, pruneUndefined(job));
 
         const existingEntry =
           (inspection.worksRegisterId
@@ -1951,6 +1970,19 @@ export default function InspectionDetailPage() {
         clientApprovalUpdatedAt: now,
         updatedAt: now,
       });
+      setInspection((prev) =>
+        prev
+          ? {
+              ...prev,
+              status: "converted",
+              convertedToJobId: jobId,
+              approvedAt: now,
+              clientApprovalStatus: "approved",
+              clientApprovalUpdatedAt: now,
+              updatedAt: now,
+            }
+          : prev
+      );
 
       await updateJob(jobId, {
         scheduledDate: Timestamp.fromDate(scheduledDate),
@@ -2009,6 +2041,8 @@ export default function InspectionDetailPage() {
         description: getErrorMessage(error, "Please check required fields and try again."),
         variant: "destructive",
       });
+    } finally {
+      setConvertingInspection(false);
     }
   };
 
@@ -2172,13 +2206,17 @@ export default function InspectionDetailPage() {
             <Button onClick={handleSaveInspection} variant="outline">
               Save changes
             </Button>
-            <Button onClick={handleCompleteInspection}>
-              Complete inspection
+            <Button onClick={handleCompleteInspection} disabled={completingInspection}>
+              {completingInspection ? "Completing..." : "Complete inspection"}
             </Button>
             {canApprove && (
               <>
-                <Button variant="outline" onClick={handleApproveInspection}>
-                  Convert to job & schedule
+                <Button
+                  variant="outline"
+                  onClick={handleApproveInspection}
+                  disabled={convertingInspection}
+                >
+                  {convertingInspection ? "Converting..." : "Convert to job & schedule"}
                 </Button>
                 <Button variant="destructive" onClick={handleRejectInspection}>
                   Mark rejected

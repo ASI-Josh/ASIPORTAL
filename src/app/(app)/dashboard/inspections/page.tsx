@@ -70,7 +70,7 @@ const STATUS_BADGE: Record<InspectionStatus, string> = {
   rejected: "bg-red-500/20 text-red-400 border-red-500/30",
 };
 
-type InspectionDisplayStatus = InspectionStatus | "quote_generated" | "quote_sent";
+type InspectionDisplayStatus = InspectionStatus;
 type InspectionStatusFilter = "all" | InspectionDisplayStatus;
 type InspectionSortOption =
   | "updated_desc"
@@ -83,8 +83,6 @@ type InspectionSortOption =
 const DISPLAY_STATUS_LABELS: Record<InspectionDisplayStatus, string> = {
   draft: "Draft",
   submitted: "Completed (internal)",
-  quote_generated: "Quote Generated",
-  quote_sent: "Quote Sent",
   approved: "Approved",
   converted: "Converted",
   rejected: "Rejected",
@@ -93,8 +91,6 @@ const DISPLAY_STATUS_LABELS: Record<InspectionDisplayStatus, string> = {
 const DISPLAY_STATUS_BADGE: Record<InspectionDisplayStatus, string> = {
   draft: STATUS_BADGE.draft,
   submitted: STATUS_BADGE.submitted,
-  quote_generated: "bg-indigo-500/20 text-indigo-300 border-indigo-500/30",
-  quote_sent: "bg-cyan-500/20 text-cyan-300 border-cyan-500/30",
   approved: STATUS_BADGE.approved,
   converted: STATUS_BADGE.converted,
   rejected: STATUS_BADGE.rejected,
@@ -103,8 +99,6 @@ const DISPLAY_STATUS_BADGE: Record<InspectionDisplayStatus, string> = {
 const INSPECTION_STATUS_ORDER: InspectionDisplayStatus[] = [
   "draft",
   "submitted",
-  "quote_generated",
-  "quote_sent",
   "approved",
   "converted",
   "rejected",
@@ -302,11 +296,6 @@ export default function InspectionsPage() {
   );
 
   const getInspectionDisplayStatus = (inspection: Inspection): InspectionDisplayStatus => {
-    if (inspection.status === "rejected") return "rejected";
-    if (inspection.status === "converted") return "converted";
-    if (inspection.status === "approved") return "approved";
-    if (inspection.status === "submitted" && inspection.quote?.status === "sent") return "quote_sent";
-    if (inspection.status === "submitted" && inspection.quote?.status === "generated") return "quote_generated";
     return inspection.status;
   };
 
@@ -951,9 +940,16 @@ export default function InspectionsPage() {
                       </TableCell>
                       <TableCell>{inspection.organizationName || inspection.clientName || "-"}</TableCell>
                       <TableCell>
-                        <Badge className={DISPLAY_STATUS_BADGE[displayStatus]} variant="outline">
-                          {DISPLAY_STATUS_LABELS[displayStatus]}
-                        </Badge>
+                        <div className="space-y-1">
+                          <Badge className={DISPLAY_STATUS_BADGE[displayStatus]} variant="outline">
+                            {DISPLAY_STATUS_LABELS[displayStatus]}
+                          </Badge>
+                          {inspection.quote?.status && (
+                            <p className="text-[11px] text-muted-foreground">
+                              Quote: {inspection.quote.status.replace("_", " ").toUpperCase()}
+                            </p>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell>
                         {toDateValue(inspection.scheduledDate)
