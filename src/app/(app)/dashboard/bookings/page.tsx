@@ -792,6 +792,11 @@ export default function BookingsPage() {
   const canSyncCalendar = user?.role === "admin" || user?.role === "technician";
   const RETAIL_ORG_NAME = "Retail End Users";
   const RETAIL_ORG_CATEGORY: ContactCategory = "retail_client";
+  const isRetailOrganization = (organization?: { name?: string; category?: ContactCategory } | null) =>
+    Boolean(
+      organization &&
+        (organization.category === RETAIL_ORG_CATEGORY || organization.name === RETAIL_ORG_NAME)
+    );
 
   const staffEmailById = useMemo(
     () => new Map(staffList.map((staff) => [staff.id, staff.email])),
@@ -1442,10 +1447,12 @@ export default function BookingsPage() {
       });
       return;
     }
+    const isRetailEditBooking =
+      isRetailOrganization(selectedOrg) || editingBooking.organizationName === RETAIL_ORG_NAME;
 
     const selectedContact =
       editContactsList.find((contact) => contact.id === editContactId) || null;
-    if (!selectedContact) {
+    if (!selectedContact && !isRetailEditBooking) {
       toast({
         title: "Missing Contact",
         description: "Select a contact before saving.",
@@ -1453,7 +1460,7 @@ export default function BookingsPage() {
       });
       return;
     }
-    if (!selectedContact.email?.trim()) {
+    if (!isRetailEditBooking && !selectedContact?.email?.trim()) {
       toast({
         title: "Missing Contact Email",
         description: "The selected contact must have an email address.",
@@ -1461,6 +1468,13 @@ export default function BookingsPage() {
       });
       return;
     }
+    const resolvedContactId =
+      selectedContact?.id || editingBooking.contactId || "retail-end-user";
+    const resolvedContactName =
+      selectedContact
+        ? `${selectedContact.firstName} ${selectedContact.lastName}`.trim()
+        : editingBooking.contactName || "Retail End User";
+    const resolvedContactEmail = (selectedContact?.email || editingBooking.contactEmail || "").trim();
 
     const updatedStaff = editStaff.map((staff) => ({
       id: staff.id,
@@ -1496,7 +1510,8 @@ export default function BookingsPage() {
       }
     }
 
-    const resolvedContactPhone = resolveContactPhone(selectedContact);
+    const resolvedContactPhone =
+      resolveContactPhone(selectedContact || undefined) || normalizePhone(editingBooking.contactPhone);
 
     const finishUpdates =
       editFinishDate && editFinishTime
@@ -1513,9 +1528,9 @@ export default function BookingsPage() {
       await updateBooking(editingBooking.id, {
         organizationId: selectedOrg.id,
         organizationName: selectedOrg.name,
-        contactId: selectedContact.id,
-        contactName: `${selectedContact.firstName} ${selectedContact.lastName}`.trim(),
-        contactEmail: selectedContact.email.trim(),
+        contactId: resolvedContactId,
+        contactName: resolvedContactName,
+        contactEmail: resolvedContactEmail,
         ...(resolvedContactPhone
           ? { contactPhone: resolvedContactPhone }
           : { contactPhone: deleteField() }),
@@ -1539,7 +1554,7 @@ export default function BookingsPage() {
         await updateJob(editingBooking.convertedJobId, {
           clientId: selectedOrg.id,
           clientName: selectedOrg.name,
-          clientEmail: selectedContact.email.trim(),
+          clientEmail: resolvedContactEmail,
           clientPhone: resolvedContactPhone,
           organizationId: selectedOrg.id,
           assignedTechnicians,
@@ -1573,7 +1588,7 @@ export default function BookingsPage() {
 
       try {
         const attendeeEmails = buildAttendeeEmails([
-          selectedContact.email.trim(),
+          resolvedContactEmail || undefined,
           ...resolveStaffEmails(editStaff),
         ]);
         const linkedJob = editingBooking.convertedJobId
@@ -1584,8 +1599,8 @@ export default function BookingsPage() {
           jobNumber: linkedJob?.jobNumber,
           bookingTypeLabel: BOOKING_TYPE_LABELS[editingBooking.bookingType],
           organizationName: selectedOrg.name,
-          contactName: `${selectedContact.firstName} ${selectedContact.lastName}`.trim(),
-          contactEmail: selectedContact.email.trim(),
+          contactName: resolvedContactName,
+          contactEmail: resolvedContactEmail || undefined,
           contactPhone: resolvedContactPhone,
           siteName: editingBooking.siteLocation.name,
           siteAddress: editingBooking.siteLocation.address,
@@ -1740,6 +1755,11 @@ export default function BookingsPage() {
   const summaryContactName = isRetailBooking
     ? `${retailContact.firstName} ${retailContact.lastName}`.trim()
     : `${selectedContact?.firstName || ""} ${selectedContact?.lastName || ""}`.trim();
+  const editSelectedOrganization =
+    organizations.find((org) => org.id === editOrganizationId) || null;
+  const isEditingRetailOrganization =
+    isRetailOrganization(editSelectedOrganization) ||
+    (!!editingBooking && editingBooking.organizationName === RETAIL_ORG_NAME);
 
   const editStaffOptions = (() => {
     const merged = new Map<string, StaffMember>();
@@ -3909,7 +3929,7 @@ export default function BookingsPage() {
               onClick={handleUpdateBooking}
               disabled={
                 !editOrganizationId ||
-                !editContactId ||
+                (!isEditingRetailOrganization && !editContactId) ||
                 !editScheduledDate ||
                 !editScheduledTime ||
                 editStaff.length === 0
