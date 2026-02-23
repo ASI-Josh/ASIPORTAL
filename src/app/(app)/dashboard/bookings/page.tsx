@@ -148,6 +148,11 @@ type BookingSortOption =
   | "booking_number_asc"
   | "booking_number_desc";
 
+type BookingTimeWindow = {
+  start: Date;
+  end: Date;
+};
+
 const BOOKING_SORT_LABELS: Record<BookingSortOption, string> = {
   scheduled_asc: "Date/Time (Oldest first)",
   scheduled_desc: "Date/Time (Newest first)",
@@ -221,18 +226,19 @@ const normalizePhone = (value: unknown) => {
 const resolveContactPhone = (contact?: { mobile?: unknown; phone?: unknown }) =>
   normalizePhone(contact?.mobile) || normalizePhone(contact?.phone);
 
-const buildEventTimes = (
+const buildBookingTimeWindow = (
   date: Date,
   time: string,
   finishDate?: Date,
   finishTime?: string,
   durationHours?: number
-) => {
+): BookingTimeWindow => {
   const [hours, minutes] = time.split(":").map((part) => Number(part));
   const start = new Date(date);
   if (Number.isFinite(hours)) start.setHours(hours);
   if (Number.isFinite(minutes)) start.setMinutes(minutes);
   start.setSeconds(0, 0);
+
   const end = (() => {
     if (finishDate && finishTime) {
       const [finishHours, finishMinutes] = finishTime
@@ -253,6 +259,21 @@ const buildEventTimes = (
     fallback.setMinutes(fallback.getMinutes() + DEFAULT_EVENT_DURATION_MINUTES);
     return fallback;
   })();
+
+  return { start, end };
+};
+
+const doBookingWindowsOverlap = (left: BookingTimeWindow, right: BookingTimeWindow) =>
+  left.start.getTime() < right.end.getTime() && right.start.getTime() < left.end.getTime();
+
+const buildEventTimes = (
+  date: Date,
+  time: string,
+  finishDate?: Date,
+  finishTime?: string,
+  durationHours?: number
+) => {
+  const { start, end } = buildBookingTimeWindow(date, time, finishDate, finishTime, durationHours);
 
   const formatLocal = (value: Date) =>
     `${value.getFullYear()}-${padTime(value.getMonth() + 1)}-${padTime(value.getDate())}T${padTime(
@@ -346,6 +367,7 @@ export default function BookingsPage() {
     createBooking,
     updateBooking,
     updateJob,
+    updateJobStatus,
     worksRegister,
     updateWorksRegisterEntry,
   } = useJobs();
@@ -1134,6 +1156,24 @@ export default function BookingsPage() {
 
     const isCustomSite = isRetailBooking || useCustomSite;
     const siteAddress = isCustomSite ? customSite : selectedSite?.address || customSite;
+    const creationConflicts = findBookingScheduleConflicts({
+      scheduledDate,
+      scheduledTime,
+      finishDate,
+      finishTime: finishTime || undefined,
+      durationHours,
+      staffIds: selectedStaff.map((staff) => staff.id),
+    });
+    if (creationConflicts.length > 0) {
+      toast({
+        title: "Scheduling conflict detected",
+        description: `This timeslot overlaps with ${formatBookingConflictSummary(
+          creationConflicts
+        )}. Choose another slot or staffing allocation before scheduling.`,
+        variant: "destructive",
+      });
+      return;
+    }
 
     setIsCreatingBooking(true);
     try {
@@ -1427,6 +1467,34 @@ export default function BookingsPage() {
       name: staff.name,
       type: staff.type,
     }));
+    const linkedJob = editingBooking.convertedJobId
+      ? jobsById.get(editingBooking.convertedJobId)
+      : undefined;
+    const shouldAdvancePendingJobToScheduled = linkedJob?.status === "pending";
+    if (shouldAdvancePendingJobToScheduled) {
+      const schedulingConflicts = findBookingScheduleConflicts({
+        bookingIdToIgnore: editingBooking.id,
+        scheduledDate: editScheduledDate,
+        scheduledTime: editScheduledTime,
+        finishDate: editFinishDate,
+        finishTime: editFinishTime || undefined,
+        durationHours:
+          typeof editingBooking.resourceDurationOverrideHours === "number"
+            ? editingBooking.resourceDurationOverrideHours
+            : undefined,
+        staffIds: updatedStaff.map((staff) => staff.id),
+      });
+      if (schedulingConflicts.length > 0) {
+        toast({
+          title: "Scheduling conflict detected",
+          description: `This timeslot overlaps with ${formatBookingConflictSummary(
+            schedulingConflicts
+          )}. Keep this job pending and liaise with the client for a new date/time.`,
+          variant: "destructive",
+        });
+        return;
+      }
+    }
 
     const resolvedContactPhone = resolveContactPhone(selectedContact);
 
@@ -1479,6 +1547,15 @@ export default function BookingsPage() {
           scheduledDate: Timestamp.fromDate(editScheduledDate),
           updatedAt: now,
         });
+        if (shouldAdvancePendingJobToScheduled) {
+          const changedBy = user?.name || user?.email || user?.uid || "System";
+          await updateJobStatus(
+            editingBooking.convertedJobId,
+            "scheduled",
+            changedBy,
+            `Scheduled from Bookings page (${editingBooking.bookingNumber})`
+          );
+        }
 
         const worksEntry = worksRegister.find(
           (entry) => entry.jobId === editingBooking.convertedJobId
@@ -1733,6 +1810,109 @@ export default function BookingsPage() {
       return "converted_to_job";
     }
     return booking.status;
+  };
+  type BookingScheduleConflict = {
+    bookingId: string;
+    bookingNumber: string;
+    organizationName: string;
+    status: BookingDisplayStatus;
+    sharedStaffNames: string[];
+    window: BookingTimeWindow;
+  };
+  const findBookingScheduleConflicts = (params: {
+    bookingIdToIgnore?: string;
+    scheduledDate: Date;
+    scheduledTime: string;
+    finishDate?: Date;
+    finishTime?: string;
+    durationHours?: number;
+    staffIds: string[];
+  }): BookingScheduleConflict[] => {
+    const candidateStaffIds = Array.from(
+      new Set(params.staffIds.map((id) => id.trim()).filter((id) => id.length > 0))
+    );
+    if (candidateStaffIds.length === 0) return [];
+
+    const candidateWindow = buildBookingTimeWindow(
+      params.scheduledDate,
+      params.scheduledTime,
+      params.finishDate,
+      params.finishTime,
+      params.durationHours
+    );
+    const candidateStaffSet = new Set(candidateStaffIds);
+
+    return bookings
+      .reduce<BookingScheduleConflict[]>((acc, booking) => {
+        if (params.bookingIdToIgnore && booking.id === params.bookingIdToIgnore) return acc;
+
+        const displayStatus = getBookingDisplayStatus(booking);
+        if (
+          displayStatus === "cancelled" ||
+          displayStatus === "completed" ||
+          displayStatus === "closed"
+        ) {
+          return acc;
+        }
+
+        const scheduledDateValue = booking.scheduledDate?.toDate?.();
+        if (!scheduledDateValue || !booking.scheduledTime) return acc;
+        const bookingWindow = buildBookingTimeWindow(
+          scheduledDateValue,
+          booking.scheduledTime,
+          booking.finishDate?.toDate?.(),
+          booking.finishTime,
+          typeof booking.resourceDurationOverrideHours === "number"
+            ? booking.resourceDurationOverrideHours
+            : undefined
+        );
+
+        if (!doBookingWindowsOverlap(candidateWindow, bookingWindow)) return acc;
+
+        const bookingStaffIds = (
+          booking.allocatedStaffIds?.length
+            ? booking.allocatedStaffIds
+            : booking.allocatedStaff.map((staff) => staff.id)
+        )
+          .map((id) => id.trim())
+          .filter((id) => id.length > 0);
+
+        const sharedStaffNames = booking.allocatedStaff
+          .filter((staff) => candidateStaffSet.has(staff.id))
+          .map((staff) => staff.name);
+        if (sharedStaffNames.length === 0) {
+          const hasSharedId = bookingStaffIds.some((id) => candidateStaffSet.has(id));
+          if (!hasSharedId) return acc;
+        }
+
+        acc.push({
+          bookingId: booking.id,
+          bookingNumber: booking.bookingNumber,
+          organizationName: booking.organizationName,
+          status: displayStatus,
+          sharedStaffNames:
+            sharedStaffNames.length > 0 ? sharedStaffNames : ["Allocated staff overlap"],
+          window: bookingWindow,
+        });
+        return acc;
+      }, [])
+      .sort((a, b) => a.window.start.getTime() - b.window.start.getTime());
+  };
+  const formatBookingConflictSummary = (conflicts: BookingScheduleConflict[]) => {
+    const preview = conflicts
+      .slice(0, 2)
+      .map((conflict) => {
+        const windowText = `${format(conflict.window.start, "dd MMM HH:mm")} - ${format(
+          conflict.window.end,
+          "HH:mm"
+        )}`;
+        const sharedStaff = conflict.sharedStaffNames.slice(0, 2).join(", ");
+        return `${conflict.bookingNumber} (${windowText}; ${sharedStaff})`;
+      })
+      .join("; ");
+    const remainder =
+      conflicts.length > 2 ? ` +${conflicts.length - 2} more conflicting booking(s).` : "";
+    return `${preview}${remainder}`;
   };
   const getBookingStatusLabel = (status: BookingDisplayStatus) =>
     status === "converted_to_job"
