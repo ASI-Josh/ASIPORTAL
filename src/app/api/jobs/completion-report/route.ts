@@ -681,7 +681,7 @@ export async function POST(req: NextRequest) {
     const safeJobNumber = (safeString(job.jobNumber) || jobId).replace(/[^a-zA-Z0-9._-]/g, "_");
     const fileName = `${safeJobNumber}_Completion_Report.pdf`;
 
-    return new NextResponse(pdfBytes, {
+    return new NextResponse(Buffer.from(pdfBytes), {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
