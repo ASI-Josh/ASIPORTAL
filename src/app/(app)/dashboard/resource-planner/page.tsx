@@ -217,7 +217,7 @@ function jobStatusClass(job: Job | null) {
 export default function ResourcePlannerPage() {
   const { toast } = useToast();
   const { user } = useAuth();
-  const { bookings, jobs } = useJobs();
+  const { bookings, jobs, deletedJobs } = useJobs();
 
   const [viewMode, setViewMode] = useState<PlannerViewMode>("week");
   const [cursorDate, setCursorDate] = useState(() => new Date());
@@ -304,6 +304,20 @@ export default function ResourcePlannerPage() {
     return map;
   }, [jobs]);
 
+  const deletedJobIds = useMemo(
+    () => new Set(deletedJobs.map((job) => job.id)),
+    [deletedJobs]
+  );
+
+  const activePlannerBookings = useMemo(
+    () =>
+      bookings.filter((booking) => {
+        if (booking.status === "cancelled") return false;
+        return !(booking.convertedJobId && deletedJobIds.has(booking.convertedJobId));
+      }),
+    [bookings, deletedJobIds]
+  );
+
   const rangeStart = useMemo(() => {
     if (viewMode === "day") return startOfDay(cursorDate);
     if (viewMode === "month") return startOfMonth(cursorDate);
@@ -360,8 +374,7 @@ export default function ResourcePlannerPage() {
       });
     };
 
-    bookings
-      .filter((booking) => booking.status !== "cancelled")
+    activePlannerBookings
       .forEach((booking) => {
         const allocated = booking.allocatedStaff || [];
         if (allocated.length === 0) {
@@ -383,7 +396,7 @@ export default function ResourcePlannerPage() {
       });
 
     return result;
-  }, [bookings, jobsById, rangeEnd, rangeStart, staff, staffAliases]);
+  }, [activePlannerBookings, jobsById, rangeEnd, rangeStart, staff, staffAliases]);
 
   const staffRows = useMemo(() => {
     const staffMap = new Map<string, StaffMember>();
@@ -410,8 +423,7 @@ export default function ResourcePlannerPage() {
 
   const eotCandidates = useMemo(() => {
     const now = new Date();
-    return bookings
-      .filter((booking) => booking.status !== "cancelled")
+    return activePlannerBookings
       .map((booking) => {
         const window = resolveAllocationWindow(booking);
         const job = booking.convertedJobId ? jobsById.get(booking.convertedJobId) ?? null : null;
@@ -426,7 +438,7 @@ export default function ResourcePlannerPage() {
         const mid = midpoint(window);
         return now >= mid && now <= endOfDay(window.end);
       });
-  }, [bookings, jobsById]);
+  }, [activePlannerBookings, jobsById]);
 
   useEffect(() => {
     if (!canPlan) return;
@@ -614,6 +626,7 @@ export default function ResourcePlannerPage() {
           <div className="text-sm text-muted-foreground">
             <span className="text-foreground font-medium">{rangeLabel}</span>
           </div>
+
 
           {eotCandidates.length > 0 ? (
             <Card className="border-amber-500/30 bg-amber-500/10">
@@ -837,7 +850,7 @@ export default function ResourcePlannerPage() {
                                 onClick={() => openEdit(event)}
                                 className={cn(
                                   "group flex items-center gap-2 rounded-md border px-2 py-1 text-left text-xs transition hover:border-primary/60 hover:bg-primary/10",
-                                  jobStatusClass(event.job)
+                                  jobStatusClass(event.job),
                                 )}
                                 style={{
                                   gridRowStart: laneIndex + 1,
@@ -854,7 +867,7 @@ export default function ResourcePlannerPage() {
                                   <div className="truncate text-[11px] opacity-80">{serviceLabel}</div>
                                 </div>
                                 <div className="flex items-center gap-1 text-[11px] opacity-80">
-                                  <Clock className="h-3 w-3" />
+                                    <Clock className="h-3 w-3" />
                                   {durationLabel}
                                 </div>
                               </button>

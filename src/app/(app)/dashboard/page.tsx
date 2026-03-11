@@ -15,11 +15,9 @@ import { useJobs } from "@/contexts/JobsContext";
 import { db } from "@/lib/firebaseClient";
 import { COLLECTIONS } from "@/lib/collections";
 import type {
-  Booking,
   ContactOrganization,
   GoodsReceivedInspection,
   Inspection,
-  Job,
 } from "@/lib/types";
 import { calculateDashboardMetrics } from "@/lib/dashboard-analytics";
 
@@ -37,21 +35,6 @@ type CalendarEvent = {
   location?: string;
   start?: { dateTime?: string; date?: string };
   end?: { dateTime?: string; date?: string };
-};
-
-type BookingConflictWindow = {
-  start: Date;
-  end: Date;
-};
-
-type DashboardConflictItem = {
-  bookingId: string;
-  bookingNumber: string;
-  organizationName: string;
-  convertedJobId?: string;
-  window: BookingConflictWindow;
-  sharedStaffNames: string[];
-  count: number;
 };
 
 function formatCurrency(value: number) {
@@ -91,48 +74,9 @@ function isSameDay(a: Date, b: Date) {
   );
 }
 
-function resolveBookingWindow(booking: Booking): BookingConflictWindow | null {
-  const scheduledDate = booking.scheduledDate?.toDate?.();
-  if (!scheduledDate || !booking.scheduledTime) return null;
-
-  const [startHours, startMinutes] = booking.scheduledTime
-    .split(":")
-    .map((part) => Number(part));
-  const start = new Date(scheduledDate);
-  if (Number.isFinite(startHours)) start.setHours(startHours);
-  if (Number.isFinite(startMinutes)) start.setMinutes(startMinutes);
-  start.setSeconds(0, 0);
-
-  if (booking.finishDate?.toDate && booking.finishTime) {
-    const finishDate = booking.finishDate.toDate();
-    const [finishHours, finishMinutes] = booking.finishTime
-      .split(":")
-      .map((part) => Number(part));
-    const finish = new Date(finishDate);
-    if (Number.isFinite(finishHours)) finish.setHours(finishHours);
-    if (Number.isFinite(finishMinutes)) finish.setMinutes(finishMinutes);
-    finish.setSeconds(0, 0);
-    if (finish.getTime() > start.getTime()) {
-      return { start, end: finish };
-    }
-  }
-
-  const fallbackHours =
-    typeof booking.resourceDurationOverrideHours === "number" && booking.resourceDurationOverrideHours > 0
-      ? booking.resourceDurationOverrideHours
-      : 1;
-  const fallbackEnd = new Date(start);
-  fallbackEnd.setMinutes(fallbackEnd.getMinutes() + Math.round(fallbackHours * 60));
-  return { start, end: fallbackEnd };
-}
-
-function bookingWindowsOverlap(left: BookingConflictWindow, right: BookingConflictWindow) {
-  return left.start.getTime() < right.end.getTime() && right.start.getTime() < left.end.getTime();
-}
-
 export default function DashboardPage() {
   const { user, firebaseUser } = useAuth();
-  const { jobs, deletedJobs, bookings, worksRegister } = useJobs();
+  const { jobs, worksRegister } = useJobs();
   const [inspections, setInspections] = useState<Inspection[]>([]);
   const [organizations, setOrganizations] = useState<ContactOrganization[]>([]);
   const [goodsReceived, setGoodsReceived] = useState<GoodsReceivedInspection[]>([]);
@@ -142,7 +86,6 @@ export default function DashboardPage() {
   const [calendarConnected, setCalendarConnected] = useState(false);
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
   const [calendarLoading, setCalendarLoading] = useState(false);
-  const isAdminUser = user?.role === "admin";
 
   useEffect(() => {
     const inspectionsQuery = query(
@@ -214,155 +157,6 @@ export default function DashboardPage() {
       }),
     [jobs, inspections, worksRegister, organizations]
   );
-
-  const jobsById = useMemo(() => new Map(jobs.map((job) => [job.id, job])), [jobs]);
-  const deletedJobIds = useMemo(
-    () => new Set(deletedJobs.map((job) => job.id)),
-    [deletedJobs]
-  );
-
-  const schedulingConflicts = useMemo(() => {
-    if (!isAdminUser) return [] as DashboardConflictItem[];
-
-    type ConflictCandidate = {
-      booking: Booking;
-      window: BookingConflictWindow;
-      staffIds: Set<string>;
-      staffNamesById: Map<string, string>;
-    };
-
-    // Only check bookings in a rolling window: past 7 days → next 60 days.
-    const conflictWindowStart = new Date();
-    conflictWindowStart.setDate(conflictWindowStart.getDate() - 7);
-    const conflictWindowEnd = new Date();
-    conflictWindowEnd.setDate(conflictWindowEnd.getDate() + 60);
-
-    const candidates = bookings
-      .map<ConflictCandidate | null>((booking) => {
-        if (booking.status === "cancelled") return null;
-        if (booking.convertedJobId && deletedJobIds.has(booking.convertedJobId)) return null;
-
-        if (booking.convertedJobId) {
-          const linkedJob = jobsById.get(booking.convertedJobId);
-          if (linkedJob) {
-            if (
-              linkedJob.status === "cancelled" ||
-              linkedJob.status === "completed" ||
-              linkedJob.status === "closed"
-            ) {
-              return null;
-            }
-          }
-        }
-
-        const window = resolveBookingWindow(booking);
-        if (!window) return null;
-
-        // Exclude bookings entirely outside the rolling window.
-        if (
-          window.end.getTime() < conflictWindowStart.getTime() ||
-          window.start.getTime() > conflictWindowEnd.getTime()
-        ) {
-          return null;
-        }
-
-        const staffIds = new Set(
-          (
-            booking.allocatedStaffIds?.length
-              ? booking.allocatedStaffIds
-              : booking.allocatedStaff.map((staff) => staff.id)
-          )
-            .map((id) => id.trim())
-            .filter((id) => id.length > 0)
-        );
-        if (staffIds.size === 0) return null;
-
-        const staffNamesById = new Map<string, string>();
-        booking.allocatedStaff.forEach((staff) => {
-          const staffId = staff.id.trim();
-          if (!staffId) return;
-          if (!staffNamesById.has(staffId)) {
-            staffNamesById.set(staffId, staff.name);
-          }
-        });
-
-        return { booking, window, staffIds, staffNamesById };
-      })
-      .filter((entry): entry is ConflictCandidate => Boolean(entry))
-      // Sort by start time so the inner loop can break early once right.start >= left.end.
-      .sort((a, b) => a.window.start.getTime() - b.window.start.getTime());
-
-    const summaryByBookingId = new Map<
-      string,
-      {
-        booking: Booking;
-        window: BookingConflictWindow;
-        sharedStaffNames: Set<string>;
-        count: number;
-      }
-    >();
-
-    const ensureSummary = (candidate: ConflictCandidate) => {
-      const existing = summaryByBookingId.get(candidate.booking.id);
-      if (existing) return existing;
-      const created = {
-        booking: candidate.booking,
-        window: candidate.window,
-        sharedStaffNames: new Set<string>(),
-        count: 0,
-      };
-      summaryByBookingId.set(candidate.booking.id, created);
-      return created;
-    };
-
-    for (let i = 0; i < candidates.length; i += 1) {
-      const left = candidates[i];
-      for (let j = i + 1; j < candidates.length; j += 1) {
-        const right = candidates[j];
-        // Since candidates are sorted by start, once right.start >= left.end
-        // no further right candidates can overlap with left.
-        if (right.window.start.getTime() >= left.window.end.getTime()) break;
-        if (!bookingWindowsOverlap(left.window, right.window)) continue;
-
-        const sharedStaffIds = Array.from(left.staffIds).filter((id) => right.staffIds.has(id));
-        if (sharedStaffIds.length === 0) continue;
-
-        const leftSummary = ensureSummary(left);
-        const rightSummary = ensureSummary(right);
-        leftSummary.count += 1;
-        rightSummary.count += 1;
-
-        sharedStaffIds.forEach((staffId) => {
-          const leftName = left.staffNamesById.get(staffId);
-          const rightName = right.staffNamesById.get(staffId);
-          if (leftName) leftSummary.sharedStaffNames.add(leftName);
-          if (rightName) rightSummary.sharedStaffNames.add(rightName);
-          if (!leftName && !rightName) {
-            leftSummary.sharedStaffNames.add("Allocated staff overlap");
-            rightSummary.sharedStaffNames.add("Allocated staff overlap");
-          }
-        });
-      }
-    }
-
-    return Array.from(summaryByBookingId.values())
-      .map<DashboardConflictItem>((summary) => ({
-        bookingId: summary.booking.id,
-        bookingNumber: summary.booking.bookingNumber,
-        organizationName: summary.booking.organizationName,
-        convertedJobId: summary.booking.convertedJobId,
-        window: summary.window,
-        sharedStaffNames:
-          summary.sharedStaffNames.size > 0
-            ? Array.from(summary.sharedStaffNames).sort((a, b) => a.localeCompare(b))
-            : ["Allocated staff overlap"],
-        count: summary.count,
-      }))
-      .sort((a, b) => {
-        if (b.count !== a.count) return b.count - a.count;
-        return a.window.start.getTime() - b.window.start.getTime();
-      });
-  }, [bookings, deletedJobIds, isAdminUser, jobsById]);
 
   const scheduleFallback = useMemo(() => {
     const today = new Date();
@@ -684,14 +478,6 @@ export default function DashboardPage() {
               <span>Unassigned jobs</span>
               <Badge variant="outline">{metrics.operations.unassignedJobs}</Badge>
             </div>
-            {isAdminUser ? (
-              <div className="flex items-center justify-between">
-                <span>Scheduling conflicts</span>
-                <Badge variant={schedulingConflicts.length > 0 ? "destructive" : "outline"}>
-                  {schedulingConflicts.length}
-                </Badge>
-              </div>
-            ) : null}
             {insightDoc?.alerts?.length ? (
               <div className="pt-2 space-y-2">
                 {insightDoc.alerts.map((alert) => (
@@ -700,37 +486,6 @@ export default function DashboardPage() {
                   </p>
                 ))}
               </div>
-            ) : null}
-            {isAdminUser ? (
-              schedulingConflicts.length === 0 ? (
-                <p className="text-xs text-muted-foreground">No scheduling conflicts detected.</p>
-              ) : (
-                <div className="space-y-2 pt-1">
-                  {schedulingConflicts.slice(0, 4).map((conflict) => (
-                    <div
-                      key={conflict.bookingId}
-                      className="rounded-md border border-destructive/30 bg-destructive/5 px-2 py-1.5"
-                    >
-                      <p className="text-xs font-medium">
-                        {conflict.bookingNumber} - {conflict.organizationName}
-                      </p>
-                      <p className="text-[11px] text-muted-foreground">
-                        {conflict.sharedStaffNames.join(", ")} |{" "}
-                        {conflict.window.start.toLocaleString("en-AU")} -{" "}
-                        {conflict.window.end.toLocaleString("en-AU")}
-                      </p>
-                    </div>
-                  ))}
-                  {schedulingConflicts.length > 4 ? (
-                    <p className="text-[11px] text-muted-foreground">
-                      {schedulingConflicts.length - 4} more conflict(s) in Resource Planner.
-                    </p>
-                  ) : null}
-                  <Button variant="outline" size="sm" asChild>
-                    <Link href="/dashboard/resource-planner">Open Resource Planner</Link>
-                  </Button>
-                </div>
-              )
             ) : null}
           </CardContent>
         </Card>

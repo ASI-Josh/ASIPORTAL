@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls -la /c/Users/jhyde_zzz3b9b/ASI-Portal/*.toml)",
+      "Bash(npm run:*)"
+    ]
+  }
+}
