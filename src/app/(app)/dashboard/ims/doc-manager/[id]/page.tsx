@@ -615,7 +615,7 @@ export default function DocManagerDetailPage() {
       });
 
       const pdfBytes = await pdfDoc.save();
-      const blob = new Blob([pdfBytes], { type: "application/pdf" });
+      const blob = new Blob([pdfBytes as Uint8Array<ArrayBuffer>], { type: "application/pdf" });
       const fileName = buildFileName(
         docRecord.docNumber,
         latestDraft.revisionNumber,
