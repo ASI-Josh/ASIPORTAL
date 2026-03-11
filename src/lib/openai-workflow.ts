@@ -30,7 +30,7 @@ export async function runWorkflowJson<T extends z.ZodObject<any>>({
   agentNameOverride,
 }: RunWorkflowParams<T>) {
   const apiKey = process.env.OPENAI_API_KEY;
-  const model = process.env.OPENAI_WORKFLOW_MODEL || "gpt-5.2";
+  const model = process.env.OPENAI_WORKFLOW_MODEL || "gpt-4o";
 
   if (!apiKey) {
     throw new Error("Missing OPENAI_API_KEY.");

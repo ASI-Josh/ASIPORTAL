@@ -288,31 +288,32 @@ export async function GET(req: NextRequest) {
   try {
     await requireAdminUser(req);
 
-    const threadId = req.nextUrl.searchParams.get("thread") || THREAD_ID;
+    const threadId = req.nextUrl.searchParams.get("thread");
+    if (!threadId) {
+      return NextResponse.json({ error: "Missing required query parameter: thread" }, { status: 400 });
+    }
     const messagesSnap = await admin
       .firestore()
       .collection(COLLECTIONS.AGENT_HUB_MESSAGES)
-      .orderBy("createdAt", "desc")
+      .where("threadId", "==", threadId)
+      .orderBy("createdAt", "asc")
       .limit(200)
       .get();
 
-    const messages = messagesSnap.docs
-      .map((doc) => {
-        const data = doc.data();
-        return {
-          id: doc.id,
-          role: data.role,
-          agentId: data.agentId || null,
-          agentName: data.agentName || null,
-          content: data.content || "",
-          warnings: data.warnings || [],
-          createdAt: formatTimestamp(data.createdAt),
-          actionRequestIds: data.actionRequestIds || [],
-          threadId: data.threadId || THREAD_ID,
-        };
-      })
-      .filter((message) => message.threadId === threadId)
-      .reverse();
+    const messages = messagesSnap.docs.map((doc) => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        role: data.role,
+        agentId: data.agentId || null,
+        agentName: data.agentName || null,
+        content: data.content || "",
+        warnings: data.warnings || [],
+        createdAt: formatTimestamp(data.createdAt),
+        actionRequestIds: data.actionRequestIds || [],
+        threadId: data.threadId,
+      };
+    });
 
     return NextResponse.json({ threadId, messages });
   } catch (error) {

@@ -1,11 +1,10 @@
 import type {NextConfig} from 'next';
 
 const nextConfig: NextConfig = {
-  /* config options here */
-  typescript: {
-    ignoreBuildErrors: true,
-  },
   eslint: {
+    // ESLint 9 + legacy .eslintrc.json produces a circular-reference serialisation
+    // error inside `next lint`. TypeScript (npm run typecheck) is used instead.
+    // TODO: migrate to flat config (eslint.config.mjs) to remove this bypass.
     ignoreDuringBuilds: true,
   },
   images: {

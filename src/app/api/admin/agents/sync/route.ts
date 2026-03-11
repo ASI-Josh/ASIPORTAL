@@ -19,7 +19,7 @@ const buildSeeds = (): AgentSeed[] => {
       name: "ASI Doc Manager Agent",
       purpose: "Draft controlled IMS documents and revisions.",
       workflowId: process.env.OPENAI_DOC_MANAGER_WORKFLOW_ID,
-      model: "gpt-5.2",
+      model: process.env.OPENAI_WORKFLOW_MODEL || "gpt-4o",
       capabilities: ["document_control", "ims_document_drafting", "revision_control"],
     });
   }
@@ -29,7 +29,7 @@ const buildSeeds = (): AgentSeed[] => {
       name: "ASI IMS Auditor",
       purpose: "Draft internal audit plans, checklists, and findings.",
       workflowId: process.env.OPENAI_IMS_AUDITOR_WORKFLOW_ID,
-      model: "gpt-5.2",
+      model: process.env.OPENAI_WORKFLOW_MODEL || "gpt-4o",
       capabilities: ["audit_planning", "iso9001", "compliance_review"],
     });
   }
@@ -39,7 +39,7 @@ const buildSeeds = (): AgentSeed[] => {
       name: "ASI Internal Knowledge Assistant (Admin)",
       purpose: "Business, strategy, IMS, and operational guidance for admins.",
       workflowId: process.env.OPENAI_INTERNAL_ADMIN_WORKFLOW_ID,
-      model: "gpt-5.2",
+      model: process.env.OPENAI_WORKFLOW_MODEL || "gpt-4o",
       capabilities: ["strategy", "ims_guidance", "risk_management", "commercial_insights"],
     });
   }
@@ -49,7 +49,7 @@ const buildSeeds = (): AgentSeed[] => {
       name: "ASI Internal Knowledge Assistant (Tech)",
       purpose: "Technical procedures, QA support, and customer-service guidance.",
       workflowId: process.env.OPENAI_INTERNAL_TECH_WORKFLOW_ID,
-      model: "gpt-5.2",
+      model: process.env.OPENAI_WORKFLOW_MODEL || "gpt-4o",
       capabilities: ["technical_support", "qa_guidance", "customer_service"],
     });
   }
