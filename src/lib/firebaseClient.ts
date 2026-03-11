@@ -1,7 +1,7 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
-import { getAuth } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
-import { getStorage } from "firebase/storage";
+import { getAuth, type Auth } from "firebase/auth";
+import { getFirestore, type Firestore } from "firebase/firestore";
+import { getStorage, type FirebaseStorage } from "firebase/storage";
 import { getPublicEnv } from "@/lib/public-env";
 
 const firebaseConfig = {
@@ -14,10 +14,21 @@ const firebaseConfig = {
   measurementId: getPublicEnv("NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID"),
 };
 
+// initializeApp is safe with an empty apiKey; only getAuth/getFirestore/getStorage
+// validate the key. Guard them so build-time prerendering (where NEXT_PUBLIC_*
+// env vars are absent) does not throw auth/invalid-api-key.
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 
-export const auth = getAuth(app);
-export const db = getFirestore(app);
-export const storage = getStorage(app);
+export const auth: Auth = firebaseConfig.apiKey
+  ? getAuth(app)
+  : ({} as Auth);
+
+export const db: Firestore = firebaseConfig.apiKey
+  ? getFirestore(app)
+  : ({} as Firestore);
+
+export const storage: FirebaseStorage = firebaseConfig.apiKey
+  ? getStorage(app)
+  : ({} as FirebaseStorage);
 
 export default app;
