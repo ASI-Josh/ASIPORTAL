@@ -1227,7 +1227,7 @@ export default function JobCardPage() {
       `${job.jobNumber} for ${job.clientName} is complete and ready for review/invoicing.`,
       `Job completed: ${job.jobNumber}`,
       "job_completed",
-      true
+      false
     );
     await notifyClients(
       "job_completed",
