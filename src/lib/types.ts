@@ -56,14 +56,15 @@ export type JobStatus = "pending" | "scheduled" | "in_progress" | "completed" | 
 
 export type JobLifecycleStage = "rfq" | "job_scheduled" | "job_live" | "job_completed" | "management_closeoff";
 
-export type BookingType = 
+export type BookingType =
   | "windscreen_crack_chip_repair"
   | "windscreen_replacement"
   | "scratch_graffiti_removal"
   | "film_installation"
   | "trim_restoration_interior"
   | "trim_restoration_exterior"
-  | "polymer_lens_restoration";
+  | "polymer_lens_restoration"
+  | "glass_replacement";
 
 export type ResourceDurationTemplate = "na" | "short" | "medium" | "long";
 
@@ -82,6 +83,7 @@ export const BOOKING_TYPE_LABELS: Record<BookingType, string> = {
   trim_restoration_interior: "Trim Restoration (Interior)",
   trim_restoration_exterior: "Trim Restoration (Exterior)",
   polymer_lens_restoration: "Polymer Lens Restoration",
+  glass_replacement: "Glass Replacement",
 };
 
 export const JOB_LIFECYCLE_LABELS: Record<JobLifecycleStage, string> = {
@@ -214,8 +216,12 @@ export const MICROFIBER_DISK_SIZES: { value: MicrofiberDiskSize; label: string }
   { value: "5", label: "5\"" },
 ];
 
-// Helper function to calculate cost breakdown
-export function calculateCostBreakdown(totalCost: number): { labourCost: number; materialsCost: number } {
+// Helper function to calculate cost breakdown.
+// Glass replacement is excluded from the 70/30 spread — costs must be entered manually.
+export function calculateCostBreakdown(totalCost: number, repairType?: string): { labourCost: number; materialsCost: number } {
+  if (repairType === "glass_replacement") {
+    return { labourCost: 0, materialsCost: 0 };
+  }
   return {
     labourCost: Math.round(totalCost * 0.70 * 100) / 100,
     materialsCost: Math.round(totalCost * 0.30 * 100) / 100,

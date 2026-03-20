@@ -1684,7 +1684,7 @@ export default function JobCardPage() {
     if (!selectedVehicleId || !newRepair.repairType || !newRepair.location) return;
 
     const cost = parseFloat(newRepair.totalCost) || 0;
-    const { labourCost, materialsCost } = calculateCostBreakdown(cost);
+    const { labourCost, materialsCost } = calculateCostBreakdown(cost, newRepair.repairType);
 
     const repairSite: RepairSite = {
       id: `repair-${Date.now()}`,
@@ -1896,7 +1896,8 @@ export default function JobCardPage() {
 
   // Update repair site cost
   const handleUpdateRepairCost = (vehicleId: string, repairId: string, newCost: number) => {
-    const { labourCost, materialsCost } = calculateCostBreakdown(newCost);
+    const repairType = jobVehicles.find((v) => v.id === vehicleId)?.repairSites.find((r) => r.id === repairId)?.repairType;
+    const { labourCost, materialsCost } = calculateCostBreakdown(newCost, repairType);
 
     const updatedVehicles = jobVehicles.map((v) => {
       if (v.id !== vehicleId) return v;

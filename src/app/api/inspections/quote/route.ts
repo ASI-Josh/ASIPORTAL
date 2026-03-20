@@ -19,6 +19,7 @@ const REPAIR_TYPE_LABELS: Record<string, string> = {
   trim_restoration_interior: "Trim Restoration (Interior)",
   trim_restoration_exterior: "Trim Restoration (Exterior)",
   polymer_lens_restoration: "Polymer Lens Restoration",
+  glass_replacement: "Glass Replacement",
 };
 const DEFAULT_APP_URL = "https://asiportal.live";
 

@@ -162,7 +162,7 @@ function buildJobVehiclesFromVehicleReports(reports: VehicleReport[]): JobVehicl
   return reports.map((report) => {
     const repairSites: RepairSite[] = report.damages.map((damage) => {
       const totalCost = damage.totalCost ?? damage.estimatedCost ?? 0;
-      const breakdown = calculateCostBreakdown(totalCost);
+      const breakdown = calculateCostBreakdown(totalCost, damage.repairType);
       return {
         id: damage.id,
         repairType: damage.repairType,

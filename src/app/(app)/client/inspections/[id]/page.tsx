@@ -111,7 +111,7 @@ export default function ClientInspectionDetailPage() {
         return damages.map((damage, damageIndex) => ({
           ...(() => {
             const totalCost = getDamageTotalCost(damage);
-            const fallback = calculateCostBreakdown(totalCost);
+            const fallback = calculateCostBreakdown(totalCost, damage.repairType);
             const labourCost =
               typeof damage.labourCost === "number" && Number.isFinite(damage.labourCost)
                 ? damage.labourCost
