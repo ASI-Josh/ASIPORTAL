@@ -2713,7 +2713,6 @@ export default function BookingsPage() {
                                 mode="single"
                                 selected={scheduledDate}
                                 onSelect={setScheduledDate}
-                                disabled={(date) => date < startOfDay(new Date())}
                                 initialFocus
                               />
                             </PopoverContent>
@@ -2774,7 +2773,6 @@ export default function BookingsPage() {
                                   mode="single"
                                   selected={finishDate}
                                   onSelect={setFinishDate}
-                                  disabled={(date) => date < startOfDay(new Date())}
                                   initialFocus
                                 />
                               </PopoverContent>
