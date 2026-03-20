@@ -4,38 +4,20 @@ import { requireAdminUser } from "@/lib/server/firebaseAuth";
 import { COLLECTIONS } from "@/lib/collections";
 export const runtime = "nodejs";
 
+import { AGENT_ADMIN, AGENT_TECH, AGENT_DOC_MANAGER, AGENT_AUDITOR } from "@/lib/openai-workflow";
+
 type AgentConfig = {
   id: string;
   name: string;
   role: "admin" | "technician" | "doc" | "audit";
-  workflowEnv: string;
+  agentType: string;
 };
 
 const AGENTS: AgentConfig[] = [
-  {
-    id: "knowledge_admin",
-    name: "Operations Strategist",
-    role: "admin",
-    workflowEnv: "OPENAI_INTERNAL_ADMIN_WORKFLOW_ID",
-  },
-  {
-    id: "knowledge_tech",
-    name: "Field Technician",
-    role: "technician",
-    workflowEnv: "OPENAI_INTERNAL_TECH_WORKFLOW_ID",
-  },
-  {
-    id: "doc_manager",
-    name: "Doc Manager",
-    role: "doc",
-    workflowEnv: "OPENAI_DOC_MANAGER_WORKFLOW_ID",
-  },
-  {
-    id: "ims_auditor",
-    name: "IMS Auditor",
-    role: "audit",
-    workflowEnv: "OPENAI_IMS_AUDITOR_WORKFLOW_ID",
-  },
+  { id: "knowledge_admin", name: "Operations Strategist", role: "admin", agentType: AGENT_ADMIN },
+  { id: "knowledge_tech", name: "Field Technician", role: "technician", agentType: AGENT_TECH },
+  { id: "doc_manager", name: "Doc Manager", role: "doc", agentType: AGENT_DOC_MANAGER },
+  { id: "ims_auditor", name: "IMS Auditor", role: "audit", agentType: AGENT_AUDITOR },
 ];
 
 const THREAD_ID = "global";
@@ -80,11 +62,10 @@ const buildAgentPrompt = ({
     agent.role === "doc"
       ? "For IMS drafting, you may propose: ims.document.create_draft, ims.document.update_draft, ims.document.request_review (approval required)."
       : "Do not propose ims.document.* actions. If documents need changes, recommend the Doc Manager handle it.",
-    "If you identify a system issue or nonconformity, propose ims.corrective_action.raise (approval required). Use this instead of document edits unless you are the Doc Manager.",
+    "If you identify a nonconformity, propose ims.corrective_action.raise (approval required).",
     "If you include actionRequests, include all payload fields. Use empty strings or null for non-applicable values. Use [] for tags.",
     "Guardrail: You are NOT allowed to execute financial transactions of any kind, any value.",
-    "If external actions are proposed, add them to actionRequests and ask for approval.",
-    "Allowed external actions: moltbook.register, moltbook.post, moltbook.comment, moltbook.react.",
+    "Allowed external actions (only if user explicitly requests Awareness/non-work content): moltbook.register, moltbook.post, moltbook.comment, moltbook.react.",
     "",
     "Conversation log:",
     historyText || "None",
@@ -429,8 +410,6 @@ export async function POST(req: NextRequest) {
     const agentRetries = Number(process.env.AGENT_HUB_MAX_RETRIES || "2");
 
     const agentTasks = targetAgents.map(async (agent) => {
-      const workflowId = process.env[agent.workflowEnv];
-      if (!workflowId) return;
       try {
         const prompt = buildAgentPrompt({
           agent,
@@ -447,7 +426,7 @@ export async function POST(req: NextRequest) {
         ]);
 
         const result = await runWorkflowJson({
-          workflowId,
+          workflowId: agent.agentType,
           input: prompt,
           schema: AgentHubAgentSchema,
           timeoutMs: agentTimeoutMs,

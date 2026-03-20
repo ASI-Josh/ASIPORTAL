@@ -11,51 +11,38 @@ type AgentSeed = {
   capabilities: string[];
 };
 
-const buildSeeds = (): AgentSeed[] => {
-  const seeds: AgentSeed[] = [];
+const CLAUDE_MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6";
 
-  if (process.env.OPENAI_DOC_MANAGER_WORKFLOW_ID) {
-    seeds.push({
-      name: "ASI Doc Manager Agent",
-      purpose: "Draft controlled IMS documents and revisions.",
-      workflowId: process.env.OPENAI_DOC_MANAGER_WORKFLOW_ID,
-      model: process.env.OPENAI_WORKFLOW_MODEL || "gpt-4o",
-      capabilities: ["document_control", "ims_document_drafting", "revision_control"],
-    });
-  }
-
-  if (process.env.OPENAI_IMS_AUDITOR_WORKFLOW_ID) {
-    seeds.push({
-      name: "ASI IMS Auditor",
-      purpose: "Draft internal audit plans, checklists, and findings.",
-      workflowId: process.env.OPENAI_IMS_AUDITOR_WORKFLOW_ID,
-      model: process.env.OPENAI_WORKFLOW_MODEL || "gpt-4o",
-      capabilities: ["audit_planning", "iso9001", "compliance_review"],
-    });
-  }
-
-  if (process.env.OPENAI_INTERNAL_ADMIN_WORKFLOW_ID) {
-    seeds.push({
-      name: "ASI Internal Knowledge Assistant (Admin)",
-      purpose: "Business, strategy, IMS, and operational guidance for admins.",
-      workflowId: process.env.OPENAI_INTERNAL_ADMIN_WORKFLOW_ID,
-      model: process.env.OPENAI_WORKFLOW_MODEL || "gpt-4o",
-      capabilities: ["strategy", "ims_guidance", "risk_management", "commercial_insights"],
-    });
-  }
-
-  if (process.env.OPENAI_INTERNAL_TECH_WORKFLOW_ID) {
-    seeds.push({
-      name: "ASI Internal Knowledge Assistant (Tech)",
-      purpose: "Technical procedures, QA support, and customer-service guidance.",
-      workflowId: process.env.OPENAI_INTERNAL_TECH_WORKFLOW_ID,
-      model: process.env.OPENAI_WORKFLOW_MODEL || "gpt-4o",
-      capabilities: ["technical_support", "qa_guidance", "customer_service"],
-    });
-  }
-
-  return seeds;
-};
+const buildSeeds = (): AgentSeed[] => [
+  {
+    name: "ASI Doc Manager Agent",
+    purpose: "Draft controlled IMS documents and revisions.",
+    workflowId: "doc_manager",
+    model: CLAUDE_MODEL,
+    capabilities: ["document_control", "ims_document_drafting", "revision_control"],
+  },
+  {
+    name: "ASI IMS Auditor",
+    purpose: "Draft internal audit plans, checklists, and findings.",
+    workflowId: "auditor",
+    model: CLAUDE_MODEL,
+    capabilities: ["audit_planning", "iso9001", "compliance_review"],
+  },
+  {
+    name: "ASI Internal Knowledge Assistant (Admin)",
+    purpose: "Business, strategy, IMS, and operational guidance for admins.",
+    workflowId: "admin",
+    model: CLAUDE_MODEL,
+    capabilities: ["strategy", "ims_guidance", "risk_management", "commercial_insights"],
+  },
+  {
+    name: "ASI Internal Knowledge Assistant (Tech)",
+    purpose: "Technical procedures, QA support, and customer-service guidance.",
+    workflowId: "tech",
+    model: CLAUDE_MODEL,
+    capabilities: ["technical_support", "qa_guidance", "customer_service"],
+  },
+];
 
 export async function POST(req: NextRequest) {
   try {
@@ -70,10 +57,6 @@ export async function POST(req: NextRequest) {
     }
 
     const seeds = buildSeeds();
-    if (seeds.length === 0) {
-      return NextResponse.json({ error: "No workflow IDs configured." }, { status: 400 });
-    }
-
     const now = admin.firestore.Timestamp.now();
     const agentsRef = admin.firestore().collection(COLLECTIONS.AUTOMATION_AGENTS);
     let created = 0;

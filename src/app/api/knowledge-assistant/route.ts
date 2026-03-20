@@ -3,7 +3,7 @@ import { admin } from "@/lib/firebaseAdmin";
 import { requireUserId } from "@/lib/server/firebaseAuth";
 import { COLLECTIONS } from "@/lib/collections";
 import { InternalKnowledgeSchema } from "@/lib/assistant/internal-knowledge-schema";
-import { runWorkflowJson } from "@/lib/openai-workflow";
+import { runWorkflowJson, AGENT_ADMIN, AGENT_TECH } from "@/lib/openai-workflow";
 
 export const runtime = "nodejs";
 
@@ -168,14 +168,7 @@ export async function POST(req: NextRequest) {
     }
 
     const role = user.role;
-    const workflowId =
-      role === "admin"
-        ? process.env.OPENAI_INTERNAL_ADMIN_WORKFLOW_ID
-        : process.env.OPENAI_INTERNAL_TECH_WORKFLOW_ID;
-
-    if (!workflowId) {
-      return NextResponse.json({ error: "Missing workflow configuration." }, { status: 500 });
-    }
+    const workflowId = role === "admin" ? AGENT_ADMIN : AGENT_TECH;
 
     let jobSummary: Record<string, unknown> | null = null;
     if (payload.jobId) {

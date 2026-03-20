@@ -4,8 +4,6 @@ import { generateJobDescription } from "@/ai/flows/generate-job-descriptions";
 import { generateInspectionSummary } from "@/ai/flows/generate-inspection-summary";
 import { summarizeLeadNotes } from "@/ai/flows/summarize-lead-notes";
 import { extractJsonCandidate, normalizeAiGeneratedText } from "@/lib/ai-text-format";
-import { runWorkflowJson } from "@/lib/openai-workflow";
-import { z } from "zod";
 
 function safeString(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
@@ -138,36 +136,6 @@ function normalizeJobDescriptionOutput(raw: string) {
 }
 
 export async function generateJobDescriptionAction(clientRequest: string) {
-  const workflowId =
-    process.env.OPENAI_INTERNAL_TECH_WORKFLOW_ID ||
-    process.env.OPENAI_INTERNAL_ADMIN_WORKFLOW_ID;
-  if (workflowId) {
-    const JobDescriptionSchema = z.object({
-      answer: z.string(),
-    }).passthrough();
-    const prompt = [
-      "Generate a clear, detailed job description for a technician.",
-      "Use the client request below.",
-      "Return the job description in the JSON `answer` field as plain text (NOT JSON).",
-      "Use short headings and bullet points, suitable to paste into a job card description.",
-      "If no new organisational knowledge is added, return an empty knowledgeUpdates array.",
-      "",
-      `Client request: ${clientRequest}`,
-    ].join("\n");
-    try {
-      const result = await runWorkflowJson({
-        workflowId,
-        input: prompt,
-        schema: JobDescriptionSchema,
-        timeoutMs: 30000,
-        maxRetries: 1,
-      });
-      if (result.parsed.answer) return normalizeJobDescriptionOutput(result.parsed.answer);
-    } catch (error) {
-      console.warn("OpenAI job description failed, falling back to Genkit:", error);
-    }
-  }
-
   const result = await generateJobDescription({ clientRequest });
   return normalizeJobDescriptionOutput(result.jobDescription);
 }
@@ -181,4 +149,3 @@ export async function generateInspectionSummaryAction(inspectionData: string) {
   const result = await generateInspectionSummary({ inspectionData });
   return normalizeAiGeneratedText(result.summary);
 }
-

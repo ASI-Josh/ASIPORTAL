@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { Agent, AgentInputItem, Runner } from "@openai/agents";
+import Anthropic from "@anthropic-ai/sdk";
+import { getAnthropicClient, DEFAULT_MODEL } from "@/lib/anthropic";
 import {
   DOC_MANAGER_INSTRUCTIONS,
   IMS_AUDITOR_INSTRUCTIONS,
@@ -8,7 +9,13 @@ import {
   FALLBACK_AGENT_INSTRUCTIONS,
 } from "@/lib/assistant/agent-instructions";
 
-type RunWorkflowParams<T extends z.ZodObject<any>> = {
+// Agent type identifiers — callers pass these as workflowId
+export const AGENT_ADMIN = "admin";
+export const AGENT_TECH = "tech";
+export const AGENT_DOC_MANAGER = "doc_manager";
+export const AGENT_AUDITOR = "auditor";
+
+type RunWorkflowParams<T extends z.ZodTypeAny> = {
   workflowId: string;
   input: string;
   schema: T;
@@ -20,85 +27,90 @@ type RunWorkflowParams<T extends z.ZodObject<any>> = {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-export async function runWorkflowJson<T extends z.ZodObject<any>>({
+function resolveInstructions(agentType: string) {
+  switch (agentType) {
+    case AGENT_DOC_MANAGER:
+      return { name: "ASI IMS Doc Manager", instructions: DOC_MANAGER_INSTRUCTIONS };
+    case AGENT_AUDITOR:
+      return { name: "ASI Lead IMS Auditor", instructions: IMS_AUDITOR_INSTRUCTIONS };
+    case AGENT_ADMIN:
+      return { name: "ASI Internal Knowledge Assistant (Admin)", instructions: INTERNAL_ADMIN_INSTRUCTIONS };
+    case AGENT_TECH:
+      return { name: "ASI Internal Knowledge Assistant (Tech)", instructions: INTERNAL_TECH_INSTRUCTIONS };
+    default:
+      return { name: "ASI Agent", instructions: FALLBACK_AGENT_INSTRUCTIONS };
+  }
+}
+
+function extractJson(raw: string): string {
+  // Strip markdown fences if present
+  const stripped = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
+  // Find outermost JSON object
+  const start = stripped.indexOf("{");
+  const end = stripped.lastIndexOf("}");
+  if (start !== -1 && end !== -1 && end > start) {
+    return stripped.slice(start, end + 1);
+  }
+  return stripped;
+}
+
+export async function runWorkflowJson<T extends z.ZodTypeAny>({
   workflowId,
   input,
   schema,
   timeoutMs = 30000,
   maxRetries = 2,
   instructionsOverride,
-  agentNameOverride,
-}: RunWorkflowParams<T>) {
-  const apiKey = process.env.OPENAI_API_KEY;
-  const model = process.env.OPENAI_WORKFLOW_MODEL || "gpt-4o";
-
-  if (!apiKey) {
-    throw new Error("Missing OPENAI_API_KEY.");
-  }
-
-  const resolveInstructions = () => {
-    if (workflowId === process.env.OPENAI_DOC_MANAGER_WORKFLOW_ID) {
-      return { name: "ASI IMS Doc Manager", instructions: DOC_MANAGER_INSTRUCTIONS };
-    }
-    if (workflowId === process.env.OPENAI_IMS_AUDITOR_WORKFLOW_ID) {
-      return { name: "ASI Lead IMS Auditor", instructions: IMS_AUDITOR_INSTRUCTIONS };
-    }
-    if (workflowId === process.env.OPENAI_INTERNAL_ADMIN_WORKFLOW_ID) {
-      return { name: "ASI Internal Knowledge Assistant (Admin)", instructions: INTERNAL_ADMIN_INSTRUCTIONS };
-    }
-    if (workflowId === process.env.OPENAI_INTERNAL_TECH_WORKFLOW_ID) {
-      return { name: "ASI Internal Knowledge Assistant (Tech)", instructions: INTERNAL_TECH_INSTRUCTIONS };
-    }
-    return { name: "ASI Agent", instructions: FALLBACK_AGENT_INSTRUCTIONS };
-  };
-
-  const resolved = resolveInstructions();
-  const name = agentNameOverride || resolved.name;
-  const instructions = instructionsOverride || resolved.instructions;
-  const inputItems: AgentInputItem[] = [
-    { role: "user", content: [{ type: "input_text", text: input }] },
-  ];
+}: RunWorkflowParams<T>): Promise<{ parsed: z.infer<T>; raw: string }> {
+  const anthropic = getAnthropicClient();
+  const resolved = resolveInstructions(workflowId);
+  const systemPrompt = [
+    instructionsOverride || resolved.instructions,
+    "",
+    "Respond ONLY with a valid JSON object. Do not include markdown fences, explanations, or any text outside the JSON.",
+  ].join("\n");
 
   let attempt = 0;
   let lastError: unknown;
 
   while (attempt <= maxRetries) {
     try {
-      const outputSchema = schema.strict ? schema.strict() : schema;
-      const agent = new Agent({
-        name,
-        instructions,
-        model,
-        outputType: outputSchema,
-      });
-      const runner = new Runner({
-        traceMetadata: { __trace_source__: "agent-builder" },
-      });
-
-      const result = await Promise.race([
-        runner.run(agent, inputItems),
+      const response = await Promise.race([
+        anthropic.messages.create({
+          model: DEFAULT_MODEL,
+          max_tokens: 4096,
+          system: systemPrompt,
+          messages: [{ role: "user", content: input }],
+        }),
         new Promise<never>((_, reject) =>
           setTimeout(() => reject(new Error("Agent request timed out.")), timeoutMs)
         ),
       ]);
 
-      if (!result.finalOutput) {
-        throw new Error("Agent returned no output.");
+      const raw = response.content
+        .filter((block): block is Anthropic.TextBlock => block.type === "text")
+        .map((block) => block.text)
+        .join("");
+
+      const jsonStr = extractJson(raw);
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(jsonStr);
+      } catch {
+        throw new Error(`Agent returned invalid JSON: ${jsonStr.slice(0, 200)}`);
       }
-      return {
-        parsed: result.finalOutput as z.infer<T>,
-        raw: JSON.stringify(result.finalOutput),
-      };
+
+      const validated = schema.parse(parsed);
+      return { parsed: validated as z.infer<T>, raw: jsonStr };
     } catch (error) {
       lastError = error;
+      const msg = error instanceof Error ? error.message : "";
       const retryable =
-        error instanceof Error &&
-        (error.message.includes("timed out") ||
-          error.message.includes("rate") ||
-          error.message.includes("temporarily"));
-      if (attempt >= maxRetries || retryable === false) {
-        throw error;
-      }
+        msg.includes("timed out") ||
+        msg.includes("rate") ||
+        msg.includes("overloaded") ||
+        msg.includes("temporarily");
+      if (attempt >= maxRetries || !retryable) throw error;
       await sleep(500 * Math.pow(2, attempt));
     }
     attempt += 1;

@@ -1,6 +1,6 @@
-﻿"use server";
+"use server";
 
-import { runWorkflowJson } from "@/lib/openai-workflow";
+import { runWorkflowJson, AGENT_DOC_MANAGER } from "@/lib/openai-workflow";
 import { DocumentManagerAgentSchema } from "@/lib/assistant/ims-schemas";
 
 type GenerateDraftParams = {
@@ -37,16 +37,9 @@ const buildPrompt = (params: GenerateDraftParams) => {
 };
 
 export async function generateImsDocumentDraftAction(params: GenerateDraftParams) {
-  const workflowId =
-    process.env.OPENAI_DOC_MANAGER_WORKFLOW_ID || process.env.OPENAI_WORKFLOW_ID;
-
-  if (!workflowId) {
-    throw new Error("Missing OPENAI_DOC_MANAGER_WORKFLOW_ID.");
-  }
-
   const prompt = buildPrompt(params);
   const result = await runWorkflowJson({
-    workflowId,
+    workflowId: AGENT_DOC_MANAGER,
     input: prompt,
     schema: DocumentManagerAgentSchema,
     timeoutMs: 45000,

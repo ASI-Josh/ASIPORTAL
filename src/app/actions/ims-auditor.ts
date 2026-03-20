@@ -1,6 +1,6 @@
 "use server";
 
-import { runWorkflowJson } from "@/lib/openai-workflow";
+import { runWorkflowJson, AGENT_AUDITOR } from "@/lib/openai-workflow";
 import { ImsAuditorSchema } from "@/lib/assistant/ims-schemas";
 
 type GenerateAuditParams = {
@@ -41,16 +41,9 @@ const buildPrompt = (params: GenerateAuditParams) => {
 };
 
 export async function generateImsAuditReportAction(params: GenerateAuditParams) {
-  const workflowId =
-    process.env.OPENAI_IMS_AUDITOR_WORKFLOW_ID || process.env.OPENAI_WORKFLOW_ID;
-
-  if (!workflowId) {
-    throw new Error("Missing OPENAI_IMS_AUDITOR_WORKFLOW_ID.");
-  }
-
   const prompt = buildPrompt(params);
   const result = await runWorkflowJson({
-    workflowId,
+    workflowId: AGENT_AUDITOR,
     input: prompt,
     schema: ImsAuditorSchema,
     timeoutMs: 45000,

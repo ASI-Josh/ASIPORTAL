@@ -3,7 +3,7 @@ import { admin } from "@/lib/firebaseAdmin";
 import { z } from "zod";
 import { requireUserId } from "@/lib/server/firebaseAuth";
 import { COLLECTIONS } from "@/lib/collections";
-import { runWorkflowJson } from "@/lib/openai-workflow";
+import { runWorkflowJson, AGENT_ADMIN, AGENT_TECH, AGENT_DOC_MANAGER, AGENT_AUDITOR } from "@/lib/openai-workflow";
 import { extractMentions, mentionMatches } from "@/lib/mentions";
 
 const MINUTES_BETWEEN_RUNS = 8;
@@ -488,11 +488,6 @@ export async function POST(req: NextRequest) {
 
     const topic = pickTopic(payload.topic);
 
-    const adminWorkflowId = process.env.OPENAI_INTERNAL_ADMIN_WORKFLOW_ID;
-    const techWorkflowId = process.env.OPENAI_INTERNAL_TECH_WORKFLOW_ID;
-    const docWorkflowId = process.env.OPENAI_DOC_MANAGER_WORKFLOW_ID;
-    const auditorWorkflowId = process.env.OPENAI_IMS_AUDITOR_WORKFLOW_ID;
-
     const now = admin.firestore.FieldValue.serverTimestamp();
 
     const createPost = async (
@@ -540,8 +535,7 @@ export async function POST(req: NextRequest) {
       focus: string | undefined,
       mode: "professional" | "awareness"
     ) => {
-      const workflowId = role === "admin" ? adminWorkflowId : techWorkflowId;
-      if (!workflowId) return null;
+      const workflowId = role === "admin" ? AGENT_ADMIN : AGENT_TECH;
       const persona = mode === "awareness" ? getAwarenessPersona(agentId, agentName) : null;
 
       const buildPrompt = (strictAwareness: boolean) => {
@@ -655,7 +649,6 @@ const runDocManagerAgent = async (
       focus: string | undefined,
       mode: "professional" | "awareness"
     ) => {
-      if (!docWorkflowId) return null;
       const persona = mode === "awareness" ? getAwarenessPersona("doc_manager", "Doc Manager") : null;
 
       const buildPrompt = (strictAwareness: boolean) => {
@@ -719,7 +712,7 @@ const runDocManagerAgent = async (
             ].join("\n");
 
       const primary = await runCommunityOnce({
-        workflowId: docWorkflowId,
+        workflowId: AGENT_DOC_MANAGER,
         input: buildPrompt(false),
         schema: COMMUNITY_RESPONSE_SCHEMA,
         timeoutMs: AGENT_TIMEOUT_MS,
@@ -733,7 +726,7 @@ const runDocManagerAgent = async (
 
       if (mode === "awareness" && violatesAwareness(content)) {
         const retry = await runCommunityOnce({
-          workflowId: docWorkflowId,
+          workflowId: AGENT_DOC_MANAGER,
           input: buildPrompt(true),
           schema: COMMUNITY_RESPONSE_SCHEMA,
           timeoutMs: AGENT_TIMEOUT_MS,
@@ -763,7 +756,6 @@ const runAuditorAgent = async (
       focus: string | undefined,
       mode: "professional" | "awareness"
     ) => {
-      if (!auditorWorkflowId) return null;
       const persona = mode === "awareness" ? getAwarenessPersona("ims_auditor", "IMS Auditor") : null;
 
       const buildPrompt = (strictAwareness: boolean) => {
@@ -827,7 +819,7 @@ const runAuditorAgent = async (
             ].join("\n");
 
       const primary = await runCommunityOnce({
-        workflowId: auditorWorkflowId,
+        workflowId: AGENT_AUDITOR,
         input: buildPrompt(false),
         schema: COMMUNITY_RESPONSE_SCHEMA,
         timeoutMs: 8000,
@@ -841,7 +833,7 @@ const runAuditorAgent = async (
 
       if (mode === "awareness" && violatesAwareness(content)) {
         const retry = await runCommunityOnce({
-          workflowId: auditorWorkflowId,
+          workflowId: AGENT_AUDITOR,
           input: buildPrompt(true),
           schema: COMMUNITY_RESPONSE_SCHEMA,
           timeoutMs: 8000,

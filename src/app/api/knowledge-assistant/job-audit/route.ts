@@ -3,7 +3,7 @@ import { admin } from "@/lib/firebaseAdmin";
 import { requireUserId } from "@/lib/server/firebaseAuth";
 import { COLLECTIONS } from "@/lib/collections";
 import { InternalKnowledgeSchema } from "@/lib/assistant/internal-knowledge-schema";
-import { runWorkflowJson } from "@/lib/openai-workflow";
+import { runWorkflowJson, AGENT_ADMIN } from "@/lib/openai-workflow";
 
 const formatTimestamp = (value?: admin.firestore.Timestamp | null) => {
   if (!value) return "";
@@ -77,11 +77,6 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const workflowId = process.env.OPENAI_INTERNAL_ADMIN_WORKFLOW_ID;
-    if (!workflowId) {
-      return NextResponse.json({ error: "Missing admin workflow configuration." }, { status: 500 });
-    }
-
     const jobSummary = summarizeJobForAudit(job);
     const prompt = [
       "Run a job completion audit and return the audit object in the JSON response.",
@@ -92,7 +87,7 @@ export async function POST(req: NextRequest) {
     ].join("\n");
 
     const result = await runWorkflowJson({
-      workflowId,
+      workflowId: AGENT_ADMIN,
       input: prompt,
       schema: InternalKnowledgeSchema,
       timeoutMs: 45000,
