@@ -22,6 +22,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
 import type { Lead, PipelineStage, OutreachEvent, OutreachEventType } from "@/lib/types";
 
 const STAGE_CONFIG: Record<PipelineStage, { label: string; color: string; bg: string }> = {
@@ -72,8 +73,9 @@ function formatCurrency(n?: number) {
 
 // ─── Log Outreach Modal ───────────────────────────────────────────────────────
 
-function LogOutreachModal({ leadId, open, onClose, onLogged }: {
+function LogOutreachModal({ leadId, open, onClose, onLogged, getToken }: {
   leadId: string; open: boolean; onClose: () => void; onLogged: () => void;
+  getToken: () => Promise<string>;
 }) {
   const { toast } = useToast();
   const [saving, setSaving] = useState(false);
@@ -87,9 +89,10 @@ function LogOutreachModal({ leadId, open, onClose, onLogged }: {
   const handleSubmit = async () => {
     setSaving(true);
     try {
+      const token = await getToken();
       const res = await fetch(`/api/leads/${leadId}/outreach`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify(form),
       });
       if (!res.ok) throw new Error((await res.json()).error);
@@ -159,14 +162,21 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
   const { id } = use(params);
   const router = useRouter();
   const { toast } = useToast();
+  const { firebaseUser } = useAuth();
   const [lead, setLead] = useState<Lead | null>(null);
   const [loading, setLoading] = useState(true);
   const [logOpen, setLogOpen] = useState(false);
   const [savingStage, setSavingStage] = useState(false);
 
+  const getToken = async () => {
+    if (!firebaseUser) throw new Error("Not signed in");
+    return firebaseUser.getIdToken();
+  };
+
   const fetchLead = async () => {
     try {
-      const res = await fetch(`/api/leads/${id}`);
+      const token = await getToken();
+      const res = await fetch(`/api/leads/${id}`, { headers: { Authorization: `Bearer ${token}` } });
       if (!res.ok) { router.push("/dashboard/crm"); return; }
       setLead(await res.json());
     } catch {
@@ -176,14 +186,15 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
     }
   };
 
-  useEffect(() => { fetchLead(); }, [id]);
+  useEffect(() => { if (firebaseUser) fetchLead(); }, [id, firebaseUser]);
 
   const handleStageChange = async (stage: PipelineStage) => {
     setSavingStage(true);
     try {
+      const token = await getToken();
       await fetch(`/api/leads/${id}/stage`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ stage }),
       });
       setLead((l) => l ? { ...l, stage } : l);
@@ -491,7 +502,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
         </TabsContent>
       </Tabs>
 
-      <LogOutreachModal leadId={id} open={logOpen} onClose={() => setLogOpen(false)} onLogged={fetchLead} />
+      <LogOutreachModal leadId={id} open={logOpen} onClose={() => setLogOpen(false)} onLogged={fetchLead} getToken={getToken} />
     </div>
   );
 }

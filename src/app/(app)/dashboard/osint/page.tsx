@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useAuth } from "@/contexts/AuthContext";
 import type { OSINTScan, OSINTFinding, OSINTPillar, FindingTag, FindingRelevance, OpportunityUrgency } from "@/lib/types-osint";
 
 // ─── Config ───────────────────────────────────────────────────────────────────
@@ -141,6 +142,7 @@ function PillarSection({ pillar }: { pillar: OSINTPillar }) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function OSINTPage() {
+  const { firebaseUser } = useAuth();
   const [scan, setScan] = useState<OSINTScan | null>(null);
   const [availableDates, setAvailableDates] = useState<{ date: string; totalFindings: number; highRelevanceCount: number }[]>([]);
   const [selectedDate, setSelectedDate] = useState("");
@@ -149,25 +151,35 @@ export default function OSINTPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    fetch("/api/osint")
-      .then((r) => r.json())
-      .then((data) => {
-        setAvailableDates(data.scans || []);
-        if (data.scans?.length) setSelectedDate(data.scans[0].date);
-      })
-      .catch(() => setError("Failed to load scans."));
-  }, []);
+  const getToken = async (): Promise<string> => {
+    if (!firebaseUser) throw new Error("Not signed in");
+    return firebaseUser.getIdToken();
+  };
 
   useEffect(() => {
-    if (!selectedDate) return;
+    if (!firebaseUser) return;
+    getToken().then((token) =>
+      fetch("/api/osint", { headers: { Authorization: `Bearer ${token}` } })
+        .then((r) => r.json())
+        .then((data) => {
+          setAvailableDates(data.scans || []);
+          if (data.scans?.length) setSelectedDate(data.scans[0].date);
+        })
+        .catch(() => setError("Failed to load scans."))
+    ).catch(() => setError("Failed to load scans."));
+  }, [firebaseUser]);
+
+  useEffect(() => {
+    if (!selectedDate || !firebaseUser) return;
     setLoading(true);
     setError("");
-    fetch(`/api/osint/${selectedDate}`)
-      .then((r) => r.json())
-      .then((data) => { setScan(data); setLoading(false); })
-      .catch(() => { setError("Failed to load scan data."); setLoading(false); });
-  }, [selectedDate]);
+    getToken().then((token) =>
+      fetch(`/api/osint/${selectedDate}`, { headers: { Authorization: `Bearer ${token}` } })
+        .then((r) => r.json())
+        .then((data) => { setScan(data); setLoading(false); })
+        .catch(() => { setError("Failed to load scan data."); setLoading(false); })
+    ).catch(() => { setError("Auth error."); setLoading(false); });
+  }, [selectedDate, firebaseUser]);
 
   const filteredPillars = scan?.pillars
     .filter((p) => activePillar === "all" || p.id === activePillar)

@@ -4,19 +4,22 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Radar, ArrowRight, AlertTriangle, TrendingUp } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { useAuth } from "@/contexts/AuthContext";
 import type { OSINTScanMeta } from "@/lib/types-osint";
 
 export function OSINTWidget() {
+  const { firebaseUser } = useAuth();
   const [latest, setLatest] = useState<OSINTScanMeta | null>(null);
 
   useEffect(() => {
-    fetch("/api/osint")
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.scans?.length) setLatest(data.scans[0]);
-      })
-      .catch(() => {});
-  }, []);
+    if (!firebaseUser) return;
+    firebaseUser.getIdToken().then((token) =>
+      fetch("/api/osint", { headers: { Authorization: `Bearer ${token}` } })
+        .then((r) => r.json())
+        .then((data) => { if (data.scans?.length) setLatest(data.scans[0]); })
+        .catch(() => {})
+    );
+  }, [firebaseUser]);
 
   return (
     <Card className="bg-card/50 backdrop-blur-lg border-border/20 hover:border-primary/30 transition-all group">

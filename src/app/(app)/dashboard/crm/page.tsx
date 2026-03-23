@@ -18,6 +18,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
 import type { Lead, PipelineStage, LeadSector } from "@/lib/types";
 
 // ─── Stage config ─────────────────────────────────────────────────────────────
@@ -169,10 +170,11 @@ function KanbanColumn({ stage, leads, onStageChange }: {
 
 // ─── Add Lead modal ───────────────────────────────────────────────────────────
 
-function AddLeadModal({ open, onClose, onCreated }: {
+function AddLeadModal({ open, onClose, onCreated, getToken }: {
   open: boolean;
   onClose: () => void;
   onCreated: () => void;
+  getToken: () => Promise<string>;
 }) {
   const { toast } = useToast();
   const [saving, setSaving] = useState(false);
@@ -202,9 +204,10 @@ function AddLeadModal({ open, onClose, onCreated }: {
         email: form.contactEmail, phone: form.contactPhone, isPrimary: true,
       }] : [];
 
+      const token = await getToken();
       const res = await fetch("/api/leads", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({
           companyName: form.companyName, sector: form.sector,
           contacts, bantBreakdown,
@@ -323,6 +326,7 @@ function AddLeadModal({ open, onClose, onCreated }: {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function CrmPage() {
+  const { firebaseUser } = useAuth();
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
   const [addOpen, setAddOpen] = useState(false);
@@ -330,10 +334,16 @@ export default function CrmPage() {
   const [showOther, setShowOther] = useState(false);
   const { toast } = useToast();
 
+  const getToken = useCallback(async () => {
+    if (!firebaseUser) throw new Error("Not signed in");
+    return firebaseUser.getIdToken();
+  }, [firebaseUser]);
+
   const fetchLeads = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/leads");
+      const token = await getToken();
+      const res = await fetch("/api/leads", { headers: { Authorization: `Bearer ${token}` } });
       const data = await res.json();
       setLeads(data.leads || []);
     } catch {
@@ -341,15 +351,16 @@ export default function CrmPage() {
     } finally {
       setLoading(false);
     }
-  }, [toast]);
+  }, [getToken, toast]);
 
-  useEffect(() => { fetchLeads(); }, [fetchLeads]);
+  useEffect(() => { if (firebaseUser) fetchLeads(); }, [firebaseUser, fetchLeads]);
 
   const handleStageChange = async (id: string, stage: PipelineStage) => {
     try {
+      const token = await getToken();
       await fetch(`/api/leads/${id}/stage`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ stage }),
       });
       setLeads((prev) => prev.map((l) => l.id === id ? { ...l, stage, stageEnteredAt: new Date().toISOString() } : l));
@@ -445,7 +456,7 @@ export default function CrmPage() {
         </div>
       </div>
 
-      <AddLeadModal open={addOpen} onClose={() => setAddOpen(false)} onCreated={fetchLeads} />
+      <AddLeadModal open={addOpen} onClose={() => setAddOpen(false)} onCreated={fetchLeads} getToken={getToken} />
     </div>
   );
 }

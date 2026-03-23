@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { TrendingUp, Flame, AlertTriangle, ArrowRight } from "lucide-react";
+import { TrendingUp, AlertTriangle, ArrowRight } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 
 interface PipelineStats {
@@ -19,14 +20,18 @@ function formatCurrency(n: number) {
 }
 
 export function SalesPipelineWidget() {
+  const { firebaseUser } = useAuth();
   const [stats, setStats] = useState<PipelineStats | null>(null);
 
   useEffect(() => {
-    fetch("/api/leads/stats")
-      .then((r) => r.json())
-      .then((data) => setStats(data))
-      .catch(() => {});
-  }, []);
+    if (!firebaseUser) return;
+    firebaseUser.getIdToken().then((token) =>
+      fetch("/api/leads/stats", { headers: { Authorization: `Bearer ${token}` } })
+        .then((r) => r.json())
+        .then((data) => setStats(data))
+        .catch(() => {})
+    );
+  }, [firebaseUser]);
 
   return (
     <Card className="bg-card/50 backdrop-blur-lg border-border/20 hover:border-primary/30 transition-all group">
