@@ -4,13 +4,14 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import {
   FlaskConical, Bus, Wrench, Leaf, ExternalLink, BarChart3,
-  Target, Radar, ChevronLeft, AlertTriangle,
+  Target, Radar, ChevronLeft, AlertTriangle, TrendingUp, CheckCircle2,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuth } from "@/contexts/AuthContext";
+import { useToast } from "@/hooks/use-toast";
 import type { OSINTScan, OSINTFinding, OSINTPillar, FindingTag, FindingRelevance, OpportunityUrgency } from "@/lib/types-osint";
 
 // ─── Config ───────────────────────────────────────────────────────────────────
@@ -143,7 +144,10 @@ function PillarSection({ pillar }: { pillar: OSINTPillar }) {
 
 export default function OSINTPage() {
   const { firebaseUser } = useAuth();
+  const { toast } = useToast();
   const [scan, setScan] = useState<OSINTScan | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importedCount, setImportedCount] = useState<number | null>(null);
   const [availableDates, setAvailableDates] = useState<{ date: string; totalFindings: number; highRelevanceCount: number }[]>([]);
   const [selectedDate, setSelectedDate] = useState("");
   const [activePillar, setActivePillar] = useState("all");
@@ -180,6 +184,44 @@ export default function OSINTPage() {
         .catch(() => { setError("Failed to load scan data."); setLoading(false); })
     ).catch(() => { setError("Auth error."); setLoading(false); });
   }, [selectedDate, firebaseUser]);
+
+  const handleImportToPipeline = async () => {
+    if (!scan || !firebaseUser) return;
+    setImporting(true);
+    try {
+      const token = await getToken();
+      // Build import payload from opportunity matrix
+      const leads = scan.opportunityMatrix.map((opp) => ({
+        company: opp.name.split("—")[0].trim(),
+        sector: opp.pillar.toLowerCase().includes("bus") || opp.pillar.toLowerCase().includes("transit") ? "mass-transit"
+          : opp.pillar.toLowerCase().includes("glass") ? "manufacturing"
+          : opp.pillar.toLowerCase().includes("sustain") ? "mass-transit"
+          : opp.pillar.toLowerCase().includes("fleet") ? "wholesale-trade"
+          : "other",
+        pipeline_stage: 1,
+        bant_score: opp.relevanceScore * 16,
+        source: { osint_scan_date: scan.date, finding: opp.name, pillar: opp.pillar, relevance_score: opp.relevanceScore },
+        next_action: opp.action,
+        follow_up_date: new Date(Date.now() + 86400000).toISOString().split("T")[0],
+        recommended_sequence: "A" as const,
+        notes: `From OSINT scan ${scan.date}. Opportunity Matrix rank #${opp.rank}. Urgency: ${opp.urgency}. Suggested action: ${opp.action}`,
+        tags: ["osint", opp.urgency === "immediate" ? "urgent" : opp.urgency],
+        market_mode: "growth" as const,
+      }));
+      const res = await fetch("/api/leads/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ osintScanDate: scan.date, leads }),
+      });
+      const data = await res.json();
+      setImportedCount(data.created + data.updated);
+      toast({ title: `Imported to pipeline`, description: `${data.created} created, ${data.updated} updated, ${data.skipped} skipped` });
+    } catch {
+      toast({ title: "Import failed", variant: "destructive" });
+    } finally {
+      setImporting(false);
+    }
+  };
 
   const filteredPillars = scan?.pillars
     .filter((p) => activePillar === "all" || p.id === activePillar)
@@ -225,7 +267,7 @@ export default function OSINTPage() {
             </Select>
           )}
           {scan && (
-            <div className="flex gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <Badge variant="outline">{scan.metadata.totalFindings} findings</Badge>
               <Badge className="bg-emerald-500/15 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/15">
                 {scan.metadata.highRelevanceCount} high relevance
@@ -235,6 +277,17 @@ export default function OSINTPage() {
                   <AlertTriangle className="w-3 h-3 mr-1" />
                   {scan.metadata.urgentCount} urgent
                 </Badge>
+              )}
+              {importedCount !== null ? (
+                <Badge className="bg-green-500/15 text-green-400 border-green-500/30 hover:bg-green-500/15">
+                  <CheckCircle2 className="w-3 h-3 mr-1" />
+                  {importedCount} in pipeline
+                </Badge>
+              ) : (
+                <Button size="sm" variant="outline" onClick={handleImportToPipeline} disabled={importing}>
+                  <TrendingUp className="w-3.5 h-3.5 mr-1.5" />
+                  {importing ? "Importing…" : "Import to Pipeline"}
+                </Button>
               )}
             </div>
           )}
