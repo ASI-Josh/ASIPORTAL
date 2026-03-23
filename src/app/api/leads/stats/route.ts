@@ -8,8 +8,8 @@ export async function GET(req: NextRequest) {
   try {
     await requireUserId(req);
     const db = admin.firestore();
-    const snap = await db.collection(COLLECTIONS.LEADS).where("isDeleted", "!=", true).get();
-    const leads = snap.docs.map((d) => d.data() as Lead);
+    const snap = await db.collection(COLLECTIONS.LEADS).get();
+    const leads = snap.docs.map((d) => d.data() as Lead).filter((l) => !l.isDeleted);
 
     const byStage: Record<string, number> = {};
     const byGrade: Record<string, number> = {};

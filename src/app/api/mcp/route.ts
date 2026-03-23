@@ -595,12 +595,12 @@ async function handleGetLeads(args: Record<string, unknown>) {
   const db = admin.firestore();
   const limit = safeLimit(args.limit, 50, 200);
   const snap = await db.collection(COLLECTIONS.LEADS)
-    .where("isDeleted", "!=", true)
-    .orderBy("isDeleted")
     .orderBy("createdAt", "desc")
     .limit(limit)
     .get();
-  let leads = snap.docs.map((d) => serializeDoc(d.id, d.data()));
+  let leads = snap.docs
+    .map((d) => serializeDoc(d.id, d.data()))
+    .filter((l) => !l.isDeleted);
   if (typeof args.stage === "string") leads = leads.filter((l) => l.stage === args.stage);
   if (typeof args.grade === "string") leads = leads.filter((l) => l.leadGrade === args.grade);
   if (typeof args.sector === "string") {
@@ -612,13 +612,13 @@ async function handleGetLeads(args: Record<string, unknown>) {
 
 async function handleGetPipelineStats() {
   const db = admin.firestore();
-  const snap = await db.collection(COLLECTIONS.LEADS).where("isDeleted", "!=", true).get();
+  const snap = await db.collection(COLLECTIONS.LEADS).limit(500).get();
   const byStage: Record<string, number> = {};
   const byGrade: Record<string, number> = {};
   let totalValue = 0;
   let overdueFollowUps = 0;
   const today = new Date().toISOString().split("T")[0];
-  snap.docs.forEach((d) => {
+  snap.docs.filter((d) => !d.data().isDeleted).forEach((d) => {
     const l = d.data() as Record<string, unknown>;
     const stage = String(l.stage || "unknown");
     byStage[stage] = (byStage[stage] || 0) + 1;
@@ -768,8 +768,8 @@ async function handleEnrichPipelineFromOsint(args: Record<string, unknown>) {
   const findings = (args.findings as Array<{ headline: string; companyMentions: string[]; relevance: number; tags?: string[]; pillar?: string }>) || [];
   const scanDate = String(args.osintScanDate || "");
   const db = admin.firestore();
-  const snap = await db.collection(COLLECTIONS.LEADS).where("isDeleted", "!=", true).limit(200).get();
-  const leads = snap.docs.map((d) => ({ id: d.id, ...d.data() })) as Array<Record<string, unknown>>;
+  const snap = await db.collection(COLLECTIONS.LEADS).limit(200).get();
+  const leads = snap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((d) => !(d as Record<string, unknown>).isDeleted) as Array<Record<string, unknown>>;
   const now = admin.firestore.FieldValue.serverTimestamp();
 
   function normalise(s: string) { return s.toLowerCase().replace(/[^a-z0-9]/g, ""); }
@@ -826,8 +826,9 @@ async function handleImportLeadsFromOsint(args: Record<string, unknown>) {
   for (const item of leads as Array<Record<string, unknown>>) {
     const company = String(item.company || "").trim();
     if (!company) { skipped++; continue; }
-    const existing = await db.collection(COLLECTIONS.LEADS)
-      .where("companyName", "==", company).where("isDeleted", "!=", true).limit(1).get();
+    const existingSnap = await db.collection(COLLECTIONS.LEADS)
+      .where("companyName", "==", company).limit(5).get();
+    const existing = { empty: existingSnap.docs.filter((d) => !d.data().isDeleted).length === 0, docs: existingSnap.docs.filter((d) => !d.data().isDeleted) };
     const bd = (item.bant_breakdown || {}) as Record<string, number>;
     const bantBreakdown = { budget: bd.budget||0, authority: bd.authority||0, need: bd.need||0, timing: bd.timing||0, fit: bd.fit||0 };
     const bantScore = typeof item.bant_score === "number" ? item.bant_score : Object.values(bantBreakdown).reduce((a,b)=>a+b,0);

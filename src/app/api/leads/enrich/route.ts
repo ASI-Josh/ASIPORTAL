@@ -58,13 +58,11 @@ export async function POST(req: NextRequest) {
 
     const db = admin.firestore();
     const snap = await db.collection(COLLECTIONS.LEADS)
-      .where("isDeleted", "!=", true)
-      .orderBy("isDeleted")
       .orderBy("createdAt", "desc")
       .limit(200)
       .get();
 
-    const leads = snap.docs.map((d) => ({ id: d.id, ...d.data() })) as Lead[];
+    const leads = snap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((l) => !(l as Record<string, unknown>).isDeleted) as Lead[];
     const matched: MatchedLead[] = [];
     const now = admin.firestore.FieldValue.serverTimestamp();
 

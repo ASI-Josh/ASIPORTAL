@@ -202,9 +202,9 @@ export async function POST(req: NextRequest) {
     for (const seed of SEED_LEADS) {
       const existing = await db.collection(COLLECTIONS.LEADS)
         .where("companyName", "==", seed.company)
-        .where("isDeleted", "!=", true)
-        .limit(1).get();
-      if (!existing.empty) { skipped++; continue; }
+        .limit(5).get();
+      const activeExisting = existing.docs.filter((d) => !d.data().isDeleted);
+      if (activeExisting.length > 0) { skipped++; continue; }
 
       const leadNumber = await nextLeadNumber(db);
       const stageMap: Record<number, string> = { 1:"identified",2:"researched",3:"contacted",4:"engaged",5:"qualified",6:"proposal_sent",7:"negotiation",8:"won",9:"lost",10:"nurture" };

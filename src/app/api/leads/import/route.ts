@@ -100,9 +100,9 @@ export async function POST(req: NextRequest) {
       // Check if lead already exists for this company
       const existing = await db.collection(COLLECTIONS.LEADS)
         .where("companyName", "==", item.company.trim())
-        .where("isDeleted", "!=", true)
-        .limit(1)
+        .limit(5)
         .get();
+      const existingActive = existing.docs.filter((d) => !d.data().isDeleted);
 
       const bantBreakdown: Lead["bantBreakdown"] = {
         budget: item.bant_breakdown?.budget ?? 0,
@@ -130,9 +130,9 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      if (!existing.empty) {
+      if (existingActive.length > 0) {
         // Update existing lead with new intelligence if stage is earlier
-        const existingDoc = existing.docs[0];
+        const existingDoc = existingActive[0];
         const existingData = existingDoc.data() as Lead;
         const stageOrder = Object.keys(STAGE_MAP);
         const existingStageIdx = stageOrder.indexOf(existingData.stage);
@@ -159,7 +159,7 @@ export async function POST(req: NextRequest) {
         await existingDoc.ref.set(updates, { merge: true });
         updated++;
         resultLeads.push({ id: existingDoc.id, leadNumber: existingData.leadNumber, companyName: item.company, action: "updated" });
-      } else {
+      } else if (existingActive.length === 0) {
         // Create new lead
         const leadNumber = await nextLeadNumber(year);
         const payload: Omit<Lead, "id"> = {

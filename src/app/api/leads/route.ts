@@ -42,15 +42,14 @@ export async function GET(req: NextRequest) {
     const limit = Math.min(parseInt(searchParams.get("limit") || "100", 10), 200);
 
     const db = admin.firestore();
-    let q: FirebaseFirestore.Query = db
+    const snap = await db
       .collection(COLLECTIONS.LEADS)
-      .where("isDeleted", "!=", true)
-      .orderBy("isDeleted")
       .orderBy("createdAt", "desc")
-      .limit(limit);
-
-    const snap = await q.get();
-    let leads = snap.docs.map((d) => ({ id: d.id, ...d.data() })) as Lead[];
+      .limit(limit)
+      .get();
+    let leads = snap.docs
+      .map((d) => ({ id: d.id, ...d.data() }))
+      .filter((l) => !(l as Record<string, unknown>).isDeleted) as Lead[];
 
     if (stage) leads = leads.filter((l) => l.stage === stage);
     if (grade) leads = leads.filter((l) => l.leadGrade === grade);
