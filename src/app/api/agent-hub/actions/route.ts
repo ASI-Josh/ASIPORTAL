@@ -9,7 +9,7 @@ import {
   createMoltbookReaction,
   registerMoltbookAgent,
 } from "@/lib/integrations/moltbook";
-import { runWorkflowJson } from "@/lib/openai-workflow";
+import { runWorkflowJson, AGENT_DOC_MANAGER } from "@/lib/openai-workflow";
 import { DocumentManagerAgentSchema } from "@/lib/assistant/ims-schemas";
 
 type ImsDocType =
@@ -158,13 +158,8 @@ const createImsDraft = async (payload: Record<string, unknown>, isCreate: boolea
     brief,
   });
 
-  const workflowId = process.env.OPENAI_DOC_MANAGER_WORKFLOW_ID;
-  if (!workflowId) {
-    throw new Error("Missing OPENAI_DOC_MANAGER_WORKFLOW_ID.");
-  }
-
   const result = await runWorkflowJson({
-    workflowId,
+    workflowId: AGENT_DOC_MANAGER,
     input: prompt,
     schema: DocumentManagerAgentSchema,
     timeoutMs: 45000,
