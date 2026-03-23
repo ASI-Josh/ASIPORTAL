@@ -26,6 +26,7 @@ import {
   Bot,
   MessagesSquare,
   AlertTriangle,
+  Radar,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import {
@@ -66,6 +67,7 @@ const adminMenuItems = [
   { href: "/dashboard/ims", label: "ASI IMS", icon: Layers },
   { href: "/dashboard/agent-hub", label: "Agent Hub", icon: Bot },
   { href: "/dashboard/agent-community", label: "Agent Community", icon: MessagesSquare },
+  { href: "/dashboard/osint", label: "ASI OSINT", icon: Radar },
   { href: "/dashboard/recycle-bin", label: "Recycle Bin", icon: Trash2 },
   { href: "/dashboard/reports", label: "Reports", icon: FileText },
 ];

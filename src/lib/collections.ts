@@ -41,4 +41,5 @@ export const COLLECTIONS = {
   IMS_CORRECTIVE_ACTIONS: "imsCorrectiveActions",
   IMS_INCIDENTS: "imsIncidents",
   IMS_RISK_REGISTER: "imsRiskRegister",
+  OSINT_SCANS: "osintScans",
 } as const;
