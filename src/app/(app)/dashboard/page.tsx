@@ -191,23 +191,55 @@ export default function DashboardPage() {
   );
 
   const ohsMetrics = useMemo(() => {
-    const completed = prestarts.filter((p) => p.status === "completed");
-    const totalCompleted = completed.length;
-    const vehicleSafetyPassed = completed.filter((p) => {
+    // Vehicle prestart metrics
+    const completedPrestarts = prestarts.filter((p) => p.status === "completed");
+    const vehicleSafetyPassed = completedPrestarts.filter((p) => {
       const vs = p.checklist?.vehicleSafety;
       if (!vs) return false;
       return vs.tyresOk && vs.lightsOk && vs.fluidsOk && vs.safetyEquipmentOk && vs.registrationOk && vs.cabCleanOk;
     }).length;
-    const safetyPassRate = totalCompleted ? Math.round((vehicleSafetyPassed / totalCompleted) * 100) : 0;
-    const openIssues = prestarts.reduce(
+    const vehicleSafetyPassRate = completedPrestarts.length
+      ? Math.round((vehicleSafetyPassed / completedPrestarts.length) * 100)
+      : 0;
+    const openPrestartIssues = prestarts.reduce(
       (sum, p) => sum + (p.issues?.filter((i) => i.status === "open" || i.status === "in_progress").length || 0),
       0
     );
     const prestartComplianceRate = prestarts.length
-      ? Math.round((completed.length / prestarts.length) * 100)
+      ? Math.round((completedPrestarts.length / prestarts.length) * 100)
       : 0;
-    return { totalCompleted, safetyPassRate, openIssues, prestartComplianceRate, totalPrestarts: prestarts.length };
-  }, [prestarts]);
+
+    // HSE Risk Assessment metrics (from job cards)
+    const activeJobs = filteredJobs.filter((j) => !j.isDeleted && j.status !== "cancelled");
+    const jobsWithCompletedRA = activeJobs.filter((j) => j.riskAssessment?.completedAt).length;
+    const raComplianceRate = activeJobs.length
+      ? Math.round((jobsWithCompletedRA / activeJobs.length) * 100)
+      : 0;
+    let highCriticalHazards = 0;
+    let residualHighCritical = 0;
+    activeJobs.forEach((j) => {
+      (j.riskAssessment?.hazards || []).forEach((h) => {
+        if (!h.present) return;
+        if (h.riskLevel === "high" || h.riskLevel === "critical") highCriticalHazards += 1;
+        if (h.residualRiskLevel === "high" || h.residualRiskLevel === "critical") residualHighCritical += 1;
+      });
+    });
+
+    return {
+      // Vehicle prestarts
+      completedPrestarts: completedPrestarts.length,
+      totalPrestarts: prestarts.length,
+      prestartComplianceRate,
+      vehicleSafetyPassRate,
+      openPrestartIssues,
+      // HSE risk assessments
+      jobsWithCompletedRA,
+      totalActiveJobs: activeJobs.length,
+      raComplianceRate,
+      highCriticalHazards,
+      residualHighCritical,
+    };
+  }, [prestarts, filteredJobs]);
 
   const scheduleFallback = useMemo(() => {
     const today = new Date();
@@ -448,26 +480,53 @@ export default function DashboardPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="grid gap-6 sm:grid-cols-3">
-              {/* OHS */}
+            <div className="grid gap-6 sm:grid-cols-4">
+              {/* Vehicle Prestarts */}
               <div className="space-y-2">
-                <p className="text-xs font-semibold uppercase tracking-wider text-emerald-400">OHS</p>
+                <p className="text-xs font-semibold uppercase tracking-wider text-emerald-400">Vehicle Prestart</p>
                 <div className="flex items-center justify-between text-sm">
-                  <span>Prestarts completed</span>
-                  <span className="font-medium">{ohsMetrics.totalCompleted}</span>
+                  <span>Completed</span>
+                  <span className="font-medium">{ohsMetrics.completedPrestarts} / {ohsMetrics.totalPrestarts}</span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
-                  <span>Prestart compliance</span>
+                  <span>Compliance rate</span>
                   <span className="font-medium">{ohsMetrics.prestartComplianceRate}%</span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
-                  <span>Vehicle safety pass rate</span>
-                  <span className="font-medium">{ohsMetrics.safetyPassRate}%</span>
+                  <span>Vehicle safety pass</span>
+                  <span className="font-medium">{ohsMetrics.vehicleSafetyPassRate}%</span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
-                  <span>Open safety issues</span>
-                  <span className={`font-medium ${ohsMetrics.openIssues > 0 ? "text-red-400" : ""}`}>
-                    {ohsMetrics.openIssues}
+                  <span>Open issues</span>
+                  <span className={`font-medium ${ohsMetrics.openPrestartIssues > 0 ? "text-red-400" : ""}`}>
+                    {ohsMetrics.openPrestartIssues}
+                  </span>
+                </div>
+              </div>
+
+              {/* HSE Risk Assessments */}
+              <div className="space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-wider text-orange-400">HSE Risk Assessments</p>
+                <div className="flex items-center justify-between text-sm">
+                  <span>Completed</span>
+                  <span className="font-medium">{ohsMetrics.jobsWithCompletedRA} / {ohsMetrics.totalActiveJobs}</span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span>Compliance rate</span>
+                  <span className={`font-medium ${ohsMetrics.raComplianceRate < 100 ? "text-amber-400" : ""}`}>
+                    {ohsMetrics.raComplianceRate}%
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span>High/critical hazards</span>
+                  <span className={`font-medium ${ohsMetrics.highCriticalHazards > 0 ? "text-red-400" : ""}`}>
+                    {ohsMetrics.highCriticalHazards}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span>Residual high risk</span>
+                  <span className={`font-medium ${ohsMetrics.residualHighCritical > 0 ? "text-red-400" : ""}`}>
+                    {ohsMetrics.residualHighCritical}
                   </span>
                 </div>
               </div>
