@@ -12,6 +12,7 @@ import { OpsAssistantPanel } from "@/components/dashboard/ops-assistant-panel";
 import { InternalKnowledgeAssistant } from "@/components/assistant/internal-knowledge-assistant";
 import { WeatherCard } from "@/components/dashboard/weather-card";
 import { OSINTWidget } from "@/components/osint-widget";
+import { SalesPipelineWidget } from "@/components/sales-pipeline-widget";
 import { useAuth } from "@/contexts/AuthContext";
 import { useJobs } from "@/contexts/JobsContext";
 import { db } from "@/lib/firebaseClient";
@@ -622,6 +623,7 @@ export default function DashboardPage() {
 
       <div className="grid gap-6 lg:grid-cols-4">
         <OSINTWidget />
+        <SalesPipelineWidget />
         <Card className="bg-card/50 backdrop-blur-lg border-border/20">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">

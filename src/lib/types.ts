@@ -890,7 +890,176 @@ export interface AutomationAgent {
 // CRM & SALES PIPELINE
 // ============================================
 
-export type PipelineStage = "leads" | "cold-leads" | "hot-leads" | "meeting-booked" | "deal-closed" | "onboarding";
+export type PipelineStage =
+  | "identified"
+  | "researched"
+  | "contacted"
+  | "engaged"
+  | "qualified"
+  | "proposal_sent"
+  | "negotiation"
+  | "won"
+  | "lost"
+  | "nurture";
+
+export type LeadSector =
+  | "mass-transit"
+  | "manufacturing"
+  | "wholesale-trade"
+  | "structural"
+  | "marine"
+  | "other";
+
+export type LeadGrade = "A" | "B" | "C" | "D" | "E";
+
+export type LeadSourceType =
+  | "osint"
+  | "referral"
+  | "inbound"
+  | "manual"
+  | "linkedin"
+  | "event"
+  | "tender";
+
+export type OutreachEventType =
+  | "linkedin_connect"
+  | "linkedin_message"
+  | "email"
+  | "phone"
+  | "meeting"
+  | "proposal"
+  | "follow_up";
+
+export interface LeadContact {
+  id: string;
+  name: string;
+  title?: string;
+  email?: string;
+  phone?: string;
+  linkedInUrl?: string;
+  isPrimary: boolean;
+  notes?: string;
+}
+
+export interface LeadSource {
+  type: LeadSourceType;
+  osintScanDate?: string;
+  osintFinding?: string;
+  osintPillar?: string;
+  osintRelevanceScore?: number;
+  referralSource?: string;
+  tenderReference?: string;
+  detail?: string;
+}
+
+export interface StageChange {
+  fromStage: PipelineStage;
+  toStage: PipelineStage;
+  changedAt: string;
+  changedBy: string;
+  reason?: string;
+}
+
+export interface OutreachStatus {
+  linkedInConnected: boolean;
+  linkedInMessageSent: boolean;
+  emailsSent: number;
+  lastContactDate?: string;
+  lastResponseDate?: string;
+  responseReceived: boolean;
+  meetingScheduled: boolean;
+}
+
+export interface OutreachEvent {
+  id: string;
+  type: OutreachEventType;
+  date: string;
+  subject?: string;
+  summary: string;
+  response?: string;
+  nextStep?: string;
+  loggedBy?: string;
+}
+
+export interface Lead {
+  id: string;
+  leadNumber: string;                // e.g. "LD-2026-0001"
+
+  // Company
+  companyName: string;
+  companyWebsite?: string;
+  companyLinkedIn?: string;
+  sector: LeadSector;
+  companySize?: "enterprise" | "mid-market" | "smb";
+
+  // Link to existing org
+  existingOrganizationId?: string;
+  isExistingClient: boolean;
+
+  // Contacts
+  contacts: LeadContact[];
+  primaryContactId?: string;
+
+  // BANT qualification
+  bantScore: number;                 // 0-100
+  bantBreakdown: {
+    budget: number;                  // 0-20
+    authority: number;               // 0-20
+    need: number;                    // 0-25
+    timing: number;                  // 0-20
+    fit: number;                     // 0-15
+  };
+  leadGrade: LeadGrade;
+
+  // Pipeline
+  stage: PipelineStage;
+  stageHistory: StageChange[];
+  stageEnteredAt?: string;           // ISO date when current stage was entered
+
+  // Source
+  source: LeadSource;
+
+  // Opportunity details
+  estimatedValue?: number;
+  estimatedServices: string[];
+  painPoints: string[];
+  asiSolutionFit: string[];
+
+  // Outreach
+  outreachSequence: "A" | "B" | "C" | null;
+  outreachStatus: OutreachStatus;
+  outreachHistory: OutreachEvent[];
+
+  // Context
+  marketMode: "growth" | "downturn" | "neutral";
+  nextActionDate?: string;
+  nextAction?: string;
+  lostReason?: string;
+  notes: string;
+  tags: string[];
+
+  // Meta
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+  createdBy: string;
+  createdByName?: string;
+  isDeleted?: boolean;
+}
+
+export interface Opportunity {
+  id: string;
+  leadId: string;
+  organizationId: string;
+  estimatedAnnualValue: number;
+  services: string[];
+  contractType: "one-off" | "recurring" | "retainer" | "tender";
+  contractDuration?: string;
+  wonDate: string;
+  wonReason?: string;
+  convertedJobIds: string[];
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
 
 export type ActivityType = "call" | "email" | "meeting" | "follow-up" | "qualification";
 
@@ -916,25 +1085,6 @@ export interface SalesTask {
   completed: boolean;
   completedAt?: Timestamp;
   createdAt: Timestamp;
-}
-
-export interface Lead {
-  id: string;
-  companyName: string;
-  contactPerson: string;
-  email: string;
-  phone?: string;
-  stage: PipelineStage;
-  value: number;
-  probability: number;
-  serviceType: string;
-  source?: string;
-  assignedTo: string;
-  createdAt: Timestamp;
-  updatedAt: Timestamp;
-  lastContactedAt?: Timestamp;
-  expectedCloseDate?: Timestamp;
-  notes?: string;
 }
 
 // ============================================
