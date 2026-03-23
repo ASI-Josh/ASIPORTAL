@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import {
   PlusCircle, TrendingUp, Users, AlertTriangle, RefreshCw,
-  Building2, Flame, Filter, Search,
+  Building2, Flame, Filter, Search, Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -332,6 +332,7 @@ export default function CrmPage() {
   const [addOpen, setAddOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [showOther, setShowOther] = useState(false);
+  const [seeding, setSeeding] = useState(false);
   const { toast } = useToast();
 
   const getToken = useCallback(async () => {
@@ -354,6 +355,25 @@ export default function CrmPage() {
   }, [getToken, toast]);
 
   useEffect(() => { if (firebaseUser) fetchLeads(); }, [firebaseUser, fetchLeads]);
+
+  const handleSeed = async () => {
+    setSeeding(true);
+    try {
+      const token = await getToken();
+      const res = await fetch("/api/leads/seed", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      toast({ title: `Pipeline seeded`, description: `${data.created} leads created from OSINT scan` });
+      fetchLeads();
+    } catch (e) {
+      toast({ title: "Seed failed", description: e instanceof Error ? e.message : "Error", variant: "destructive" });
+    } finally {
+      setSeeding(false);
+    }
+  };
 
   const handleStageChange = async (id: string, stage: PipelineStage) => {
     try {
@@ -392,6 +412,12 @@ export default function CrmPage() {
           <Button variant="outline" size="icon" onClick={fetchLeads} disabled={loading}>
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
           </Button>
+          {!loading && leads.length === 0 && (
+            <Button variant="outline" onClick={handleSeed} disabled={seeding}>
+              <Sparkles className="mr-2 h-4 w-4 text-primary" />
+              {seeding ? "Seeding…" : "Seed OSINT Leads"}
+            </Button>
+          )}
           <Button onClick={() => setAddOpen(true)}>
             <PlusCircle className="mr-2 h-4 w-4" /> Add Lead
           </Button>
