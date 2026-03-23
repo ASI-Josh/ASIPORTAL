@@ -2,11 +2,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { CalendarCheck, Leaf, AlertTriangle, LineChart, Users, Wrench } from "lucide-react";
+import { CalendarCheck, AlertTriangle, LineChart, Users, ShieldCheck, Wrench } from "lucide-react";
 import { collection, doc, onSnapshot, orderBy, query } from "firebase/firestore";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { OpsAssistantPanel } from "@/components/dashboard/ops-assistant-panel";
 import { InternalKnowledgeAssistant } from "@/components/assistant/internal-knowledge-assistant";
 import { WeatherCard } from "@/components/dashboard/weather-card";
@@ -18,6 +19,7 @@ import type {
   ContactOrganization,
   GoodsReceivedInspection,
   Inspection,
+  PrestartCheck,
 } from "@/lib/types";
 import { calculateDashboardMetrics } from "@/lib/dashboard-analytics";
 
@@ -80,6 +82,8 @@ export default function DashboardPage() {
   const [inspections, setInspections] = useState<Inspection[]>([]);
   const [organizations, setOrganizations] = useState<ContactOrganization[]>([]);
   const [goodsReceived, setGoodsReceived] = useState<GoodsReceivedInspection[]>([]);
+  const [prestarts, setPrestarts] = useState<PrestartCheck[]>([]);
+  const [selectedOrgId, setSelectedOrgId] = useState<string>("all");
   const [insightDoc, setInsightDoc] = useState<InsightPayload | null>(null);
   const [insightLoading, setInsightLoading] = useState(false);
   const [insightError, setInsightError] = useState<string | null>(null);
@@ -98,6 +102,10 @@ export default function DashboardPage() {
     );
     const goodsQuery = query(
       collection(db, COLLECTIONS.GOODS_RECEIVED),
+      orderBy("createdAt", "desc")
+    );
+    const prestartsQuery = query(
+      collection(db, COLLECTIONS.PRESTART_CHECKS),
       orderBy("createdAt", "desc")
     );
 
@@ -140,34 +148,77 @@ export default function DashboardPage() {
       () => setGoodsReceived([])
     );
 
+    const unsubscribePrestarts = onSnapshot(
+      prestartsQuery,
+      (snapshot) => {
+        setPrestarts(
+          snapshot.docs.map((docSnap) => ({
+            id: docSnap.id,
+            ...(docSnap.data() as Omit<PrestartCheck, "id">),
+          }))
+        );
+      },
+      () => setPrestarts([])
+    );
+
     return () => {
       unsubscribeInspections();
       unsubscribeOrgs();
       unsubscribeGoods();
+      unsubscribePrestarts();
     };
   }, []);
+
+  const filteredJobs = useMemo(() => {
+    if (selectedOrgId === "all") return jobs;
+    return jobs.filter((j) => j.organizationId === selectedOrgId || j.clientName === selectedOrgId);
+  }, [jobs, selectedOrgId]);
+
+  const filteredInspections = useMemo(() => {
+    if (selectedOrgId === "all") return inspections;
+    return inspections.filter((i) => i.organizationId === selectedOrgId);
+  }, [inspections, selectedOrgId]);
 
   const metrics = useMemo(
     () =>
       calculateDashboardMetrics({
-        jobs,
-        inspections,
+        jobs: filteredJobs,
+        inspections: filteredInspections,
         worksRegister,
         organizations,
       }),
-    [jobs, inspections, worksRegister, organizations]
+    [filteredJobs, filteredInspections, worksRegister, organizations]
   );
+
+  const ohsMetrics = useMemo(() => {
+    const completed = prestarts.filter((p) => p.status === "completed");
+    const totalCompleted = completed.length;
+    const vehicleSafetyPassed = completed.filter((p) => {
+      const vs = p.checklist?.vehicleSafety;
+      if (!vs) return false;
+      return vs.tyresOk && vs.lightsOk && vs.fluidsOk && vs.safetyEquipmentOk && vs.registrationOk && vs.cabCleanOk;
+    }).length;
+    const safetyPassRate = totalCompleted ? Math.round((vehicleSafetyPassed / totalCompleted) * 100) : 0;
+    const openIssues = prestarts.reduce(
+      (sum, p) => sum + (p.issues?.filter((i) => i.status === "open" || i.status === "in_progress").length || 0),
+      0
+    );
+    const prestartComplianceRate = prestarts.length
+      ? Math.round((completed.length / prestarts.length) * 100)
+      : 0;
+    return { totalCompleted, safetyPassRate, openIssues, prestartComplianceRate, totalPrestarts: prestarts.length };
+  }, [prestarts]);
 
   const scheduleFallback = useMemo(() => {
     const today = new Date();
-    return jobs
+    return filteredJobs
       .filter((job) => job.scheduledDate?.toDate && isSameDay(job.scheduledDate.toDate(), today))
       .map((job) => ({
         id: job.id,
         summary: `${job.jobNumber} - ${job.clientName}`,
         time: job.booking?.preferredTime || "Scheduled",
       }));
-  }, [jobs]);
+  }, [filteredJobs]);
 
   const goodsMetrics = useMemo(() => {
     const now = new Date();
@@ -356,59 +407,112 @@ export default function DashboardPage() {
         description="Live IMS, technical, and operational guidance tailored to your role."
       />
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        <Card className="bg-card/50 backdrop-blur-lg border-border/20">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Leaf className="h-4 w-4 text-emerald-400" />
-              Sustainability Impact
-            </CardTitle>
-            <CardDescription>Glass diverted from landfill and value saved.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="text-2xl font-bold">
-              {metrics.glassSavedKg.toFixed(1)} kg saved
-            </div>
-            <div className="text-sm text-muted-foreground">
-              Replacement value avoided: {formatCurrency(metrics.replacementValueSaved)}
-            </div>
-            <div className="text-sm text-muted-foreground">
-              Downtime avoided: {formatHours(metrics.downtimeSavedHours)}
-            </div>
-            <div className="text-xs text-muted-foreground">
-              Weight formula: area × thickness × 2.5 kg/m2 per mm (PVB 1.07 kg/m2/mm).
-            </div>
-          </CardContent>
-        </Card>
+      {/* Org filter */}
+      <div className="flex items-center gap-3">
+        <span className="text-sm text-muted-foreground whitespace-nowrap">Filter by organisation:</span>
+        <Select value={selectedOrgId} onValueChange={setSelectedOrgId}>
+          <SelectTrigger className="w-64 bg-card/50 border-border/30">
+            <SelectValue placeholder="All organisations" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All organisations</SelectItem>
+            {organizations.map((org) => (
+              <SelectItem key={org.id} value={org.id}>
+                {org.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {selectedOrgId !== "all" && (
+          <Button variant="ghost" size="sm" onClick={() => setSelectedOrgId("all")}>
+            Clear
+          </Button>
+        )}
+      </div>
 
-        <Card className="bg-card/50 backdrop-blur-lg border-border/20">
+      <div className="grid gap-6 lg:grid-cols-3">
+        {/* Merged OHSE & Operations card — spans 2 columns */}
+        <Card className="bg-card/50 backdrop-blur-lg border-border/20 lg:col-span-2">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
-              <Wrench className="h-4 w-4 text-blue-400" />
-              Operations Snapshot
+              <ShieldCheck className="h-4 w-4 text-emerald-400" />
+              OHSE &amp; Operations Overview
             </CardTitle>
-            <CardDescription>ISO-focused operational signals.</CardDescription>
+            <CardDescription>
+              OHS from prestart assessments · Operations · Sustainability
+              {selectedOrgId !== "all" && (
+                <span className="ml-2 text-primary">
+                  — {organizations.find((o) => o.id === selectedOrgId)?.name}
+                </span>
+              )}
+            </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex items-center justify-between text-sm">
-              <span>Jobs completed</span>
-              <span className="font-medium">{metrics.operations.jobsCompleted}</span>
-            </div>
-            <div className="flex items-center justify-between text-sm">
-              <span>In progress</span>
-              <span className="font-medium">{metrics.operations.jobsInProgress}</span>
-            </div>
-            <div className="flex items-center justify-between text-sm">
-              <span>Scheduled</span>
-              <span className="font-medium">{metrics.operations.jobsScheduled}</span>
-            </div>
-            <div className="flex items-center justify-between text-sm">
-              <span>Avg completion time</span>
-              <span className="font-medium">{formatHours(metrics.operations.avgCompletionHours)}</span>
-            </div>
-            <div className="flex items-center justify-between text-sm">
-              <span>Compliance rate</span>
-              <span className="font-medium">{metrics.operations.complianceRate.toFixed(0)}%</span>
+          <CardContent>
+            <div className="grid gap-6 sm:grid-cols-3">
+              {/* OHS */}
+              <div className="space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-wider text-emerald-400">OHS</p>
+                <div className="flex items-center justify-between text-sm">
+                  <span>Prestarts completed</span>
+                  <span className="font-medium">{ohsMetrics.totalCompleted}</span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span>Prestart compliance</span>
+                  <span className="font-medium">{ohsMetrics.prestartComplianceRate}%</span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span>Vehicle safety pass rate</span>
+                  <span className="font-medium">{ohsMetrics.safetyPassRate}%</span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span>Open safety issues</span>
+                  <span className={`font-medium ${ohsMetrics.openIssues > 0 ? "text-red-400" : ""}`}>
+                    {ohsMetrics.openIssues}
+                  </span>
+                </div>
+              </div>
+
+              {/* Operations */}
+              <div className="space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-wider text-blue-400">Operations</p>
+                <div className="flex items-center justify-between text-sm">
+                  <span>Jobs completed</span>
+                  <span className="font-medium">{metrics.operations.jobsCompleted}</span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span>In progress</span>
+                  <span className="font-medium">{metrics.operations.jobsInProgress}</span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span>Scheduled</span>
+                  <span className="font-medium">{metrics.operations.jobsScheduled}</span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span>Avg completion time</span>
+                  <span className="font-medium">{formatHours(metrics.operations.avgCompletionHours)}</span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span>QA compliance rate</span>
+                  <span className="font-medium">{metrics.operations.complianceRate.toFixed(0)}%</span>
+                </div>
+              </div>
+
+              {/* Sustainability (Environmental) */}
+              <div className="space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-wider text-amber-400">Environmental</p>
+                <div className="text-xl font-bold">{metrics.glassSavedKg.toFixed(1)} kg saved</div>
+                <div className="flex items-center justify-between text-sm">
+                  <span>Replacement value avoided</span>
+                  <span className="font-medium">{formatCurrency(metrics.replacementValueSaved)}</span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span>Downtime avoided</span>
+                  <span className="font-medium">{formatHours(metrics.downtimeSavedHours)}</span>
+                </div>
+                <div className="text-xs text-muted-foreground pt-1">
+                  Glass diverted from landfill via repair over replacement.
+                </div>
+              </div>
             </div>
           </CardContent>
         </Card>
