@@ -44,12 +44,15 @@ interface McpTool {
 function isAuthorized(req: NextRequest): boolean {
   const secret = process.env.MCP_SECRET;
   if (!secret) return false;
+  // Bearer token
   const auth = req.headers.get("authorization") || "";
-  if (auth.startsWith("Bearer ")) {
-    return auth.slice(7) === secret;
-  }
-  // Also allow x-mcp-secret header for flexibility
-  return req.headers.get("x-mcp-secret") === secret;
+  if (auth.startsWith("Bearer ") && auth.slice(7) === secret) return true;
+  // Custom header
+  if (req.headers.get("x-mcp-secret") === secret) return true;
+  // Query param (for Claude Desktop url mode)
+  const token = new URL(req.url).searchParams.get("token");
+  if (token === secret) return true;
+  return false;
 }
 
 // ─── Tool definitions ─────────────────────────────────────────────────────────
