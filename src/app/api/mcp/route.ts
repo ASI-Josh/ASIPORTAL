@@ -454,7 +454,7 @@ export async function POST(req: NextRequest) {
     switch (method) {
       case "initialize":
         return rpcOk(id, {
-          protocolVersion: "2024-11-05",
+          protocolVersion: "2025-03-26",
           capabilities: { tools: {} },
           serverInfo: { name: "asi-portal", version: "1.0.0" },
         });
@@ -483,12 +483,39 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// MCP servers also need to handle GET for capability discovery
-export async function GET() {
-  return NextResponse.json({
-    name: "asi-portal",
-    version: "1.0.0",
-    description: "ASI Portal MCP Server — access jobs, bookings, inspections, and IMS documents.",
-    protocolVersion: "2024-11-05",
+// SSE transport — required by mcp-remote (Claude Desktop proxy)
+// Sends an endpoint event pointing to this same URL for POST, then keeps alive.
+export async function GET(req: NextRequest) {
+  if (!isAuthorized(req)) {
+    return new Response("Unauthorised.", { status: 401 });
+  }
+
+  const url = new URL(req.url);
+  const encoder = new TextEncoder();
+
+  const stream = new ReadableStream({
+    start(controller) {
+      // Tell the client to POST messages to this same endpoint
+      controller.enqueue(
+        encoder.encode(`event: endpoint\ndata: ${url.pathname}\n\n`)
+      );
+      // Keep-alive comments so the connection doesn't time out immediately
+      const timer = setInterval(() => {
+        try {
+          controller.enqueue(encoder.encode(`: keep-alive\n\n`));
+        } catch {
+          clearInterval(timer);
+        }
+      }, 15000);
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache, no-transform",
+      "Connection": "keep-alive",
+      "X-Accel-Buffering": "no",
+    },
   });
 }
