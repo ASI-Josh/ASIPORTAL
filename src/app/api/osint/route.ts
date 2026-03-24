@@ -3,6 +3,7 @@ import { admin } from "@/lib/firebaseAdmin";
 import { requireUserId } from "@/lib/server/firebaseAuth";
 import { COLLECTIONS } from "@/lib/collections";
 import type { OSINTScan, OSINTScanMeta } from "@/lib/types-osint";
+import { SEED_SCAN_20260324 } from "@/lib/osint-seed-2026-03-24";
 
 // ─── Seed scan for 2026-03-23 ─────────────────────────────────────────────────
 const SEED_SCAN: OSINTScan = {
@@ -123,12 +124,16 @@ const SEED_SCAN: OSINTScan = {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+const ALL_SEEDS: OSINTScan[] = [SEED_SCAN, SEED_SCAN_20260324];
+
 async function ensureSeed() {
   const db = admin.firestore();
-  const ref = db.collection(COLLECTIONS.OSINT_SCANS).doc(SEED_SCAN.date);
-  const snap = await ref.get();
-  if (!snap.exists) {
-    await ref.set(SEED_SCAN);
+  for (const seed of ALL_SEEDS) {
+    const ref = db.collection(COLLECTIONS.OSINT_SCANS).doc(seed.date);
+    const snap = await ref.get();
+    if (!snap.exists) {
+      await ref.set(seed);
+    }
   }
 }
 
@@ -159,6 +164,66 @@ export async function GET(req: NextRequest) {
   }
 }
 
+// ─── Auto-create leads from high-relevance opportunity matrix ──────────────────
+
+async function autoImportOpportunities(scan: OSINTScan, userId: string) {
+  const db = admin.firestore();
+  const now = admin.firestore.FieldValue.serverTimestamp();
+  let created = 0;
+
+  for (const opp of scan.opportunityMatrix || []) {
+    if (opp.relevanceScore < 4) continue;
+
+    // Skip if a lead with this company name already exists
+    const existing = await db.collection(COLLECTIONS.LEADS)
+      .where("companyName", "==", opp.name)
+      .limit(1)
+      .get();
+    if (!existing.empty) continue;
+
+    // Create a lead from the opportunity
+    const urgencyMap: Record<string, string> = { immediate: "identified", "near-term": "identified", watch: "identified" };
+    await db.collection(COLLECTIONS.LEADS).add({
+      leadNumber: `LD-OSINT-${scan.date}-${opp.rank}`,
+      companyName: opp.name,
+      sector: opp.pillar?.toLowerCase().replace(/\s+/g, "-") || "other",
+      isExistingClient: false,
+      contacts: [],
+      bantScore: opp.relevanceScore * 17,
+      bantBreakdown: { budget: 10, authority: 10, need: opp.relevanceScore * 5, timing: opp.urgency === "immediate" ? 20 : 10, fit: opp.relevanceScore * 3 },
+      leadGrade: opp.relevanceScore >= 5 ? "A" : opp.relevanceScore >= 4 ? "B" : "C",
+      stage: urgencyMap[opp.urgency] || "identified",
+      stageHistory: [],
+      stageEnteredAt: new Date().toISOString(),
+      source: {
+        type: "osint",
+        osintScanDate: scan.date,
+        osintFinding: opp.name,
+        osintPillar: opp.pillar,
+        osintRelevanceScore: opp.relevanceScore,
+      },
+      estimatedServices: [],
+      painPoints: [],
+      asiSolutionFit: [opp.action],
+      outreachSequence: null,
+      outreachStatus: { linkedInConnected: false, linkedInMessageSent: false, emailsSent: 0, responseReceived: false, meetingScheduled: false },
+      outreachHistory: [],
+      marketMode: "growth",
+      nextAction: opp.action,
+      nextActionDate: scan.date,
+      notes: `[Auto-imported from OSINT ${scan.date}] Rank #${opp.rank}. Urgency: ${opp.urgency}. ${opp.action}`,
+      tags: ["osint", "auto-imported", opp.urgency],
+      createdAt: now,
+      updatedAt: now,
+      createdBy: userId,
+      isDeleted: false,
+    });
+    created++;
+  }
+
+  return created;
+}
+
 // ─── POST — ingest a new scan ─────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
@@ -173,7 +238,11 @@ export async function POST(req: NextRequest) {
     const body = (await req.json()) as OSINTScan;
     if (!body.date) return NextResponse.json({ error: "Missing date." }, { status: 400 });
     await db.collection(COLLECTIONS.OSINT_SCANS).doc(body.date).set(body);
-    return NextResponse.json({ ok: true, date: body.date });
+
+    // Auto-import high-relevance opportunities to CRM pipeline
+    const leadsCreated = await autoImportOpportunities(body, userId);
+
+    return NextResponse.json({ ok: true, date: body.date, leadsCreated });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to ingest scan.";
     return NextResponse.json({ error: message }, { status: 400 });

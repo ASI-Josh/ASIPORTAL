@@ -396,6 +396,22 @@ const TOOLS: McpTool[] = [
       required: ["osintScanDate", "leads"],
     },
   },
+  {
+    name: "ingest_osint_scan",
+    description:
+      "Ingest a full daily OSINT scan into the portal. Stores the scan in Firestore and auto-creates CRM leads for high-relevance opportunities (score 4+). The scan appears on the /dashboard/osint page.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        scan: {
+          type: "object",
+          description:
+            "Full OSINTScan object with date, generatedAt, executiveSummary, pillars (with findings), opportunityMatrix, and metadata.",
+        },
+      },
+      required: ["scan"],
+    },
+  },
 ];
 
 // ─── Firestore helpers ────────────────────────────────────────────────────────
@@ -864,6 +880,55 @@ async function handleImportLeadsFromOsint(args: Record<string, unknown>) {
   return { created, updated, skipped, leads: results };
 }
 
+async function handleIngestOsintScan(args: Record<string, unknown>) {
+  const scan = args.scan as Record<string, unknown>;
+  if (!scan || !scan.date) throw new Error("Scan must include a 'date' field.");
+  const db = admin.firestore();
+  const date = String(scan.date);
+
+  // Store the scan
+  await db.collection(COLLECTIONS.OSINT_SCANS).doc(date).set(scan);
+
+  // Auto-create leads from high-relevance opportunities
+  const matrix = (scan.opportunityMatrix as Array<Record<string, unknown>>) || [];
+  const now = admin.firestore.FieldValue.serverTimestamp();
+  let leadsCreated = 0;
+
+  for (const opp of matrix) {
+    const score = typeof opp.relevanceScore === "number" ? opp.relevanceScore : 0;
+    if (score < 4) continue;
+    const name = String(opp.name || "");
+    if (!name) continue;
+
+    const existing = await db.collection(COLLECTIONS.LEADS)
+      .where("companyName", "==", name).limit(1).get();
+    if (!existing.empty) continue;
+
+    await db.collection(COLLECTIONS.LEADS).add({
+      leadNumber: `LD-OSINT-${date}-${opp.rank}`,
+      companyName: name,
+      sector: String(opp.pillar || "other").toLowerCase().replace(/\s+/g, "-"),
+      isExistingClient: false, contacts: [],
+      bantScore: score * 17,
+      bantBreakdown: { budget: 10, authority: 10, need: score * 5, timing: opp.urgency === "immediate" ? 20 : 10, fit: score * 3 },
+      leadGrade: score >= 5 ? "A" : "B",
+      stage: "identified", stageHistory: [], stageEnteredAt: new Date().toISOString(),
+      source: { type: "osint", osintScanDate: date, osintFinding: name, osintPillar: opp.pillar, osintRelevanceScore: score },
+      estimatedServices: [], painPoints: [], asiSolutionFit: [String(opp.action || "")],
+      outreachSequence: null,
+      outreachStatus: { linkedInConnected: false, linkedInMessageSent: false, emailsSent: 0, responseReceived: false, meetingScheduled: false },
+      outreachHistory: [], marketMode: "growth",
+      nextAction: String(opp.action || ""), nextActionDate: date,
+      notes: `[Auto-imported from OSINT ${date}] Rank #${opp.rank}. Urgency: ${opp.urgency}. ${opp.action}`,
+      tags: ["osint", "auto-imported", String(opp.urgency || "")],
+      createdAt: now, updatedAt: now, createdBy: "mcp-agent", isDeleted: false,
+    });
+    leadsCreated++;
+  }
+
+  return { ok: true, date, totalFindings: scan.metadata ? (scan.metadata as Record<string, unknown>).totalFindings : 0, leadsCreated };
+}
+
 // ─── Dispatch ─────────────────────────────────────────────────────────────────
 
 async function callTool(name: string, args: Record<string, unknown>): Promise<unknown> {
@@ -887,6 +952,7 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
     case "log_outreach_event":   return handleLogOutreachEvent(args);
     case "enrich_pipeline_from_osint": return handleEnrichPipelineFromOsint(args);
     case "import_leads_from_osint": return handleImportLeadsFromOsint(args);
+    case "ingest_osint_scan":    return handleIngestOsintScan(args);
     default:
       throw new Error(`Unknown tool: ${name}`);
   }
