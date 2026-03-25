@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef, type DragEvent } from "react";
 import Link from "next/link";
 import {
   PlusCircle, TrendingUp, Users, AlertTriangle, RefreshCw,
@@ -110,8 +110,23 @@ function LeadCard({ lead, stream, onStageChange }: {
   const today = new Date().toISOString().split("T")[0];
   const overdue = lead.nextActionDate && lead.nextActionDate < today;
 
+  const handleDragStart = (e: DragEvent<HTMLDivElement>) => {
+    e.dataTransfer.setData("text/plain", lead.id);
+    e.dataTransfer.effectAllowed = "move";
+    (e.currentTarget as HTMLElement).style.opacity = "0.5";
+  };
+
+  const handleDragEnd = (e: DragEvent<HTMLDivElement>) => {
+    (e.currentTarget as HTMLElement).style.opacity = "1";
+  };
+
   return (
-    <div className="bg-card/70 border border-border/40 rounded-xl p-3 hover:border-primary/40 transition-all group">
+    <div
+      draggable
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
+      className="bg-card/70 border border-border/40 rounded-xl p-3 hover:border-primary/40 transition-all group cursor-grab active:cursor-grabbing"
+    >
       <div className="flex items-start justify-between gap-2 mb-2">
         <Link
           href={`/dashboard/crm/${lead.id}`}
@@ -175,8 +190,25 @@ function KanbanColumn({ stage, stream, leads, onStageChange }: {
   leads: Lead[];
   onStageChange: (id: string, stage: PipelineStage) => void;
 }) {
+  const [dragOver, setDragOver] = useState(false);
   const cfg = stageConfig(stage, stream);
   const totalValue = leads.reduce((s, l) => s + (l.estimatedValue || 0), 0);
+
+  const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    setDragOver(true);
+  };
+
+  const handleDragLeave = () => setDragOver(false);
+
+  const handleDrop = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setDragOver(false);
+    const leadId = e.dataTransfer.getData("text/plain");
+    if (leadId) onStageChange(leadId, stage);
+  };
+
   return (
     <div className="flex-shrink-0 w-64">
       <div className={`flex items-center justify-between px-3 py-2 rounded-t-xl border border-b-0 border-border/40 ${cfg.bg}`}>
@@ -188,12 +220,23 @@ function KanbanColumn({ stage, stream, leads, onStageChange }: {
           <Badge variant="outline" className="text-[10px] h-4 px-1">{leads.length}</Badge>
         </div>
       </div>
-      <div className="bg-muted/20 border border-border/30 rounded-b-xl p-2 min-h-32 space-y-2">
+      <div
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+        className={`border rounded-b-xl p-2 min-h-32 space-y-2 transition-colors ${
+          dragOver
+            ? "bg-primary/10 border-primary/40"
+            : "bg-muted/20 border-border/30"
+        }`}
+      >
         {leads.map((lead) => (
           <LeadCard key={lead.id} lead={lead} stream={stream} onStageChange={onStageChange} />
         ))}
         {leads.length === 0 && (
-          <p className="text-center text-xs text-muted-foreground py-4">Empty</p>
+          <p className="text-center text-xs text-muted-foreground py-4">
+            {dragOver ? "Drop here" : "Empty"}
+          </p>
         )}
       </div>
     </div>
