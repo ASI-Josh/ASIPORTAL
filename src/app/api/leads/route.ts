@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { admin } from "@/lib/firebaseAdmin";
 import { requireUserId } from "@/lib/server/firebaseAuth";
 import { COLLECTIONS } from "@/lib/collections";
-import type { Lead, PipelineStage } from "@/lib/types";
+import type { Lead, PipelineStage, StreamType } from "@/lib/types";
 
 function calcGrade(bantScore: number): Lead["leadGrade"] {
   if (bantScore >= 80) return "A";
@@ -39,7 +39,8 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const stage = searchParams.get("stage") as PipelineStage | null;
     const grade = searchParams.get("grade");
-    const limit = Math.min(parseInt(searchParams.get("limit") || "100", 10), 200);
+    const streamType = searchParams.get("streamType") as StreamType | null;
+    const limit = Math.min(parseInt(searchParams.get("limit") || "200", 10), 200);
 
     const db = admin.firestore();
     const snap = await db
@@ -51,6 +52,7 @@ export async function GET(req: NextRequest) {
       .map((d) => ({ id: d.id, ...d.data() }))
       .filter((l) => !(l as Record<string, unknown>).isDeleted) as Lead[];
 
+    if (streamType) leads = leads.filter((l) => (l.streamType || "sales") === streamType);
     if (stage) leads = leads.filter((l) => l.stage === stage);
     if (grade) leads = leads.filter((l) => l.leadGrade === grade);
 
@@ -81,6 +83,7 @@ export async function POST(req: NextRequest) {
 
     const payload: Omit<Lead, "id"> = {
       leadNumber,
+      streamType: body.streamType || "sales",
       companyName: body.companyName,
       companyWebsite: body.companyWebsite,
       companyLinkedIn: body.companyLinkedIn,

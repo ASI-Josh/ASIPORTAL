@@ -890,17 +890,71 @@ export interface AutomationAgent {
 // CRM & SALES PIPELINE
 // ============================================
 
-export type PipelineStage =
+export type StreamType = "sales" | "supply_chain";
+
+export type SalesPipelineStage =
   | "identified"
   | "researched"
-  | "contacted"
-  | "engaged"
   | "qualified"
-  | "proposal_sent"
+  | "outreach"
+  | "engaged"
+  | "discovery"
+  | "proposal"
   | "negotiation"
   | "won"
   | "lost"
   | "nurture";
+
+export type SupplyChainPipelineStage =
+  | "identified"
+  | "researched"
+  | "qualified"
+  | "outreach"
+  | "engaged"
+  | "evaluation"
+  | "negotiation"
+  | "agreement"
+  | "onboarded"
+  | "inactive"
+  | "watchlist";
+
+// Union of all pipeline stages (backwards-compatible)
+export type PipelineStage = SalesPipelineStage | SupplyChainPipelineStage;
+
+export const SALES_STAGES: SalesPipelineStage[] = [
+  "identified", "researched", "qualified", "outreach", "engaged",
+  "discovery", "proposal", "negotiation", "won", "lost", "nurture",
+];
+
+export const SUPPLY_CHAIN_STAGES: SupplyChainPipelineStage[] = [
+  "identified", "researched", "qualified", "outreach", "engaged",
+  "evaluation", "negotiation", "agreement", "onboarded", "inactive", "watchlist",
+];
+
+export const SALES_STAGE_LABELS: Record<SalesPipelineStage, string> = {
+  identified: "Identified", researched: "Researched", qualified: "Qualified",
+  outreach: "Outreach", engaged: "Engaged", discovery: "Discovery",
+  proposal: "Proposal", negotiation: "Negotiation", won: "Won", lost: "Lost", nurture: "Nurture",
+};
+
+export const SUPPLY_CHAIN_STAGE_LABELS: Record<SupplyChainPipelineStage, string> = {
+  identified: "Identified", researched: "Researched", qualified: "Qualified",
+  outreach: "Outreach", engaged: "Engaged", evaluation: "Evaluation",
+  negotiation: "Negotiation", agreement: "Agreement", onboarded: "Onboarded",
+  inactive: "Inactive", watchlist: "Watchlist",
+};
+
+export const SALES_STAGE_COLORS: Record<SalesPipelineStage, string> = {
+  identified: "zinc", researched: "violet", qualified: "teal", outreach: "blue",
+  engaged: "cyan", discovery: "indigo", proposal: "amber", negotiation: "orange",
+  won: "green", lost: "red", nurture: "purple",
+};
+
+export const SUPPLY_CHAIN_STAGE_COLORS: Record<SupplyChainPipelineStage, string> = {
+  identified: "zinc", researched: "violet", qualified: "teal", outreach: "blue",
+  engaged: "cyan", evaluation: "indigo", negotiation: "orange", agreement: "amber",
+  onboarded: "green", inactive: "red", watchlist: "purple",
+};
 
 export type LeadSector =
   | "mass-transit"
@@ -981,9 +1035,20 @@ export interface OutreachEvent {
   loggedBy?: string;
 }
 
+export interface AgentActionLogEntry {
+  agent: string;
+  action: string;
+  timestamp: string;
+  details: string;
+  stageTransition?: { from: PipelineStage; to: PipelineStage };
+}
+
 export interface Lead {
   id: string;
   leadNumber: string;                // e.g. "LD-2026-0001"
+
+  // Stream
+  streamType: StreamType;            // "sales" or "supply_chain"
 
   // Company
   companyName: string;
@@ -1037,6 +1102,14 @@ export interface Lead {
   lostReason?: string;
   notes: string;
   tags: string[];
+
+  // Agent automation
+  assignedAgent?: string;
+  agentStatus?: "processing" | "waiting" | "escalated" | "completed";
+  agentLastAction?: Timestamp;
+  agentActionLog?: AgentActionLogEntry[];
+  escalationReason?: string;
+  humanReviewRequired?: boolean;
 
   // Meta
   createdAt: Timestamp;

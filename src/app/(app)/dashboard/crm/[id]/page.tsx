@@ -25,17 +25,23 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import type { Lead, PipelineStage, OutreachEvent, OutreachEventType } from "@/lib/types";
 
-const STAGE_CONFIG: Record<PipelineStage, { label: string; color: string; bg: string }> = {
+const STAGE_CONFIG: Partial<Record<PipelineStage, { label: string; color: string; bg: string }>> = {
   identified:    { label: "Identified",    color: "text-zinc-400",    bg: "bg-zinc-500/15" },
   researched:    { label: "Researched",    color: "text-violet-400",  bg: "bg-violet-500/15" },
-  contacted:     { label: "Contacted",     color: "text-blue-400",    bg: "bg-blue-500/15" },
-  engaged:       { label: "Engaged",       color: "text-cyan-400",    bg: "bg-cyan-500/15" },
   qualified:     { label: "Qualified",     color: "text-teal-400",    bg: "bg-teal-500/15" },
-  proposal_sent: { label: "Proposal Sent", color: "text-amber-400",   bg: "bg-amber-500/15" },
+  outreach:      { label: "Outreach",      color: "text-blue-400",    bg: "bg-blue-500/15" },
+  engaged:       { label: "Engaged",       color: "text-cyan-400",    bg: "bg-cyan-500/15" },
+  discovery:     { label: "Discovery",     color: "text-indigo-400",  bg: "bg-indigo-500/15" },
+  proposal:      { label: "Proposal",      color: "text-amber-400",   bg: "bg-amber-500/15" },
+  evaluation:    { label: "Evaluation",    color: "text-indigo-400",  bg: "bg-indigo-500/15" },
   negotiation:   { label: "Negotiation",   color: "text-orange-400",  bg: "bg-orange-500/15" },
+  agreement:     { label: "Agreement",     color: "text-amber-400",   bg: "bg-amber-500/15" },
   won:           { label: "Won",           color: "text-green-400",   bg: "bg-green-500/15" },
+  onboarded:     { label: "Onboarded",     color: "text-green-400",   bg: "bg-green-500/15" },
   lost:          { label: "Lost",          color: "text-red-400",     bg: "bg-red-500/15" },
+  inactive:      { label: "Inactive",      color: "text-red-400",     bg: "bg-red-500/15" },
   nurture:       { label: "Nurture",       color: "text-purple-400",  bg: "bg-purple-500/15" },
+  watchlist:     { label: "Watchlist",     color: "text-purple-400",  bg: "bg-purple-500/15" },
 };
 
 // ─── Config ───────────────────────────────────────────────────────────────────
@@ -198,7 +204,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
         body: JSON.stringify({ stage }),
       });
       setLead((l) => l ? { ...l, stage } : l);
-      toast({ title: `Stage updated to ${STAGE_CONFIG[stage].label}` });
+      toast({ title: `Stage updated to ${STAGE_CONFIG[stage]?.label || stage}` });
     } catch {
       toast({ title: "Failed", variant: "destructive" });
     } finally {
@@ -209,7 +215,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
   if (loading) return <div className="p-6 animate-pulse space-y-4"><div className="h-8 w-64 bg-card/50 rounded" /><div className="h-64 bg-card/50 rounded-xl" /></div>;
   if (!lead) return null;
 
-  const stageCfg = STAGE_CONFIG[lead.stage];
+  const stageCfg = STAGE_CONFIG[lead.stage] || { label: lead.stage, color: "text-zinc-400", bg: "bg-zinc-500/15" };
   const gradeCfg = GRADE_CONFIG[lead.leadGrade];
   const primaryContact = lead.contacts.find((c) => c.isPrimary) || lead.contacts[0];
   const sortedOutreach = [...(lead.outreachHistory || [])].sort((a, b) => b.date.localeCompare(a.date));
@@ -245,7 +251,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
             </SelectTrigger>
             <SelectContent>
               {(Object.keys(STAGE_CONFIG) as PipelineStage[]).map((s) => (
-                <SelectItem key={s} value={s}>{STAGE_CONFIG[s].label}</SelectItem>
+                <SelectItem key={s} value={s}>{STAGE_CONFIG[s]?.label || s}</SelectItem>
               ))}
             </SelectContent>
           </Select>

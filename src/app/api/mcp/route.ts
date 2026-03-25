@@ -245,14 +245,18 @@ const TOOLS: McpTool[] = [
   // ─── Sales pipeline tools ─────────────────────────────────────────────────
   {
     name: "get_leads",
-    description: "List CRM leads from the sales pipeline. Filter by stage, grade, or sector.",
+    description: "List CRM leads from the pipeline. Filter by stream (sales/supply_chain), stage, grade, or sector.",
     inputSchema: {
       type: "object",
       properties: {
+        streamType: {
+          type: "string",
+          enum: ["sales", "supply_chain"],
+          description: "Filter by stream type: 'sales' (customers) or 'supply_chain' (suppliers/partners). Omit for all.",
+        },
         stage: {
           type: "string",
-          enum: ["identified","researched","contacted","engaged","qualified","proposal_sent","negotiation","won","lost","nurture"],
-          description: "Filter by pipeline stage.",
+          description: "Filter by pipeline stage. Sales stages: identified, researched, qualified, outreach, engaged, discovery, proposal, negotiation, won, lost, nurture. Supply chain stages: identified, researched, qualified, outreach, engaged, evaluation, negotiation, agreement, onboarded, inactive, watchlist.",
         },
         grade: { type: "string", enum: ["A","B","C","D","E"], description: "Filter by lead grade." },
         sector: { type: "string", description: "Filter by sector (e.g. mass-transit, manufacturing)." },
@@ -262,8 +266,17 @@ const TOOLS: McpTool[] = [
   },
   {
     name: "get_pipeline_stats",
-    description: "Get sales pipeline summary: total leads, hot leads count, overdue follow-ups, estimated pipeline value, breakdown by stage and grade.",
-    inputSchema: { type: "object", properties: {} },
+    description: "Get pipeline summary with per-stream breakdowns: total leads, hot leads count, overdue follow-ups, estimated pipeline value, breakdown by stage and grade. Accepts optional streamType filter.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        streamType: {
+          type: "string",
+          enum: ["sales", "supply_chain"],
+          description: "Filter stats to a specific stream. Omit for combined stats.",
+        },
+      },
+    },
   },
   {
     name: "create_lead",
@@ -272,6 +285,7 @@ const TOOLS: McpTool[] = [
       type: "object",
       properties: {
         company: { type: "string", description: "Company name." },
+        streamType: { type: "string", enum: ["sales", "supply_chain"], description: "Stream type: 'sales' (customer) or 'supply_chain' (supplier/partner). Default: sales." },
         sector: { type: "string", description: "Sector: mass-transit, manufacturing, wholesale-trade, structural, marine, other." },
         companyWebsite: { type: "string" },
         existingOrganizationId: { type: "string", description: "Link to existing org in portal if already a client." },
@@ -617,6 +631,9 @@ async function handleGetLeads(args: Record<string, unknown>) {
   let leads = snap.docs
     .map((d) => serializeDoc(d.id, d.data()))
     .filter((l) => !l.isDeleted);
+  if (typeof args.streamType === "string") {
+    leads = leads.filter((l) => (String(l.streamType || "sales")) === args.streamType);
+  }
   if (typeof args.stage === "string") leads = leads.filter((l) => l.stage === args.stage);
   if (typeof args.grade === "string") leads = leads.filter((l) => l.leadGrade === args.grade);
   if (typeof args.sector === "string") {
@@ -626,33 +643,43 @@ async function handleGetLeads(args: Record<string, unknown>) {
   return leads;
 }
 
-async function handleGetPipelineStats() {
+async function handleGetPipelineStats(args: Record<string, unknown>) {
   const db = admin.firestore();
   const snap = await db.collection(COLLECTIONS.LEADS).limit(500).get();
+  const streamFilter = typeof args.streamType === "string" ? args.streamType : null;
+  const terminalStages = ["won", "lost", "onboarded", "inactive"];
   const byStage: Record<string, number> = {};
   const byGrade: Record<string, number> = {};
+  const byStream: Record<string, number> = { sales: 0, supply_chain: 0 };
   let totalValue = 0;
   let overdueFollowUps = 0;
+  let total = 0;
   const today = new Date().toISOString().split("T")[0];
   snap.docs.filter((d) => !d.data().isDeleted).forEach((d) => {
     const l = d.data() as Record<string, unknown>;
+    const st = String(l.streamType || "sales");
+    byStream[st] = (byStream[st] || 0) + 1;
+    if (streamFilter && st !== streamFilter) return;
+    total++;
     const stage = String(l.stage || "unknown");
     byStage[stage] = (byStage[stage] || 0) + 1;
     const grade = String(l.leadGrade || "E");
     byGrade[grade] = (byGrade[grade] || 0) + 1;
     totalValue += typeof l.estimatedValue === "number" ? l.estimatedValue : 0;
-    if (typeof l.nextActionDate === "string" && l.nextActionDate < today && stage !== "won" && stage !== "lost") {
+    if (typeof l.nextActionDate === "string" && l.nextActionDate < today && !terminalStages.includes(stage)) {
       overdueFollowUps += 1;
     }
   });
   return {
-    total: snap.size,
-    totalActive: snap.docs.filter((d) => !["won","lost"].includes(String(d.data().stage))).length,
+    total,
+    totalActive: total - (byStage["won"] || 0) - (byStage["lost"] || 0) - (byStage["onboarded"] || 0) - (byStage["inactive"] || 0),
     hotLeads: (byGrade["A"] || 0) + (byGrade["B"] || 0),
     overdueFollowUps,
     totalEstimatedValue: totalValue,
     byStage,
     byGrade,
+    byStream,
+    streamFilter: streamFilter || "all",
   };
 }
 
@@ -662,10 +689,16 @@ async function handleCreateLead(args: Record<string, unknown>) {
   const now = admin.firestore.FieldValue.serverTimestamp();
   const leadNumber = await nextMcpLeadNumber();
 
-  const stageMap: Record<number, string> = {
-    1: "identified", 2: "researched", 3: "contacted", 4: "engaged",
-    5: "qualified", 6: "proposal_sent", 7: "negotiation", 8: "won", 9: "lost", 10: "nurture",
+  const streamType = String(args.streamType || "sales");
+  const salesStageMap: Record<number, string> = {
+    1: "identified", 2: "researched", 3: "qualified", 4: "outreach",
+    5: "engaged", 6: "discovery", 7: "proposal", 8: "negotiation", 9: "won", 10: "lost", 11: "nurture",
   };
+  const supplyStageMap: Record<number, string> = {
+    1: "identified", 2: "researched", 3: "qualified", 4: "outreach",
+    5: "engaged", 6: "evaluation", 7: "negotiation", 8: "agreement", 9: "onboarded", 10: "inactive", 11: "watchlist",
+  };
+  const stageMap = streamType === "supply_chain" ? supplyStageMap : salesStageMap;
   const stageNum = typeof args.pipeline_stage === "number" ? args.pipeline_stage : 1;
   const stage = stageMap[stageNum] || "identified";
 
@@ -688,6 +721,7 @@ async function handleCreateLead(args: Record<string, unknown>) {
   const sourceRaw = (args.source || {}) as Record<string, unknown>;
   const payload = {
     leadNumber,
+    streamType,
     companyName: String(args.company),
     companyWebsite: args.companyWebsite as string | undefined,
     sector: String(args.sector || "other"),
@@ -946,7 +980,7 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
     case "update_ims_document":  return handleUpdateImsDocument(args);
     // Sales pipeline
     case "get_leads":            return handleGetLeads(args);
-    case "get_pipeline_stats":   return handleGetPipelineStats();
+    case "get_pipeline_stats":   return handleGetPipelineStats(args);
     case "create_lead":          return handleCreateLead(args);
     case "update_lead_stage":    return handleUpdateLeadStage(args);
     case "log_outreach_event":   return handleLogOutreachEvent(args);

@@ -13,8 +13,8 @@ function calcGrade(s: number): Lead["leadGrade"] {
 }
 
 const STAGE_MAP: Record<number, PipelineStage> = {
-  1: "identified", 2: "researched", 3: "contacted", 4: "engaged",
-  5: "qualified", 6: "proposal_sent", 7: "negotiation", 8: "won", 9: "lost", 10: "nurture",
+  1: "identified", 2: "researched", 3: "qualified", 4: "outreach",
+  5: "engaged", 6: "discovery", 7: "proposal", 8: "negotiation", 9: "won", 10: "lost", 11: "nurture",
 };
 
 async function nextLeadNumber(year: number): Promise<string> {
@@ -53,6 +53,7 @@ interface ImportLead {
   pipeline_stage?: number;
   stage?: PipelineStage;
   bant_score?: number;
+  stream_type?: "sales" | "supply_chain";
   bant_breakdown?: Partial<Lead["bantBreakdown"]>;
   lead_grade?: Lead["leadGrade"];
   source?: {
@@ -164,6 +165,7 @@ export async function POST(req: NextRequest) {
         const leadNumber = await nextLeadNumber(year);
         const payload: Omit<Lead, "id"> = {
           leadNumber,
+          streamType: item.stream_type || "sales",
           companyName: item.company.trim(),
           companyWebsite: item.companyWebsite,
           sector: (item.sector?.toLowerCase().replace(/\s+/g, "-") || "other") as LeadSector,

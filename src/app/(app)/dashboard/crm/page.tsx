@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import Link from "next/link";
 import {
   PlusCircle, TrendingUp, Users, AlertTriangle, RefreshCw,
-  Building2, Flame, Filter, Search, Sparkles,
+  Flame, Filter, Search, Sparkles, Link2, ArrowRightLeft,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -19,22 +19,41 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
-import type { Lead, PipelineStage, LeadSector } from "@/lib/types";
+import type {
+  Lead, PipelineStage, LeadSector, StreamType,
+  SalesPipelineStage, SupplyChainPipelineStage,
+} from "@/lib/types";
+import {
+  SALES_STAGES, SUPPLY_CHAIN_STAGES,
+  SALES_STAGE_LABELS, SUPPLY_CHAIN_STAGE_LABELS,
+  SALES_STAGE_COLORS, SUPPLY_CHAIN_STAGE_COLORS,
+} from "@/lib/types";
 
-// ─── Stage config ─────────────────────────────────────────────────────────────
+// ─── Stage config (generated from types) ─────────────────────────────────────
 
-const STAGE_CONFIG: Record<PipelineStage, { label: string; color: string; bg: string }> = {
-  identified:    { label: "Identified",    color: "text-zinc-400",    bg: "bg-zinc-500/15" },
-  researched:    { label: "Researched",    color: "text-violet-400",  bg: "bg-violet-500/15" },
-  contacted:     { label: "Contacted",     color: "text-blue-400",    bg: "bg-blue-500/15" },
-  engaged:       { label: "Engaged",       color: "text-cyan-400",    bg: "bg-cyan-500/15" },
-  qualified:     { label: "Qualified",     color: "text-teal-400",    bg: "bg-teal-500/15" },
-  proposal_sent: { label: "Proposal Sent", color: "text-amber-400",   bg: "bg-amber-500/15" },
-  negotiation:   { label: "Negotiation",   color: "text-orange-400",  bg: "bg-orange-500/15" },
-  won:           { label: "Won",           color: "text-green-400",   bg: "bg-green-500/15" },
-  lost:          { label: "Lost",          color: "text-red-400",     bg: "bg-red-500/15" },
-  nurture:       { label: "Nurture",       color: "text-purple-400",  bg: "bg-purple-500/15" },
-};
+function stageConfig(stage: PipelineStage, stream: StreamType): { label: string; color: string; bg: string } {
+  const colors: Record<string, { color: string; bg: string }> = {
+    zinc:   { color: "text-zinc-400",   bg: "bg-zinc-500/15" },
+    violet: { color: "text-violet-400", bg: "bg-violet-500/15" },
+    teal:   { color: "text-teal-400",   bg: "bg-teal-500/15" },
+    blue:   { color: "text-blue-400",   bg: "bg-blue-500/15" },
+    cyan:   { color: "text-cyan-400",   bg: "bg-cyan-500/15" },
+    indigo: { color: "text-indigo-400", bg: "bg-indigo-500/15" },
+    amber:  { color: "text-amber-400",  bg: "bg-amber-500/15" },
+    orange: { color: "text-orange-400", bg: "bg-orange-500/15" },
+    green:  { color: "text-green-400",  bg: "bg-green-500/15" },
+    red:    { color: "text-red-400",    bg: "bg-red-500/15" },
+    purple: { color: "text-purple-400", bg: "bg-purple-500/15" },
+  };
+  const label = stream === "sales"
+    ? (SALES_STAGE_LABELS as Record<string, string>)[stage] || stage
+    : (SUPPLY_CHAIN_STAGE_LABELS as Record<string, string>)[stage] || stage;
+  const colorName = stream === "sales"
+    ? (SALES_STAGE_COLORS as Record<string, string>)[stage] || "zinc"
+    : (SUPPLY_CHAIN_STAGE_COLORS as Record<string, string>)[stage] || "zinc";
+  const c = colors[colorName] || colors.zinc;
+  return { label, ...c };
+}
 
 const GRADE_CONFIG: Record<Lead["leadGrade"], { color: string; bg: string }> = {
   A: { color: "text-green-400",  bg: "bg-green-500/20" },
@@ -44,11 +63,19 @@ const GRADE_CONFIG: Record<Lead["leadGrade"], { color: string; bg: string }> = {
   E: { color: "text-red-400",    bg: "bg-red-500/20" },
 };
 
-const ACTIVE_STAGES: PipelineStage[] = [
-  "identified", "researched", "contacted", "engaged",
-  "qualified", "proposal_sent", "negotiation",
-];
-const OTHER_STAGES: PipelineStage[] = ["won", "lost", "nurture"];
+function activeStages(stream: StreamType): PipelineStage[] {
+  if (stream === "sales") return SALES_STAGES.filter((s) => s !== "won" && s !== "lost" && s !== "nurture");
+  return SUPPLY_CHAIN_STAGES.filter((s) => s !== "onboarded" && s !== "inactive" && s !== "watchlist");
+}
+
+function closedStages(stream: StreamType): PipelineStage[] {
+  if (stream === "sales") return ["won", "lost", "nurture"];
+  return ["onboarded", "inactive", "watchlist"];
+}
+
+function allStagesForStream(stream: StreamType): PipelineStage[] {
+  return stream === "sales" ? [...SALES_STAGES] : [...SUPPLY_CHAIN_STAGES];
+}
 
 const SECTORS: { value: LeadSector; label: string }[] = [
   { value: "mass-transit", label: "Mass Transit" },
@@ -73,8 +100,9 @@ function daysInStage(enteredAt?: string) {
 
 // ─── Lead card ────────────────────────────────────────────────────────────────
 
-function LeadCard({ lead, onStageChange }: {
+function LeadCard({ lead, stream, onStageChange }: {
   lead: Lead;
+  stream: StreamType;
   onStageChange: (id: string, stage: PipelineStage) => void;
 }) {
   const grade = GRADE_CONFIG[lead.leadGrade];
@@ -106,6 +134,9 @@ function LeadCard({ lead, onStageChange }: {
         {lead.source.type === "osint" && (
           <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded">OSINT</span>
         )}
+        {lead.isExistingClient && (
+          <span className="text-[10px] bg-emerald-500/10 text-emerald-400 px-1.5 py-0.5 rounded">Client</span>
+        )}
       </div>
 
       {lead.estimatedValue ? (
@@ -126,8 +157,8 @@ function LeadCard({ lead, onStageChange }: {
             <SelectValue placeholder="Move to…" />
           </SelectTrigger>
           <SelectContent>
-            {(Object.keys(STAGE_CONFIG) as PipelineStage[]).map((s) => (
-              <SelectItem key={s} value={s} className="text-xs">{STAGE_CONFIG[s].label}</SelectItem>
+            {allStagesForStream(stream).map((s) => (
+              <SelectItem key={s} value={s} className="text-xs">{stageConfig(s, stream).label}</SelectItem>
             ))}
           </SelectContent>
         </Select>
@@ -138,12 +169,13 @@ function LeadCard({ lead, onStageChange }: {
 
 // ─── Column ───────────────────────────────────────────────────────────────────
 
-function KanbanColumn({ stage, leads, onStageChange }: {
+function KanbanColumn({ stage, stream, leads, onStageChange }: {
   stage: PipelineStage;
+  stream: StreamType;
   leads: Lead[];
   onStageChange: (id: string, stage: PipelineStage) => void;
 }) {
-  const cfg = STAGE_CONFIG[stage];
+  const cfg = stageConfig(stage, stream);
   const totalValue = leads.reduce((s, l) => s + (l.estimatedValue || 0), 0);
   return (
     <div className="flex-shrink-0 w-64">
@@ -158,7 +190,7 @@ function KanbanColumn({ stage, leads, onStageChange }: {
       </div>
       <div className="bg-muted/20 border border-border/30 rounded-b-xl p-2 min-h-32 space-y-2">
         {leads.map((lead) => (
-          <LeadCard key={lead.id} lead={lead} onStageChange={onStageChange} />
+          <LeadCard key={lead.id} lead={lead} stream={stream} onStageChange={onStageChange} />
         ))}
         {leads.length === 0 && (
           <p className="text-center text-xs text-muted-foreground py-4">Empty</p>
@@ -170,11 +202,12 @@ function KanbanColumn({ stage, leads, onStageChange }: {
 
 // ─── Add Lead modal ───────────────────────────────────────────────────────────
 
-function AddLeadModal({ open, onClose, onCreated, getToken }: {
+function AddLeadModal({ open, onClose, onCreated, getToken, stream }: {
   open: boolean;
   onClose: () => void;
   onCreated: () => void;
   getToken: () => Promise<string>;
+  stream: StreamType;
 }) {
   const { toast } = useToast();
   const [saving, setSaving] = useState(false);
@@ -210,6 +243,7 @@ function AddLeadModal({ open, onClose, onCreated, getToken }: {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({
           companyName: form.companyName, sector: form.sector,
+          streamType: stream,
           contacts, bantBreakdown,
           estimatedValue: form.estimatedValue ? parseFloat(form.estimatedValue) : undefined,
           notes: form.notes, nextAction: form.nextAction,
@@ -232,12 +266,14 @@ function AddLeadModal({ open, onClose, onCreated, getToken }: {
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Add Lead</DialogTitle>
+          <DialogTitle>
+            Add {stream === "sales" ? "Sales" : "Supply Chain"} Lead
+          </DialogTitle>
         </DialogHeader>
         <div className="space-y-4 pt-2">
           <div className="grid grid-cols-2 gap-3">
             <div className="col-span-2 space-y-1">
-              <Label>Company Name *</Label>
+              <Label>Organisation Name *</Label>
               <Input value={form.companyName} onChange={(e) => set("companyName", e.target.value)} placeholder="e.g. McKenzie's Tourist Services" />
             </div>
             <div className="space-y-1">
@@ -333,6 +369,8 @@ export default function CrmPage() {
   const [search, setSearch] = useState("");
   const [showOther, setShowOther] = useState(false);
   const [seeding, setSeeding] = useState(false);
+  const [migrating, setMigrating] = useState(false);
+  const [stream, setStream] = useState<StreamType>("sales");
   const { toast } = useToast();
 
   const getToken = useCallback(async () => {
@@ -344,7 +382,7 @@ export default function CrmPage() {
     setLoading(true);
     try {
       const token = await getToken();
-      const res = await fetch("/api/leads", { headers: { Authorization: `Bearer ${token}` } });
+      const res = await fetch("/api/leads?limit=200", { headers: { Authorization: `Bearer ${token}` } });
       const data = await res.json();
       setLeads(data.leads || []);
     } catch {
@@ -355,6 +393,31 @@ export default function CrmPage() {
   }, [getToken, toast]);
 
   useEffect(() => { if (firebaseUser) fetchLeads(); }, [firebaseUser, fetchLeads]);
+
+  // Auto-migrate leads that don't have streamType
+  const needsMigration = useMemo(() => leads.some((l) => !l.streamType), [leads]);
+
+  const handleMigrate = async () => {
+    setMigrating(true);
+    try {
+      const token = await getToken();
+      const res = await fetch("/api/leads/migrate", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      toast({
+        title: "Migration complete",
+        description: `${data.sales} sales + ${data.supply_chain} supply chain leads classified. ${data.stageRemapped} stages remapped.`,
+      });
+      fetchLeads();
+    } catch (e) {
+      toast({ title: "Migration failed", description: e instanceof Error ? e.message : "Error", variant: "destructive" });
+    } finally {
+      setMigrating(false);
+    }
+  };
 
   const handleSeed = async () => {
     setSeeding(true);
@@ -384,34 +447,55 @@ export default function CrmPage() {
         body: JSON.stringify({ stage }),
       });
       setLeads((prev) => prev.map((l) => l.id === id ? { ...l, stage, stageEnteredAt: new Date().toISOString() } : l));
-      toast({ title: `Moved to ${STAGE_CONFIG[stage].label}` });
+      toast({ title: `Moved to ${stageConfig(stage, stream).label}` });
     } catch {
       toast({ title: "Failed to update stage", variant: "destructive" });
     }
   };
 
-  const filtered = leads.filter((l) =>
-    !search || l.companyName.toLowerCase().includes(search.toLowerCase())
+  // Filter by stream + search
+  const filtered = useMemo(() =>
+    leads.filter((l) => {
+      const streamMatch = (l.streamType || "sales") === stream;
+      const searchMatch = !search || l.companyName.toLowerCase().includes(search.toLowerCase());
+      return streamMatch && searchMatch;
+    }),
+    [leads, stream, search]
   );
 
-  // Stats
-  const totalValue = filtered.filter((l) => l.stage !== "lost").reduce((s, l) => s + (l.estimatedValue || 0), 0);
+  // Stats for current stream
+  const totalValue = filtered.filter((l) => l.stage !== "lost" && l.stage !== "inactive").reduce((s, l) => s + (l.estimatedValue || 0), 0);
   const hotLeads = filtered.filter((l) => l.leadGrade === "A" || l.leadGrade === "B").length;
   const today = new Date().toISOString().split("T")[0];
-  const overdue = filtered.filter((l) => l.nextActionDate && l.nextActionDate < today && l.stage !== "won" && l.stage !== "lost").length;
+  const terminalStages = stream === "sales" ? ["won", "lost"] : ["onboarded", "inactive"];
+  const overdue = filtered.filter((l) =>
+    l.nextActionDate && l.nextActionDate < today && !terminalStages.includes(l.stage)
+  ).length;
+
+  // Stream counts for tabs
+  const salesCount = leads.filter((l) => (l.streamType || "sales") === "sales").length;
+  const supplyCount = leads.filter((l) => l.streamType === "supply_chain").length;
 
   return (
     <div className="flex flex-col gap-4 p-6">
       {/* Header */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Sales Pipeline</h1>
-          <p className="text-sm text-muted-foreground">Manage leads from identification through to close.</p>
+          <h1 className="text-2xl font-bold tracking-tight">CRM Pipeline</h1>
+          <p className="text-sm text-muted-foreground">
+            {stream === "sales" ? "Manage customer leads from identification to close." : "Track suppliers, partners, and technology opportunities."}
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="icon" onClick={fetchLeads} disabled={loading}>
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
           </Button>
+          {needsMigration && (
+            <Button variant="outline" onClick={handleMigrate} disabled={migrating}>
+              <ArrowRightLeft className="mr-2 h-4 w-4 text-amber-400" />
+              {migrating ? "Migrating…" : "Classify Streams"}
+            </Button>
+          )}
           {!loading && leads.length === 0 && (
             <Button variant="outline" onClick={handleSeed} disabled={seeding}>
               <Sparkles className="mr-2 h-4 w-4 text-primary" />
@@ -422,6 +506,34 @@ export default function CrmPage() {
             <PlusCircle className="mr-2 h-4 w-4" /> Add Lead
           </Button>
         </div>
+      </div>
+
+      {/* Stream tabs */}
+      <div className="flex items-center border-b border-border/50">
+        <button
+          onClick={() => setStream("sales")}
+          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${
+            stream === "sales"
+              ? "border-primary text-primary"
+              : "border-transparent text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <TrendingUp className="h-4 w-4" />
+          Sales Pipeline
+          <Badge variant="outline" className="text-[10px] h-4 px-1.5 ml-1">{salesCount}</Badge>
+        </button>
+        <button
+          onClick={() => setStream("supply_chain")}
+          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${
+            stream === "supply_chain"
+              ? "border-cyan-400 text-cyan-400"
+              : "border-transparent text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <Link2 className="h-4 w-4" />
+          Supply Chain
+          <Badge variant="outline" className="text-[10px] h-4 px-1.5 ml-1">{supplyCount}</Badge>
+        </button>
       </div>
 
       {/* Stats */}
@@ -443,7 +555,7 @@ export default function CrmPage() {
         </div>
         <div className="flex items-center gap-1.5 bg-card/50 border border-border/30 rounded-lg px-3 py-1.5">
           <Users className="h-3.5 w-3.5 text-blue-400" />
-          <span className="text-muted-foreground">Total leads:</span>
+          <span className="text-muted-foreground">Total:</span>
           <span className="font-semibold">{filtered.length}</span>
         </div>
       </div>
@@ -452,29 +564,34 @@ export default function CrmPage() {
       <div className="flex items-center gap-2">
         <div className="relative flex-1 max-w-xs">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-          <Input className="pl-8" placeholder="Search companies…" value={search} onChange={(e) => setSearch(e.target.value)} />
+          <Input className="pl-8" placeholder="Search organisations…" value={search} onChange={(e) => setSearch(e.target.value)} />
         </div>
         <Button variant="outline" size="sm" onClick={() => setShowOther(!showOther)}>
           <Filter className="h-3.5 w-3.5 mr-1.5" />
-          {showOther ? "Hide Won/Lost/Nurture" : "Show Won/Lost/Nurture"}
+          {showOther
+            ? stream === "sales" ? "Hide Won/Lost/Nurture" : "Hide Closed"
+            : stream === "sales" ? "Show Won/Lost/Nurture" : "Show Closed"
+          }
         </Button>
       </div>
 
       {/* Kanban board */}
       <div className="overflow-x-auto pb-4 -mx-6 px-6">
         <div className="flex gap-4 w-max">
-          {ACTIVE_STAGES.map((stage) => (
+          {activeStages(stream).map((stage) => (
             <KanbanColumn
               key={stage}
               stage={stage}
+              stream={stream}
               leads={filtered.filter((l) => l.stage === stage)}
               onStageChange={handleStageChange}
             />
           ))}
-          {showOther && OTHER_STAGES.map((stage) => (
+          {showOther && closedStages(stream).map((stage) => (
             <KanbanColumn
               key={stage}
               stage={stage}
+              stream={stream}
               leads={filtered.filter((l) => l.stage === stage)}
               onStageChange={handleStageChange}
             />
@@ -482,7 +599,7 @@ export default function CrmPage() {
         </div>
       </div>
 
-      <AddLeadModal open={addOpen} onClose={() => setAddOpen(false)} onCreated={fetchLeads} getToken={getToken} />
+      <AddLeadModal open={addOpen} onClose={() => setAddOpen(false)} onCreated={fetchLeads} getToken={getToken} stream={stream} />
     </div>
   );
 }
