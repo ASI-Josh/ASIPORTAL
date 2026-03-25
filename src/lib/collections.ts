@@ -43,4 +43,5 @@ export const COLLECTIONS = {
   IMS_RISK_REGISTER: "imsRiskRegister",
   OSINT_SCANS: "osintScans",
   OPPORTUNITIES: "opportunities",
+  VANGUARD_REPORTS: "vanguardReports",
 } as const;

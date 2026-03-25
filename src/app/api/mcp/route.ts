@@ -426,6 +426,47 @@ const TOOLS: McpTool[] = [
       required: ["scan"],
     },
   },
+  // ─── VANGUARD Report tools ──────────────────────────────────────────────────
+  {
+    name: "push_vanguard_report",
+    description:
+      "Push a VANGUARD daily intelligence report into the portal. One report per day — overwrites if same date. The report appears on the CRM dashboard widget.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        report: {
+          type: "object",
+          description:
+            "Full VANGUARD report object with: date, snapshot (sales/supplyChain pipeline stats), newLeads array, outreachEvents array, stageMovements array, priorityActions array, overdueFollowUps array, executiveSummary string, weekToDate object (or null).",
+        },
+      },
+      required: ["report"],
+    },
+  },
+  {
+    name: "get_vanguard_report",
+    description:
+      "Get a VANGUARD daily report for a specific date. Returns null if no report exists for that date.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        date: {
+          type: "string",
+          description: "ISO date string (e.g. '2026-03-25'). Defaults to today if omitted.",
+        },
+      },
+    },
+  },
+  {
+    name: "get_vanguard_reports",
+    description: "Get recent VANGUARD daily reports, newest first.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: { type: "number", description: "Number of reports to return (default 7, max 30)." },
+      },
+    },
+  },
 ];
 
 // ─── Firestore helpers ────────────────────────────────────────────────────────
@@ -963,6 +1004,40 @@ async function handleIngestOsintScan(args: Record<string, unknown>) {
   return { ok: true, date, totalFindings: scan.metadata ? (scan.metadata as Record<string, unknown>).totalFindings : 0, leadsCreated };
 }
 
+// ─── VANGUARD Report handlers ─────────────────────────────────────────────────
+
+async function handlePushVanguardReport(args: Record<string, unknown>) {
+  const report = args.report as Record<string, unknown>;
+  if (!report || !report.date) throw new Error("Report must include a 'date' field.");
+  const db = admin.firestore();
+  const date = String(report.date);
+  await db.collection(COLLECTIONS.VANGUARD_REPORTS).doc(date).set({
+    ...report,
+    generatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+  return { ok: true, reportId: date, date };
+}
+
+async function handleGetVanguardReport(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const date = typeof args.date === "string" && args.date
+    ? args.date
+    : new Date().toISOString().split("T")[0];
+  const snap = await db.collection(COLLECTIONS.VANGUARD_REPORTS).doc(date).get();
+  if (!snap.exists) return null;
+  return serializeDoc(snap.id, snap.data()!);
+}
+
+async function handleGetVanguardReports(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const limit = safeLimit(args.limit, 7, 30);
+  const snap = await db.collection(COLLECTIONS.VANGUARD_REPORTS)
+    .orderBy("date", "desc")
+    .limit(limit)
+    .get();
+  return snap.docs.map((d) => serializeDoc(d.id, d.data()));
+}
+
 // ─── Dispatch ─────────────────────────────────────────────────────────────────
 
 async function callTool(name: string, args: Record<string, unknown>): Promise<unknown> {
@@ -987,6 +1062,9 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
     case "enrich_pipeline_from_osint": return handleEnrichPipelineFromOsint(args);
     case "import_leads_from_osint": return handleImportLeadsFromOsint(args);
     case "ingest_osint_scan":    return handleIngestOsintScan(args);
+    case "push_vanguard_report": return handlePushVanguardReport(args);
+    case "get_vanguard_report":  return handleGetVanguardReport(args);
+    case "get_vanguard_reports": return handleGetVanguardReports(args);
     default:
       throw new Error(`Unknown tool: ${name}`);
   }

@@ -19,6 +19,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
+import { VanguardReport as VanguardReportWidget } from "@/components/crm/vanguard-report";
 import type {
   Lead, PipelineStage, LeadSector, StreamType,
   SalesPipelineStage, SupplyChainPipelineStage,
@@ -641,6 +642,9 @@ export default function CrmPage() {
           ))}
         </div>
       </div>
+
+      {/* VANGUARD Daily Report */}
+      <VanguardReportWidget />
 
       <AddLeadModal open={addOpen} onClose={() => setAddOpen(false)} onCreated={fetchLeads} getToken={getToken} stream={stream} />
     </div>
