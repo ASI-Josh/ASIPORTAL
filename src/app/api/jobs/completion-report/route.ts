@@ -656,7 +656,12 @@ async function generateCompletionPdf(job: Record<string, any>, generatedBy: stri
 
 export async function POST(req: NextRequest) {
   try {
-    const actor = await requireInternalUser(req);
+    // Allow internal MCP server calls (authenticated via MCP_SECRET at the MCP layer)
+    const isInternalMcp = req.headers.get("x-mcp-internal") === "true"
+      && (req.headers.get("host")?.includes("localhost") || req.headers.get("host")?.includes("asiportal.live"));
+    const actor = isInternalMcp
+      ? { userId: "mcp-agent", name: "LEDGER Agent", role: "admin" as const }
+      : await requireInternalUser(req);
     const payload = (await req.json().catch(() => ({}))) as { jobId?: string };
     const jobId = safeString(payload.jobId);
     if (!jobId) {

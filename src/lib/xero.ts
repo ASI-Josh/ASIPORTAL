@@ -334,3 +334,32 @@ export async function xeroListInvoices(options?: {
   if (options?.limit) path += `&pageSize=${Math.min(options.limit, 100)}`;
   return xeroApi("GET", path);
 }
+
+export async function xeroAttachFileToInvoice(
+  invoiceId: string,
+  fileName: string,
+  fileBytes: Uint8Array,
+  contentType = "application/pdf"
+): Promise<{ attachmentId: string }> {
+  const tokens = await getValidTokens();
+  const url = `${XERO_API_BASE}/Invoices/${invoiceId}/Attachments/${encodeURIComponent(fileName)}`;
+
+  const res = await fetch(url, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${tokens.accessToken}`,
+      "xero-tenant-id": tokens.tenantId,
+      "Content-Type": contentType,
+      "Content-Length": String(fileBytes.length),
+    },
+    body: fileBytes,
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Xero attachment upload failed (${res.status}): ${text}`);
+  }
+
+  const data = await res.json() as { Attachments?: Array<{ AttachmentID: string }> };
+  return { attachmentId: data.Attachments?.[0]?.AttachmentID || "" };
+}

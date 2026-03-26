@@ -22,6 +22,7 @@ import { COLLECTIONS } from "@/lib/collections";
 import {
   xeroCreateInvoice, xeroSendInvoice, xeroGetInvoice,
   xeroListContacts, xeroListInvoices, xeroGetConnectionStatus,
+  xeroAttachFileToInvoice,
 } from "@/lib/xero";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -569,16 +570,30 @@ const TOOLS: McpTool[] = [
     },
   },
   {
+    name: "xero_attach_job_report",
+    description:
+      "Generate the Completed Job Report PDF for a job and attach it to a Xero invoice. The job must be in 'completed' or 'closed' status. Call this AFTER close_out_job or after manually closing the job so the report includes the invoice number.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        jobId: { type: "string", description: "ASI Portal job Firestore document ID." },
+        invoiceId: { type: "string", description: "Xero InvoiceID (UUID) to attach the report to." },
+      },
+      required: ["jobId", "invoiceId"],
+    },
+  },
+  {
     name: "close_out_job",
     description:
-      "Full turnkey job close-out: creates a Xero invoice from job data, approves and sends it to the client, then closes the job in the portal with the invoice details. This is the single-call workflow for LEDGER agents.",
+      "Full turnkey job close-out: creates a Xero invoice from job data, attaches the Completed Job Report PDF, optionally sends the invoice, then closes the job in the portal. This is the single-call workflow for LEDGER agents.",
     inputSchema: {
       type: "object",
       properties: {
         jobId: { type: "string", description: "ASI Portal job Firestore document ID." },
         dueDate: { type: "string", description: "Invoice due date (ISO date). Defaults to 30 days from today." },
         accountCode: { type: "string", description: "Xero account code for line items (default '200' = Sales)." },
-        skipSend: { type: "boolean", description: "If true, create invoice as DRAFT but don't send. Default false." },
+        skipSend: { type: "boolean", description: "If true, create invoice as DRAFT but don't send. Default false (sends and attaches report)." },
+        attachReport: { type: "boolean", description: "If true (default), generates and attaches the Completed Job Report PDF to the Xero invoice." },
       },
       required: ["jobId"],
     },
@@ -1249,6 +1264,43 @@ async function handleXeroListContacts(args: Record<string, unknown>) {
   return xeroListContacts(typeof args.searchTerm === "string" ? args.searchTerm : undefined);
 }
 
+async function generateJobReportPdf(jobId: string): Promise<{ pdfBytes: Uint8Array; fileName: string }> {
+  const db = admin.firestore();
+  const jobSnap = await db.collection(COLLECTIONS.JOBS).doc(jobId).get();
+  if (!jobSnap.exists) throw new Error(`Job '${jobId}' not found.`);
+  const job = jobSnap.data()!;
+  const status = String(job.status || "");
+  if (status !== "completed" && status !== "closed") {
+    throw new Error(`Job status is '${status}' — report only available for completed/closed jobs.`);
+  }
+
+  // Call the completion report endpoint internally
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "https://asiportal.live";
+  const res = await fetch(`${baseUrl}/api/jobs/completion-report`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-mcp-internal": "true" },
+    body: JSON.stringify({ jobId }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Failed to generate report (${res.status}): ${text.slice(0, 200)}`);
+  }
+
+  const arrayBuffer = await res.arrayBuffer();
+  const pdfBytes = new Uint8Array(arrayBuffer);
+  const jobNumber = String(job.jobNumber || jobId).replace(/[^a-zA-Z0-9._-]/g, "_");
+  return { pdfBytes, fileName: `${jobNumber}_Completion_Report.pdf` };
+}
+
+async function handleXeroAttachJobReport(args: Record<string, unknown>) {
+  const jobId = String(args.jobId);
+  const invoiceId = String(args.invoiceId);
+  const { pdfBytes, fileName } = await generateJobReportPdf(jobId);
+  const result = await xeroAttachFileToInvoice(invoiceId, fileName, pdfBytes);
+  return { ok: true, fileName, attachmentId: result.attachmentId, invoiceId };
+}
+
 async function handleCloseOutJob(args: Record<string, unknown>) {
   const jobId = String(args.jobId);
   const accountCode = typeof args.accountCode === "string" ? args.accountCode : "200";
@@ -1349,6 +1401,20 @@ async function handleCloseOutJob(args: Record<string, unknown>) {
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
   }, { merge: true });
 
+  // 7. Attach Completed Job Report PDF (job is now closed so report includes invoice number)
+  let reportAttached = false;
+  const shouldAttach = args.attachReport !== false; // default true
+  if (shouldAttach) {
+    try {
+      const { pdfBytes, fileName } = await generateJobReportPdf(jobId);
+      await xeroAttachFileToInvoice(invoice.invoiceId, fileName, pdfBytes);
+      reportAttached = true;
+    } catch (err) {
+      // Non-fatal — invoice still created/sent, just no attachment
+      console.error("[close_out_job] Failed to attach report:", err);
+    }
+  }
+
   return {
     ok: true,
     jobId,
@@ -1356,6 +1422,7 @@ async function handleCloseOutJob(args: Record<string, unknown>) {
     xeroInvoiceId: invoice.invoiceId,
     xeroInvoiceNumber: invoice.invoiceNumber,
     invoiceStatus: skipSend ? "DRAFT" : "SENT",
+    reportAttached,
     lineItemCount: lineItems.length,
     clientName,
     clientEmail,
@@ -1397,6 +1464,7 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
     case "xero_send_invoice":    return handleXeroSendInvoice(args);
     case "xero_get_invoice":     return handleXeroGetInvoice(args);
     case "xero_list_contacts":   return handleXeroListContacts(args);
+    case "xero_attach_job_report": return handleXeroAttachJobReport(args);
     case "close_out_job":        return handleCloseOutJob(args);
     default:
       throw new Error(`Unknown tool: ${name}`);
