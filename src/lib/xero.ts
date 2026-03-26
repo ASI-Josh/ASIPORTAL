@@ -212,7 +212,14 @@ async function xeroApi(
     throw new Error(`Xero API ${method} ${path} failed (${res.status}): ${text}`);
   }
 
-  return res.json();
+  // Some Xero endpoints (e.g. /Email) return empty body
+  const text = await res.text();
+  if (!text) return {};
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { rawResponse: text };
+  }
 }
 
 // ─── Public API functions ─────────────────────────────────────────────────────
