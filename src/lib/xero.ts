@@ -352,7 +352,7 @@ export async function xeroAttachFileToInvoice(
       "Content-Type": contentType,
       "Content-Length": String(fileBytes.length),
     },
-    body: fileBytes,
+    body: Buffer.from(fileBytes),
   });
 
   if (!res.ok) {
