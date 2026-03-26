@@ -195,19 +195,200 @@ const TOOLS: McpTool[] = [
   },
   {
     name: "get_ims_incidents",
-    description: "List IMS incidents. Optionally filter by status.",
+    description: "List IMS incidents. Optionally filter by status or category.",
     inputSchema: {
       type: "object",
       properties: {
-        status: {
-          type: "string",
-          description: "Filter by incident status (e.g. 'open', 'closed', 'under_review').",
-        },
-        limit: {
-          type: "number",
-          description: "Maximum number of incidents to return (default 20, max 100).",
+        status: { type: "string", enum: ["draft", "reported", "investigating", "actions_required", "closed"], description: "Filter by status." },
+        category: { type: "string", enum: ["whs", "environment", "quality", "property", "security", "other"], description: "Filter by category (maps to ISO 45001/14001/9001)." },
+        limit: { type: "number", description: "Max incidents (default 20, max 100)." },
+      },
+    },
+  },
+  {
+    name: "create_ims_incident",
+    description: "Log a new IMS incident (nonconformance, near miss, hazard, injury, quality issue, environmental event). Returns the incident ID and number.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        category: { type: "string", enum: ["whs", "environment", "quality", "property", "security", "other"], description: "ISO domain: whs (45001), environment (14001), quality (9001)." },
+        incidentType: { type: "string", enum: ["injury", "near_miss", "hazard", "unsafe_condition", "spill", "nonconformance", "property_damage", "other"] },
+        severity: { type: "string", enum: ["low", "medium", "high", "critical"] },
+        description: { type: "string", description: "Full description of the incident." },
+        immediateActions: { type: "string", description: "Immediate actions taken." },
+        jobId: { type: "string", description: "Related job Firestore ID (optional)." },
+        jobNumber: { type: "string", description: "Related job number (optional)." },
+        organizationName: { type: "string", description: "Client/site organisation (optional)." },
+        siteLocation: { type: "object", description: "{ name, address } of the incident location." },
+      },
+      required: ["category", "incidentType", "severity", "description"],
+    },
+  },
+  {
+    name: "update_ims_incident",
+    description: "Update an IMS incident: change status, add investigation details, root cause, corrective actions, close with evidence.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Incident Firestore ID." },
+        updates: {
+          type: "object",
+          description: "Fields to update: status, investigation (object with summary, rootCause, contributingFactors, correctiveActions array, lessonsLearned), closureNotes.",
         },
       },
+      required: ["id", "updates"],
+    },
+  },
+  {
+    name: "get_ims_audits",
+    description: "List IMS internal audit reports. Optionally filter by status or standard.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        status: { type: "string", enum: ["planned", "in_progress", "completed"], description: "Filter by audit status." },
+        standard: { type: "string", description: "Filter by standard (e.g. 'ISO9001:2015', 'ISO14001:2015', 'ISO45001:2018')." },
+        limit: { type: "number", description: "Max audits (default 20, max 50)." },
+      },
+    },
+  },
+  {
+    name: "get_ims_audit",
+    description: "Get full details of a single IMS audit report by ID.",
+    inputSchema: {
+      type: "object",
+      properties: { id: { type: "string", description: "Audit Firestore ID." } },
+      required: ["id"],
+    },
+  },
+  {
+    name: "create_ims_audit",
+    description: "Create a new IMS internal audit report. Supports ISO 9001:2015, ISO 14001:2015, and ISO 45001:2018. Returns the audit ID.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        metadata: {
+          type: "object",
+          description: "{ auditId, standard (ISO9001:2015 | ISO14001:2015 | ISO45001:2018), scope, period, sites[], processes[], leadAuditor, auditDate, status (planned|in_progress|completed) }",
+        },
+        plan: {
+          type: "object",
+          description: "{ objectives[], criteria[], methods[], schedule[{ area, time, owner }] }",
+        },
+        checklist: {
+          type: "array",
+          description: "Array of { clause, question, evidenceNeeded, records[] }",
+        },
+        findings: {
+          type: "array",
+          description: "Array of { id, type (conformity|observation|OFI|minor_nc|major_nc), clause, requirement, evidence, description, risk, correctiveAction, owner, dueDate, status }",
+        },
+        summary: {
+          type: "object",
+          description: "{ strengths[], risks[], overallConclusion }",
+        },
+      },
+      required: ["metadata"],
+    },
+  },
+  {
+    name: "update_ims_audit",
+    description: "Update an IMS audit: add findings, update status, close with conclusions.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Audit Firestore ID." },
+        updates: { type: "object", description: "Fields to merge: metadata, findings, summary, checklist, plan." },
+      },
+      required: ["id", "updates"],
+    },
+  },
+  {
+    name: "get_ims_corrective_actions",
+    description: "List IMS corrective/preventive actions (CAPAs). Filter by status or domain.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        status: { type: "string", enum: ["open", "in_progress", "closed"], description: "Filter by CAPA status." },
+        domain: { type: "string", enum: ["quality", "environment", "whs"], description: "ISO domain filter." },
+        limit: { type: "number", description: "Max CAPAs (default 20, max 100)." },
+      },
+    },
+  },
+  {
+    name: "create_ims_corrective_action",
+    description: "Create a new corrective/preventive action (CAPA). Link to an incident or audit finding.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "CAPA title." },
+        description: { type: "string", description: "What needs to be done." },
+        domain: { type: "string", enum: ["quality", "environment", "whs"], description: "ISO domain." },
+        priority: { type: "string", enum: ["low", "medium", "high", "critical"] },
+        ownerName: { type: "string", description: "Person responsible." },
+        dueDate: { type: "string", description: "ISO date when CAPA must be completed." },
+        sourceType: { type: "string", enum: ["incident", "audit", "inspection", "management_review", "other"], description: "What triggered this CAPA." },
+        sourceId: { type: "string", description: "Firestore ID of the source incident/audit." },
+        sourceLabel: { type: "string", description: "Human-readable source reference." },
+        isoClauses: { type: "array", items: { type: "string" }, description: "Related ISO clauses." },
+      },
+      required: ["title", "description", "domain"],
+    },
+  },
+  {
+    name: "update_ims_corrective_action",
+    description: "Update a CAPA: change status, add progress notes, close with verification evidence.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "CAPA Firestore ID." },
+        updates: { type: "object", description: "Fields: status, progressNotes, verificationEvidence, closureNotes, effectivenessReview." },
+      },
+      required: ["id", "updates"],
+    },
+  },
+  {
+    name: "get_ims_risk_register",
+    description: "List IMS risk register entries. Filter by domain, status, or risk level.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        domain: { type: "string", enum: ["quality", "environment", "whs"], description: "ISO domain filter." },
+        status: { type: "string", enum: ["open", "in_progress", "closed"] },
+        limit: { type: "number", description: "Max entries (default 30, max 100)." },
+      },
+    },
+  },
+  {
+    name: "create_ims_risk_entry",
+    description: "Add a risk or opportunity to the IMS risk register.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        entryType: { type: "string", enum: ["risk", "opportunity"] },
+        domain: { type: "string", enum: ["quality", "environment", "whs"] },
+        title: { type: "string" },
+        description: { type: "string" },
+        riskLevel: { type: "string", enum: ["low", "medium", "high", "critical"] },
+        existingControls: { type: "string" },
+        additionalControls: { type: "string" },
+        ownerName: { type: "string" },
+        sourceType: { type: "string", enum: ["incident", "job_risk_assessment", "inspection", "prestart", "audit", "other"] },
+        sourceId: { type: "string" },
+        sourceLabel: { type: "string" },
+      },
+      required: ["entryType", "domain", "title"],
+    },
+  },
+  {
+    name: "update_ims_risk_entry",
+    description: "Update a risk register entry: change status, controls, risk level, add review notes.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Risk register entry Firestore ID." },
+        updates: { type: "object", description: "Fields: status, riskLevel, existingControls, additionalControls, reviewNotes." },
+      },
+      required: ["id", "updates"],
     },
   },
   {
@@ -1307,6 +1488,217 @@ async function handleGetVanguardReports(args: Record<string, unknown>) {
   return snap.docs.map((d) => serializeDoc(d.id, d.data()));
 }
 
+// ─── IMS Audit / CAPA / Risk handlers ─────────────────────────────────────────
+
+async function handleCreateImsIncident(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const now = admin.firestore.FieldValue.serverTimestamp();
+  const counterRef = db.collection(COLLECTIONS.IMS_DOCUMENT_COUNTERS).doc("incidents");
+  const counter = await counterRef.get();
+  const seq = (counter.exists ? (counter.data()?.count || 0) : 0) + 1;
+  await counterRef.set({ count: seq }, { merge: true });
+  const incidentNumber = `INC-${new Date().getFullYear()}-${String(seq).padStart(4, "0")}`;
+
+  const payload: Record<string, unknown> = {
+    incidentNumber,
+    category: String(args.category),
+    incidentType: String(args.incidentType),
+    severity: String(args.severity),
+    status: "reported",
+    description: String(args.description),
+    immediateActions: typeof args.immediateActions === "string" ? args.immediateActions : "",
+    jobId: typeof args.jobId === "string" ? args.jobId : null,
+    jobNumber: typeof args.jobNumber === "string" ? args.jobNumber : null,
+    organizationName: typeof args.organizationName === "string" ? args.organizationName : null,
+    siteLocation: args.siteLocation || null,
+    occurredAt: now, reportedAt: now,
+    reportedById: "mcp-agent", reportedByName: "Lead Auditor Agent",
+    createdAt: now, updatedAt: now,
+  };
+  const ref = await db.collection(COLLECTIONS.IMS_INCIDENTS).add(payload);
+  return { ok: true, id: ref.id, incidentNumber };
+}
+
+async function handleUpdateImsIncident(args: Record<string, unknown>) {
+  const id = String(args.id);
+  const updates = (args.updates || {}) as Record<string, unknown>;
+  const db = admin.firestore();
+  const ref = db.collection(COLLECTIONS.IMS_INCIDENTS).doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) throw new Error(`Incident '${id}' not found.`);
+
+  const payload: Record<string, unknown> = { updatedAt: admin.firestore.FieldValue.serverTimestamp() };
+  if (typeof updates.status === "string") payload.status = updates.status;
+  if (updates.investigation) payload.investigation = updates.investigation;
+  if (updates.status === "closed") {
+    payload.closedAt = admin.firestore.FieldValue.serverTimestamp();
+    payload.closedByName = "Lead Auditor Agent";
+  }
+
+  await ref.set(payload, { merge: true });
+  const updated = await ref.get();
+  return serializeDoc(updated.id, updated.data()!);
+}
+
+async function handleGetImsAudits(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const limit = safeLimit(args.limit, 20, 50);
+  const snap = await db.collection(COLLECTIONS.IMS_AUDITS).orderBy("createdAt", "desc").limit(limit).get();
+  let docs = snap.docs.map((d) => serializeDoc(d.id, d.data()));
+  if (typeof args.status === "string") docs = docs.filter((d) => (d.metadata as Record<string, unknown>)?.status === args.status);
+  if (typeof args.standard === "string") docs = docs.filter((d) => (d.metadata as Record<string, unknown>)?.standard === args.standard);
+  return docs;
+}
+
+async function handleGetImsAudit(args: Record<string, unknown>) {
+  const id = String(args.id);
+  const snap = await admin.firestore().collection(COLLECTIONS.IMS_AUDITS).doc(id).get();
+  if (!snap.exists) throw new Error(`Audit '${id}' not found.`);
+  return serializeDoc(snap.id, snap.data()!);
+}
+
+async function handleCreateImsAudit(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const now = admin.firestore.FieldValue.serverTimestamp();
+  const payload: Record<string, unknown> = {
+    metadata: args.metadata || {},
+    plan: args.plan || { objectives: [], criteria: [], methods: [], schedule: [] },
+    checklist: args.checklist || [],
+    findings: args.findings || [],
+    summary: args.summary || { strengths: [], risks: [], overallConclusion: "" },
+    source: "agent",
+    createdAt: now, updatedAt: now,
+    createdById: "mcp-agent", createdByName: "Lead Auditor Agent", createdByEmail: "",
+  };
+  const ref = await db.collection(COLLECTIONS.IMS_AUDITS).add(payload);
+  return { ok: true, id: ref.id, auditId: (args.metadata as Record<string, unknown>)?.auditId || ref.id };
+}
+
+async function handleUpdateImsAudit(args: Record<string, unknown>) {
+  const id = String(args.id);
+  const updates = (args.updates || {}) as Record<string, unknown>;
+  const db = admin.firestore();
+  const ref = db.collection(COLLECTIONS.IMS_AUDITS).doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) throw new Error(`Audit '${id}' not found.`);
+
+  const payload: Record<string, unknown> = { updatedAt: admin.firestore.FieldValue.serverTimestamp() };
+  for (const key of ["metadata", "plan", "checklist", "findings", "summary"]) {
+    if (updates[key]) payload[key] = updates[key];
+  }
+  await ref.set(payload, { merge: true });
+  const updated = await ref.get();
+  return serializeDoc(updated.id, updated.data()!);
+}
+
+async function handleGetImsCorrActions(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const limit = safeLimit(args.limit, 20, 100);
+  const snap = await db.collection(COLLECTIONS.IMS_CORRECTIVE_ACTIONS).orderBy("createdAt", "desc").limit(limit).get();
+  let docs = snap.docs.map((d) => serializeDoc(d.id, d.data()));
+  if (typeof args.status === "string") docs = docs.filter((d) => d.status === args.status);
+  if (typeof args.domain === "string") docs = docs.filter((d) => d.domain === args.domain);
+  return docs;
+}
+
+async function handleCreateImsCorrAction(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const now = admin.firestore.FieldValue.serverTimestamp();
+  const payload: Record<string, unknown> = {
+    title: String(args.title),
+    description: String(args.description),
+    domain: String(args.domain || "quality"),
+    priority: String(args.priority || "medium"),
+    status: "open",
+    ownerName: typeof args.ownerName === "string" ? args.ownerName : "",
+    dueDate: typeof args.dueDate === "string" ? args.dueDate : null,
+    sourceType: typeof args.sourceType === "string" ? args.sourceType : "other",
+    sourceId: typeof args.sourceId === "string" ? args.sourceId : "",
+    sourceLabel: typeof args.sourceLabel === "string" ? args.sourceLabel : "",
+    isoClauses: Array.isArray(args.isoClauses) ? args.isoClauses : [],
+    createdAt: now, updatedAt: now,
+    createdById: "mcp-agent", createdByName: "Lead Auditor Agent",
+  };
+  const ref = await db.collection(COLLECTIONS.IMS_CORRECTIVE_ACTIONS).add(payload);
+  return { ok: true, id: ref.id, title: payload.title };
+}
+
+async function handleUpdateImsCorrAction(args: Record<string, unknown>) {
+  const id = String(args.id);
+  const updates = (args.updates || {}) as Record<string, unknown>;
+  const db = admin.firestore();
+  const ref = db.collection(COLLECTIONS.IMS_CORRECTIVE_ACTIONS).doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) throw new Error(`CAPA '${id}' not found.`);
+
+  const payload: Record<string, unknown> = { updatedAt: admin.firestore.FieldValue.serverTimestamp() };
+  for (const key of ["status", "progressNotes", "verificationEvidence", "closureNotes", "effectivenessReview"]) {
+    if (updates[key] !== undefined) payload[key] = updates[key];
+  }
+  if (updates.status === "closed") {
+    payload.closedAt = admin.firestore.FieldValue.serverTimestamp();
+    payload.closedByName = "Lead Auditor Agent";
+  }
+  await ref.set(payload, { merge: true });
+  const updated = await ref.get();
+  return serializeDoc(updated.id, updated.data()!);
+}
+
+async function handleGetImsRiskRegister(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const limit = safeLimit(args.limit, 30, 100);
+  const snap = await db.collection(COLLECTIONS.IMS_RISK_REGISTER).orderBy("createdAt", "desc").limit(limit).get();
+  let docs = snap.docs.map((d) => serializeDoc(d.id, d.data()));
+  if (typeof args.domain === "string") docs = docs.filter((d) => d.domain === args.domain);
+  if (typeof args.status === "string") docs = docs.filter((d) => d.status === args.status);
+  return docs;
+}
+
+async function handleCreateImsRiskEntry(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const now = admin.firestore.FieldValue.serverTimestamp();
+  const payload: Record<string, unknown> = {
+    entryType: String(args.entryType || "risk"),
+    domain: String(args.domain || "quality"),
+    title: String(args.title),
+    description: typeof args.description === "string" ? args.description : "",
+    riskLevel: typeof args.riskLevel === "string" ? args.riskLevel : "medium",
+    present: true,
+    existingControls: typeof args.existingControls === "string" ? args.existingControls : "",
+    additionalControls: typeof args.additionalControls === "string" ? args.additionalControls : "",
+    owner: typeof args.ownerName === "string" ? { id: "mcp-agent", name: args.ownerName } : null,
+    status: "open",
+    source: {
+      type: typeof args.sourceType === "string" ? args.sourceType : "other",
+      id: typeof args.sourceId === "string" ? args.sourceId : "",
+      label: typeof args.sourceLabel === "string" ? args.sourceLabel : "",
+    },
+    createdAt: now, updatedAt: now,
+    createdById: "mcp-agent", createdByName: "Lead Auditor Agent",
+  };
+  const ref = await db.collection(COLLECTIONS.IMS_RISK_REGISTER).add(payload);
+  return { ok: true, id: ref.id, title: payload.title };
+}
+
+async function handleUpdateImsRiskEntry(args: Record<string, unknown>) {
+  const id = String(args.id);
+  const updates = (args.updates || {}) as Record<string, unknown>;
+  const db = admin.firestore();
+  const ref = db.collection(COLLECTIONS.IMS_RISK_REGISTER).doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) throw new Error(`Risk entry '${id}' not found.`);
+
+  const payload: Record<string, unknown> = { updatedAt: admin.firestore.FieldValue.serverTimestamp() };
+  for (const key of ["status", "riskLevel", "existingControls", "additionalControls", "reviewNotes"]) {
+    if (updates[key] !== undefined) payload[key] = updates[key];
+  }
+  if (updates.status === "closed") payload.closedAt = admin.firestore.FieldValue.serverTimestamp();
+  payload.lastReviewedAt = admin.firestore.FieldValue.serverTimestamp();
+  await ref.set(payload, { merge: true });
+  const updated = await ref.get();
+  return serializeDoc(updated.id, updated.data()!);
+}
+
 // ─── Xero handlers ────────────────────────────────────────────────────────────
 
 async function handleXeroStatus() {
@@ -1702,6 +2094,18 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
     case "get_ims_documents":    return handleGetImsDocuments(args);
     case "get_ims_document":     return handleGetImsDocument(args);
     case "get_ims_incidents":    return handleGetImsIncidents(args);
+    case "create_ims_incident":  return handleCreateImsIncident(args);
+    case "update_ims_incident":  return handleUpdateImsIncident(args);
+    case "get_ims_audits":       return handleGetImsAudits(args);
+    case "get_ims_audit":        return handleGetImsAudit(args);
+    case "create_ims_audit":     return handleCreateImsAudit(args);
+    case "update_ims_audit":     return handleUpdateImsAudit(args);
+    case "get_ims_corrective_actions": return handleGetImsCorrActions(args);
+    case "create_ims_corrective_action": return handleCreateImsCorrAction(args);
+    case "update_ims_corrective_action": return handleUpdateImsCorrAction(args);
+    case "get_ims_risk_register": return handleGetImsRiskRegister(args);
+    case "create_ims_risk_entry": return handleCreateImsRiskEntry(args);
+    case "update_ims_risk_entry": return handleUpdateImsRiskEntry(args);
     case "get_works_register":   return handleGetWorksRegister(args);
     case "get_dashboard_metrics": return handleGetDashboardMetrics();
     case "create_ims_document_draft": return handleCreateImsDocumentDraft(args);
