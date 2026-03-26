@@ -13,7 +13,6 @@ export const runtime = "nodejs";
 
 const REPAIR_TYPE_LABELS: Record<string, string> = {
   windscreen_crack_chip_repair: "Windscreen Crack/Chip Repair",
-  windscreen_replacement: "Windscreen Replacement",
   scratch_graffiti_removal: "Scratch/Graffiti Removal",
   film_installation: "Film Installation",
   trim_restoration_interior: "Trim Restoration (Interior)",

@@ -70,7 +70,7 @@ const DOWNTIME_HOURS: Record<PanelType, number> = {
 
 const GLASS_JOB_TYPES: BookingType[] = [
   "windscreen_crack_chip_repair",
-  "windscreen_replacement",
+  "glass_replacement",
   "scratch_graffiti_removal",
   "film_installation",
 ];

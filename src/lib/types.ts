@@ -58,7 +58,6 @@ export type JobLifecycleStage = "rfq" | "job_scheduled" | "job_live" | "job_comp
 
 export type BookingType =
   | "windscreen_crack_chip_repair"
-  | "windscreen_replacement"
   | "scratch_graffiti_removal"
   | "film_installation"
   | "trim_restoration_interior"
@@ -77,7 +76,6 @@ export const RESOURCE_DURATION_LABELS: Record<ResourceDurationTemplate, string> 
 
 export const BOOKING_TYPE_LABELS: Record<BookingType, string> = {
   windscreen_crack_chip_repair: "Windscreen Crack/Chip Repair",
-  windscreen_replacement: "Windscreen Replacement",
   scratch_graffiti_removal: "Scratch/Graffiti Removal",
   film_installation: "Film Installation",
   trim_restoration_interior: "Trim Restoration (Interior)",
@@ -217,10 +215,14 @@ export const MICROFIBER_DISK_SIZES: { value: MicrofiberDiskSize; label: string }
 ];
 
 // Helper function to calculate cost breakdown.
-// Glass replacement is excluded from the 70/30 spread — costs must be entered manually.
+// Glass replacement uses 30:70 labour/materials (materials-heavy).
+// All other repair types use 70:30 labour/materials (labour-heavy).
 export function calculateCostBreakdown(totalCost: number, repairType?: string): { labourCost: number; materialsCost: number } {
   if (repairType === "glass_replacement") {
-    return { labourCost: 0, materialsCost: 0 };
+    return {
+      labourCost: Math.round(totalCost * 0.30 * 100) / 100,
+      materialsCost: Math.round(totalCost * 0.70 * 100) / 100,
+    };
   }
   return {
     labourCost: Math.round(totalCost * 0.70 * 100) / 100,
