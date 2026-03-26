@@ -23,6 +23,8 @@ import {
   xeroCreateInvoice, xeroSendInvoice, xeroGetInvoice,
   xeroListContacts, xeroListInvoices, xeroGetConnectionStatus,
   xeroAttachFileToInvoice,
+  xeroCreatePurchaseOrder, xeroSendPurchaseOrder, xeroGetPurchaseOrder,
+  xeroListItems, xeroGetItem,
 } from "@/lib/xero";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -777,6 +779,144 @@ const TOOLS: McpTool[] = [
         attachReport: { type: "boolean", description: "If true (default), generates and attaches the Completed Job Report PDF to the Xero invoice." },
       },
       required: ["jobId"],
+    },
+  },
+  // ─── Xero Purchase Orders & Items ────────────────────────────────────────────
+  {
+    name: "xero_create_purchase_order",
+    description: "Create a DRAFT purchase order in Xero for a supplier. Line items should reference Xero item codes where possible.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        contactName: { type: "string", description: "Supplier name (must match Xero contact or will be created)." },
+        reference: { type: "string", description: "PO reference (e.g. 'PO-ASI-2026-001')." },
+        deliveryDate: { type: "string", description: "Expected delivery date (ISO date)." },
+        lineItems: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              itemCode: { type: "string", description: "Xero item code (from xero_list_items)." },
+              description: { type: "string" },
+              quantity: { type: "number" },
+              unitAmount: { type: "number", description: "Cost per unit, ex-GST." },
+              accountCode: { type: "string", description: "Xero account code (default '300' = Purchases)." },
+            },
+            required: ["description", "quantity", "unitAmount"],
+          },
+        },
+      },
+      required: ["contactName", "lineItems"],
+    },
+  },
+  {
+    name: "xero_send_purchase_order",
+    description: "Approve a DRAFT purchase order and email it to the supplier.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        purchaseOrderId: { type: "string", description: "Xero PurchaseOrderID (UUID)." },
+      },
+      required: ["purchaseOrderId"],
+    },
+  },
+  {
+    name: "xero_get_purchase_order",
+    description: "Get details of a Xero purchase order by its ID.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        purchaseOrderId: { type: "string", description: "Xero PurchaseOrderID (UUID)." },
+      },
+      required: ["purchaseOrderId"],
+    },
+  },
+  {
+    name: "xero_list_items",
+    description: "List products/items from Xero's inventory catalogue. Use to find item codes, cost prices, and supplier info for purchase orders.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        searchTerm: { type: "string", description: "Partial name match (e.g. 'HydroGuard')." },
+      },
+    },
+  },
+  {
+    name: "xero_get_item",
+    description: "Get full details of a single Xero inventory item by code or ID.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        identifier: { type: "string", description: "Xero item code or ItemID." },
+      },
+      required: ["identifier"],
+    },
+  },
+  // ─── Portal Stock & Procurement tools ───────────────────────────────────────
+  {
+    name: "get_stock_items",
+    description: "List stock items from ASI Portal with current quantities and reorder thresholds.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        belowReorder: { type: "boolean", description: "If true, only return items below their reorder threshold." },
+        limit: { type: "number", description: "Max items (default 50, max 200)." },
+      },
+    },
+  },
+  {
+    name: "update_stock_item",
+    description: "Update a stock item's quantity, reorder threshold, or supplier info.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Stock item Firestore ID." },
+        updates: {
+          type: "object",
+          description: "Fields: quantity, reorderThreshold, reorderQuantity, supplierName, xeroItemCode, notes.",
+        },
+      },
+      required: ["id", "updates"],
+    },
+  },
+  {
+    name: "create_goods_received",
+    description: "Log a goods received record against a purchase order. Updates stock levels for received items.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        poNumber: { type: "string", description: "Purchase order number or reference." },
+        supplierName: { type: "string", description: "Supplier name." },
+        receivedBy: { type: "string", description: "Name of person who received the goods." },
+        items: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              stockItemId: { type: "string", description: "Portal stock item Firestore ID (optional)." },
+              itemCode: { type: "string", description: "Xero item code (optional)." },
+              description: { type: "string" },
+              quantityOrdered: { type: "number" },
+              quantityReceived: { type: "number" },
+              condition: { type: "string", enum: ["good", "damaged", "short"], description: "Condition on receipt." },
+              notes: { type: "string" },
+            },
+            required: ["description", "quantityReceived"],
+          },
+        },
+        notes: { type: "string", description: "General notes about the delivery." },
+      },
+      required: ["poNumber", "supplierName", "items"],
+    },
+  },
+  {
+    name: "get_goods_received",
+    description: "List goods received records.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: { type: "number", description: "Max records (default 20, max 100)." },
+      },
     },
   },
   // ─── Executive / Chief of Staff tools ───────────────────────────────────────
@@ -1765,6 +1905,114 @@ async function handleXeroAttachJobReport(args: Record<string, unknown>) {
   return { ok: true, fileName, attachmentId: result.attachmentId, invoiceId };
 }
 
+// ─── Xero PO & Items handlers ─────────────────────────────────────────────────
+
+async function handleXeroCreatePO(args: Record<string, unknown>) {
+  return xeroCreatePurchaseOrder({
+    contactName: String(args.contactName),
+    reference: typeof args.reference === "string" ? args.reference : undefined,
+    deliveryDate: typeof args.deliveryDate === "string" ? args.deliveryDate : undefined,
+    lineItems: (args.lineItems as Array<{ itemCode?: string; description: string; quantity: number; unitAmount: number; accountCode?: string }>) || [],
+  });
+}
+
+async function handleXeroSendPO(args: Record<string, unknown>) {
+  return xeroSendPurchaseOrder(String(args.purchaseOrderId));
+}
+
+async function handleXeroGetPO(args: Record<string, unknown>) {
+  return xeroGetPurchaseOrder(String(args.purchaseOrderId));
+}
+
+async function handleXeroListItems(args: Record<string, unknown>) {
+  return xeroListItems(typeof args.searchTerm === "string" ? args.searchTerm : undefined);
+}
+
+async function handleXeroGetItem(args: Record<string, unknown>) {
+  return xeroGetItem(String(args.identifier));
+}
+
+// ─── Portal Stock & Procurement handlers ──────────────────────────────────────
+
+async function handleGetStockItems(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const limit = safeLimit(args.limit, 50, 200);
+  const snap = await db.collection(COLLECTIONS.STOCK_ITEMS).orderBy("updatedAt", "desc").limit(limit).get();
+  let docs = snap.docs.map((d) => serializeDoc(d.id, d.data()));
+  if (args.belowReorder === true) {
+    docs = docs.filter((d) => {
+      const qty = typeof d.quantity === "number" ? d.quantity : 0;
+      const threshold = typeof d.reorderThreshold === "number" ? d.reorderThreshold : 0;
+      return threshold > 0 && qty <= threshold;
+    });
+  }
+  return docs;
+}
+
+async function handleUpdateStockItem(args: Record<string, unknown>) {
+  const id = String(args.id);
+  const updates = (args.updates || {}) as Record<string, unknown>;
+  const db = admin.firestore();
+  const ref = db.collection(COLLECTIONS.STOCK_ITEMS).doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) throw new Error(`Stock item '${id}' not found.`);
+
+  const allowed = new Set(["quantity", "reorderThreshold", "reorderQuantity", "supplierName", "xeroItemCode", "notes"]);
+  const payload: Record<string, unknown> = { updatedAt: admin.firestore.FieldValue.serverTimestamp() };
+  for (const [k, v] of Object.entries(updates)) {
+    if (allowed.has(k)) payload[k] = v;
+  }
+  await ref.set(payload, { merge: true });
+  const updated = await ref.get();
+  return serializeDoc(updated.id, updated.data()!);
+}
+
+async function handleCreateGoodsReceived(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const now = admin.firestore.FieldValue.serverTimestamp();
+  const items = (args.items as Array<Record<string, unknown>>) || [];
+
+  const payload = {
+    poNumber: String(args.poNumber || ""),
+    supplierName: String(args.supplierName || ""),
+    receivedBy: typeof args.receivedBy === "string" ? args.receivedBy : "LEDGER Agent",
+    items,
+    notes: typeof args.notes === "string" ? args.notes : "",
+    status: "received",
+    createdAt: now,
+    updatedAt: now,
+    createdBy: "mcp-agent",
+  };
+
+  const ref = await db.collection(COLLECTIONS.GOODS_RECEIVED).add(payload);
+
+  // Auto-update stock levels for items with stockItemId
+  for (const item of items) {
+    if (typeof item.stockItemId === "string" && item.stockItemId) {
+      const condition = String(item.condition || "good");
+      if (condition === "good") {
+        const qty = typeof item.quantityReceived === "number" ? item.quantityReceived : 0;
+        if (qty > 0) {
+          const stockRef = db.collection(COLLECTIONS.STOCK_ITEMS).doc(item.stockItemId);
+          await stockRef.set({
+            quantity: admin.firestore.FieldValue.increment(qty),
+            updatedAt: now,
+          }, { merge: true });
+        }
+      }
+    }
+  }
+
+  return { ok: true, id: ref.id, poNumber: payload.poNumber, itemCount: items.length };
+}
+
+async function handleGetGoodsReceived(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const limit = safeLimit(args.limit, 20, 100);
+  const snap = await db.collection(COLLECTIONS.GOODS_RECEIVED).orderBy("createdAt", "desc").limit(limit).get();
+  return snap.docs.map((d) => serializeDoc(d.id, d.data()));
+}
+
 async function handleCloseOutJob(args: Record<string, unknown>) {
   const jobId = String(args.jobId);
   const accountCode = typeof args.accountCode === "string" ? args.accountCode : "200";
@@ -2130,6 +2378,17 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
     case "xero_list_contacts":   return handleXeroListContacts(args);
     case "xero_attach_job_report": return handleXeroAttachJobReport(args);
     case "close_out_job":        return handleCloseOutJob(args);
+    // Xero Purchase Orders & Items
+    case "xero_create_purchase_order": return handleXeroCreatePO(args);
+    case "xero_send_purchase_order":   return handleXeroSendPO(args);
+    case "xero_get_purchase_order":    return handleXeroGetPO(args);
+    case "xero_list_items":            return handleXeroListItems(args);
+    case "xero_get_item":              return handleXeroGetItem(args);
+    // Portal Stock & Procurement
+    case "get_stock_items":            return handleGetStockItems(args);
+    case "update_stock_item":          return handleUpdateStockItem(args);
+    case "create_goods_received":      return handleCreateGoodsReceived(args);
+    case "get_goods_received":         return handleGetGoodsReceived(args);
     // Executive / Chief of Staff
     case "get_company_overview": return handleGetCompanyOverview(args);
     case "push_department_report": return handlePushDepartmentReport(args);

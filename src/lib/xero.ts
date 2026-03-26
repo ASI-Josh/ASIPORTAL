@@ -26,6 +26,7 @@ const SCOPES = [
   "accounting.invoices",
   "accounting.contacts",
   "accounting.settings",
+  "accounting.purchaseorders",
   "offline_access",
 ].join(" ");
 
@@ -369,4 +370,93 @@ export async function xeroAttachFileToInvoice(
 
   const data = await res.json() as { Attachments?: Array<{ AttachmentID: string }> };
   return { attachmentId: data.Attachments?.[0]?.AttachmentID || "" };
+}
+
+// ─── Purchase Orders ──────────────────────────────────────────────────────────
+
+export async function xeroCreatePurchaseOrder(po: {
+  contactName: string;
+  reference?: string;
+  deliveryDate?: string;
+  lineItems: Array<{
+    itemCode?: string;
+    description: string;
+    quantity: number;
+    unitAmount: number;
+    accountCode?: string;
+    taxType?: string;
+  }>;
+}): Promise<{ purchaseOrderId: string; purchaseOrderNumber: string; status: string }> {
+  // Find or create supplier contact
+  const contactResult = await xeroApi("GET",
+    `/Contacts?where=Name=="${encodeURIComponent(po.contactName)}"`
+  ) as { Contacts?: Array<{ ContactID: string }> };
+
+  let contactId: string;
+  if (contactResult.Contacts && contactResult.Contacts.length > 0) {
+    contactId = contactResult.Contacts[0].ContactID;
+  } else {
+    const newContact = await xeroApi("POST", "/Contacts", {
+      Contacts: [{ Name: po.contactName }],
+    }) as { Contacts: Array<{ ContactID: string }> };
+    contactId = newContact.Contacts[0].ContactID;
+  }
+
+  const payload = {
+    PurchaseOrders: [{
+      Contact: { ContactID: contactId },
+      Reference: po.reference || "",
+      DeliveryDate: po.deliveryDate || undefined,
+      LineAmountTypes: "Exclusive",
+      Status: "DRAFT",
+      LineItems: po.lineItems.map((li) => ({
+        ItemCode: li.itemCode || undefined,
+        Description: li.description,
+        Quantity: li.quantity,
+        UnitAmount: li.unitAmount,
+        AccountCode: li.accountCode || "300",
+        TaxType: li.taxType || "INPUT",
+      })),
+    }],
+  };
+
+  const result = await xeroApi("POST", "/PurchaseOrders", payload) as {
+    PurchaseOrders: Array<{ PurchaseOrderID: string; PurchaseOrderNumber: string; Status: string }>;
+  };
+
+  const created = result.PurchaseOrders[0];
+  return {
+    purchaseOrderId: created.PurchaseOrderID,
+    purchaseOrderNumber: created.PurchaseOrderNumber,
+    status: created.Status,
+  };
+}
+
+export async function xeroSendPurchaseOrder(purchaseOrderId: string): Promise<{ sent: boolean }> {
+  await xeroApi("POST", "/PurchaseOrders", {
+    PurchaseOrders: [{
+      PurchaseOrderID: purchaseOrderId,
+      Status: "AUTHORISED",
+    }],
+  });
+  await xeroApi("POST", `/PurchaseOrders/${purchaseOrderId}/Email`, {});
+  return { sent: true };
+}
+
+export async function xeroGetPurchaseOrder(purchaseOrderId: string): Promise<unknown> {
+  return xeroApi("GET", `/PurchaseOrders/${purchaseOrderId}`);
+}
+
+// ─── Items / Inventory ────────────────────────────────────────────────────────
+
+export async function xeroListItems(searchTerm?: string): Promise<unknown> {
+  let path = "/Items?page=1&pageSize=50";
+  if (searchTerm) {
+    path += `&where=Name.Contains("${searchTerm}")`;
+  }
+  return xeroApi("GET", path);
+}
+
+export async function xeroGetItem(identifier: string): Promise<unknown> {
+  return xeroApi("GET", `/Items/${encodeURIComponent(identifier)}`);
 }
