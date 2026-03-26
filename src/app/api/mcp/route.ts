@@ -93,6 +93,33 @@ const TOOLS: McpTool[] = [
     },
   },
   {
+    name: "update_job",
+    description:
+      "Update a job's fields — use this to close out jobs with invoice details, change status, or update notes. Agents use this to complete the invoicing loop.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "The job Firestore document ID." },
+        updates: {
+          type: "object",
+          description:
+            "Fields to update. Allowed: status ('pending','scheduled','in_progress','completed','closed','cancelled'), invoiceNumber (string), invoiceGeneratedDate (ISO date string), invoiceSentDate (ISO date string), notes (string). When setting status to 'closed', invoiceNumber is required.",
+          properties: {
+            status: {
+              type: "string",
+              enum: ["pending", "scheduled", "in_progress", "completed", "closed", "cancelled"],
+            },
+            invoiceNumber: { type: "string", description: "Invoice reference number (e.g. 'INV-2026-0045')." },
+            invoiceGeneratedDate: { type: "string", description: "ISO date when invoice was generated (e.g. '2026-03-26')." },
+            invoiceSentDate: { type: "string", description: "ISO date when invoice was sent to client (e.g. '2026-03-26')." },
+            notes: { type: "string", description: "Append to existing job notes." },
+          },
+        },
+      },
+      required: ["id", "updates"],
+    },
+  },
+  {
     name: "get_bookings",
     description: "List bookings from the ASI Portal. Optionally filter by status or limit results.",
     inputSchema: {
@@ -512,6 +539,70 @@ async function handleGetJob(args: Record<string, unknown>) {
   const snap = await admin.firestore().collection(COLLECTIONS.JOBS).doc(id).get();
   if (!snap.exists) throw new Error(`Job '${id}' not found.`);
   return serializeDoc(snap.id, snap.data()!);
+}
+
+async function handleUpdateJob(args: Record<string, unknown>) {
+  const id = String(args.id);
+  const updates = (args.updates || {}) as Record<string, unknown>;
+  const db = admin.firestore();
+  const ref = db.collection(COLLECTIONS.JOBS).doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) throw new Error(`Job '${id}' not found.`);
+  const existing = snap.data()!;
+
+  const payload: Record<string, unknown> = {};
+
+  // Status change
+  if (typeof updates.status === "string") {
+    const newStatus = updates.status;
+    if (newStatus === "closed" && !updates.invoiceNumber && !existing.invoiceNumber) {
+      throw new Error("Cannot close job without an invoiceNumber.");
+    }
+    payload.status = newStatus;
+
+    // Auto-set closure fields
+    if (newStatus === "closed") {
+      payload.closedAt = admin.firestore.FieldValue.serverTimestamp();
+      payload.closedBy = "mcp-agent";
+    }
+
+    // Add to statusLog
+    const statusLog = (existing.statusLog as Array<Record<string, unknown>>) || [];
+    statusLog.push({
+      status: newStatus,
+      changedAt: new Date().toISOString(),
+      changedBy: "mcp-agent",
+      note: typeof updates.notes === "string" ? updates.notes : `Status changed to ${newStatus} via MCP`,
+    });
+    payload.statusLog = statusLog;
+  }
+
+  // Invoice fields
+  if (typeof updates.invoiceNumber === "string") {
+    payload.invoiceNumber = updates.invoiceNumber;
+  }
+  if (typeof updates.invoiceGeneratedDate === "string") {
+    payload.invoiceDate = admin.firestore.Timestamp.fromDate(new Date(updates.invoiceGeneratedDate + "T00:00:00"));
+  }
+  if (typeof updates.invoiceSentDate === "string") {
+    payload.invoiceSentAt = admin.firestore.Timestamp.fromDate(new Date(updates.invoiceSentDate + "T00:00:00"));
+  }
+
+  // Notes — append to existing
+  if (typeof updates.notes === "string" && !updates.status) {
+    const existingNotes = typeof existing.notes === "string" ? existing.notes : "";
+    payload.notes = existingNotes
+      ? `${existingNotes}\n\n[${new Date().toISOString().split("T")[0]}] ${updates.notes}`
+      : `[${new Date().toISOString().split("T")[0]}] ${updates.notes}`;
+  }
+
+  if (Object.keys(payload).length === 0) throw new Error("No valid fields to update.");
+
+  payload.updatedAt = admin.firestore.FieldValue.serverTimestamp();
+  await ref.set(payload, { merge: true });
+
+  const updated = await ref.get();
+  return serializeDoc(updated.id, updated.data()!);
 }
 
 async function handleGetBookings(args: Record<string, unknown>) {
@@ -1044,6 +1135,7 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
   switch (name) {
     case "get_jobs":             return handleGetJobs(args);
     case "get_job":              return handleGetJob(args);
+    case "update_job":           return handleUpdateJob(args);
     case "get_bookings":         return handleGetBookings(args);
     case "get_inspections":      return handleGetInspections(args);
     case "get_ims_documents":    return handleGetImsDocuments(args);
