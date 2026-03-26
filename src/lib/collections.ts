@@ -45,4 +45,6 @@ export const COLLECTIONS = {
   OPPORTUNITIES: "opportunities",
   VANGUARD_REPORTS: "vanguardReports",
   XERO_TOKENS: "xeroTokens",
+  EXECUTIVE_REPORTS: "executiveReports",
+  DEPARTMENT_REPORTS: "departmentReports",
 } as const;

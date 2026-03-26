@@ -598,6 +598,78 @@ const TOOLS: McpTool[] = [
       required: ["jobId"],
     },
   },
+  // ─── Executive / Chief of Staff tools ───────────────────────────────────────
+  {
+    name: "get_company_overview",
+    description:
+      "Pull a comprehensive real-time snapshot of the entire ASI operation in a single call. Returns: jobs by status with revenue totals, sales + supply chain pipeline stats, recent VANGUARD report summary, overdue leads, invoicing queue, IMS incident count, prestart compliance, and recent department reports. Designed for the Executive Assistant / Chief of Staff agent.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        includeJobDetails: { type: "boolean", description: "Include individual job records for completed/in-progress (default false — just counts and totals)." },
+      },
+    },
+  },
+  {
+    name: "push_department_report",
+    description:
+      "Submit a weekly department report. Each agent team (LEDGER, SENTINEL, VANGUARD, OSINT) pushes their report here. The Executive Assistant reads them all to compile the company report.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        department: {
+          type: "string",
+          enum: ["ledger", "sentinel", "vanguard", "osint", "operations", "chief_of_staff"],
+          description: "Department identifier.",
+        },
+        weekEnding: { type: "string", description: "ISO date of the Friday this report covers (e.g. '2026-03-28')." },
+        report: {
+          type: "object",
+          description: "Report content. Structure varies by department but should include: summary (string), metrics (object), highlights (string[]), risks (string[]), recommendations (string[]), rawData (optional object with supporting details).",
+        },
+      },
+      required: ["department", "weekEnding", "report"],
+    },
+  },
+  {
+    name: "get_department_reports",
+    description:
+      "Retrieve department reports. Can filter by department and/or week. Returns all matching reports, newest first. The Executive Assistant uses this to pull all departments' weekly reports for synthesis.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        department: { type: "string", description: "Filter by department (e.g. 'ledger'). Omit for all departments." },
+        weekEnding: { type: "string", description: "Filter by specific week ending date. Omit for all weeks." },
+        limit: { type: "number", description: "Max reports to return (default 20, max 50)." },
+      },
+    },
+  },
+  {
+    name: "push_executive_report",
+    description:
+      "Store a compiled executive/company report. The Chief of Staff agent pushes the synthesised weekly report here after analysing all department reports.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        weekEnding: { type: "string", description: "ISO date of the Friday this report covers." },
+        report: {
+          type: "object",
+          description: "Full executive report: executiveSummary (string), operations (object), salesPipeline (object), accounts (object), intelligence (object), risks (string[]), recommendations (string[]), nextWeekPriorities (string[]), kpis (object).",
+        },
+      },
+      required: ["weekEnding", "report"],
+    },
+  },
+  {
+    name: "get_executive_reports",
+    description: "Retrieve past executive/company reports, newest first.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: { type: "number", description: "Max reports to return (default 4, max 12)." },
+      },
+    },
+  },
 ];
 
 // ─── Firestore helpers ────────────────────────────────────────────────────────
@@ -1430,6 +1502,194 @@ async function handleCloseOutJob(args: Record<string, unknown>) {
   };
 }
 
+// ─── Executive / Chief of Staff handlers ──────────────────────────────────────
+
+async function handleGetCompanyOverview(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const includeDetails = args.includeJobDetails === true;
+
+  // Pull everything in parallel
+  const [jobsSnap, bookingsSnap, leadsSnap, incidentsSnap, inspectionsSnap, prestartsSnap, vanguardSnap, deptReportsSnap] = await Promise.all([
+    db.collection(COLLECTIONS.JOBS).orderBy("createdAt", "desc").limit(200).get(),
+    db.collection(COLLECTIONS.BOOKINGS).limit(100).get(),
+    db.collection(COLLECTIONS.LEADS).limit(300).get(),
+    db.collection(COLLECTIONS.IMS_INCIDENTS).limit(50).get(),
+    db.collection(COLLECTIONS.INSPECTIONS).limit(50).get(),
+    db.collection(COLLECTIONS.PRESTART_CHECKS).limit(50).get(),
+    db.collection(COLLECTIONS.VANGUARD_REPORTS).orderBy("date", "desc").limit(1).get(),
+    db.collection(COLLECTIONS.DEPARTMENT_REPORTS).orderBy("submittedAt", "desc").limit(10).get(),
+  ]);
+
+  // Jobs analysis
+  const jobs = jobsSnap.docs.map((d) => ({ id: d.id, ...d.data() })) as Array<Record<string, unknown>>;
+  const jobsByStatus: Record<string, number> = {};
+  let completedRevenue = 0;
+  let closedRevenue = 0;
+  let inProgressCount = 0;
+  const completedJobs: Array<Record<string, unknown>> = [];
+  const inProgressJobs: Array<Record<string, unknown>> = [];
+
+  jobs.forEach((j) => {
+    const s = String(j.status || "unknown");
+    jobsByStatus[s] = (jobsByStatus[s] || 0) + 1;
+    const cost = typeof j.totalJobCost === "number" ? j.totalJobCost : 0;
+    if (s === "completed") {
+      completedRevenue += cost;
+      if (includeDetails) completedJobs.push(serializeDoc(String(j.id), j));
+    }
+    if (s === "closed") closedRevenue += cost;
+    if (s === "in_progress") {
+      inProgressCount += 1;
+      if (includeDetails) inProgressJobs.push(serializeDoc(String(j.id), j));
+    }
+  });
+
+  // Pipeline analysis
+  const leads = leadsSnap.docs.map((d) => d.data());
+  const activeLeads = leads.filter((l) => !l.isDeleted);
+  const salesLeads = activeLeads.filter((l) => l.streamType !== "supply_chain");
+  const supplyLeads = activeLeads.filter((l) => l.streamType === "supply_chain");
+  const today = new Date().toISOString().split("T")[0];
+  const overdueLeads = activeLeads.filter((l) => {
+    const nad = String(l.nextActionDate || "");
+    return nad && nad < today && !["won", "lost", "nurture", "inactive", "watchlist"].includes(String(l.stage));
+  });
+
+  const pipelineValue = activeLeads.reduce((sum, l) => sum + (typeof l.estimatedValue === "number" ? l.estimatedValue : 0), 0);
+  const gradeA = activeLeads.filter((l) => l.leadGrade === "A").length;
+  const gradeB = activeLeads.filter((l) => l.leadGrade === "B").length;
+
+  // Bookings
+  const pendingBookings = bookingsSnap.docs.filter((d) => d.data().status === "pending").length;
+  const confirmedBookings = bookingsSnap.docs.filter((d) => d.data().status === "confirmed").length;
+
+  // IMS
+  const openIncidents = incidentsSnap.docs.filter((d) => d.data().status === "open").length;
+
+  // Prestarts
+  const completedPrestarts = prestartsSnap.docs.filter((d) => d.data().status === "completed").length;
+  const prestartCompliance = prestartsSnap.size > 0
+    ? Math.round((completedPrestarts / prestartsSnap.size) * 100)
+    : 100;
+
+  // Latest VANGUARD
+  const latestVanguard = vanguardSnap.docs.length > 0
+    ? { date: vanguardSnap.docs[0].id, ...vanguardSnap.docs[0].data() } as Record<string, unknown>
+    : null;
+
+  // Recent department reports
+  const deptReports = deptReportsSnap.docs.map((d) => serializeDoc(d.id, d.data()));
+
+  return {
+    generatedAt: new Date().toISOString(),
+    operations: {
+      totalJobs: jobs.length,
+      jobsByStatus,
+      inProgressCount,
+      completedAwaitingInvoice: jobsByStatus["completed"] || 0,
+      completedRevenue: Math.round(completedRevenue * 100) / 100,
+      closedRevenue: Math.round(closedRevenue * 100) / 100,
+      pendingBookings,
+      confirmedBookings,
+      totalInspections: inspectionsSnap.size,
+      ...(includeDetails ? { completedJobs, inProgressJobs } : {}),
+    },
+    salesPipeline: {
+      totalLeads: activeLeads.length,
+      salesLeads: salesLeads.length,
+      supplyChainLeads: supplyLeads.length,
+      gradeA,
+      gradeB,
+      pipelineValue: Math.round(pipelineValue * 100) / 100,
+      overdueActions: overdueLeads.length,
+      overdueLeadsSummary: overdueLeads.slice(0, 10).map((l) => ({
+        company: l.companyName,
+        grade: l.leadGrade,
+        stage: l.stage,
+        nextAction: l.nextAction,
+        nextActionDate: l.nextActionDate,
+      })),
+    },
+    accounts: {
+      invoicingQueue: jobsByStatus["completed"] || 0,
+      invoicingQueueValue: Math.round(completedRevenue * 100) / 100,
+      closedThisPeriod: jobsByStatus["closed"] || 0,
+      closedRevenue: Math.round(closedRevenue * 100) / 100,
+    },
+    ohs: {
+      totalPrestarts: prestartsSnap.size,
+      completedPrestarts,
+      prestartCompliance,
+      openIncidents,
+    },
+    latestVanguardReport: latestVanguard
+      ? { date: latestVanguard.date, executiveSummary: latestVanguard.executiveSummary }
+      : null,
+    recentDepartmentReports: deptReports,
+  };
+}
+
+async function handlePushDepartmentReport(args: Record<string, unknown>) {
+  const department = String(args.department);
+  const weekEnding = String(args.weekEnding);
+  const report = args.report as Record<string, unknown>;
+  if (!department || !weekEnding || !report) throw new Error("department, weekEnding, and report are required.");
+
+  const db = admin.firestore();
+  const docId = `${department}_${weekEnding}`;
+  await db.collection(COLLECTIONS.DEPARTMENT_REPORTS).doc(docId).set({
+    department,
+    weekEnding,
+    report,
+    submittedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+  return { ok: true, reportId: docId, department, weekEnding };
+}
+
+async function handleGetDepartmentReports(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const limit = safeLimit(args.limit, 20, 50);
+  let q: FirebaseFirestore.Query = db.collection(COLLECTIONS.DEPARTMENT_REPORTS)
+    .orderBy("submittedAt", "desc")
+    .limit(limit);
+
+  const snap = await q.get();
+  let docs = snap.docs.map((d) => serializeDoc(d.id, d.data()));
+
+  if (typeof args.department === "string") {
+    docs = docs.filter((d) => d.department === args.department);
+  }
+  if (typeof args.weekEnding === "string") {
+    docs = docs.filter((d) => d.weekEnding === args.weekEnding);
+  }
+
+  return docs;
+}
+
+async function handlePushExecutiveReport(args: Record<string, unknown>) {
+  const weekEnding = String(args.weekEnding);
+  const report = args.report as Record<string, unknown>;
+  if (!weekEnding || !report) throw new Error("weekEnding and report are required.");
+
+  const db = admin.firestore();
+  await db.collection(COLLECTIONS.EXECUTIVE_REPORTS).doc(weekEnding).set({
+    weekEnding,
+    report,
+    generatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+  return { ok: true, weekEnding };
+}
+
+async function handleGetExecutiveReports(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const limit = safeLimit(args.limit, 4, 12);
+  const snap = await db.collection(COLLECTIONS.EXECUTIVE_REPORTS)
+    .orderBy("weekEnding", "desc")
+    .limit(limit)
+    .get();
+  return snap.docs.map((d) => serializeDoc(d.id, d.data()));
+}
+
 // ─── Dispatch ─────────────────────────────────────────────────────────────────
 
 async function callTool(name: string, args: Record<string, unknown>): Promise<unknown> {
@@ -1466,6 +1726,12 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
     case "xero_list_contacts":   return handleXeroListContacts(args);
     case "xero_attach_job_report": return handleXeroAttachJobReport(args);
     case "close_out_job":        return handleCloseOutJob(args);
+    // Executive / Chief of Staff
+    case "get_company_overview": return handleGetCompanyOverview(args);
+    case "push_department_report": return handlePushDepartmentReport(args);
+    case "get_department_reports": return handleGetDepartmentReports(args);
+    case "push_executive_report": return handlePushExecutiveReport(args);
+    case "get_executive_reports": return handleGetExecutiveReports(args);
     default:
       throw new Error(`Unknown tool: ${name}`);
   }
