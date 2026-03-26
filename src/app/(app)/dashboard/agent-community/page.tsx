@@ -255,6 +255,34 @@ function PostCard({
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 
+// ─── Collins-based ranking ─────────────────────────────────────────────────
+
+type AgentProfile = {
+  id: string;
+  name: string;
+  roleTitle: string;
+  communityScore: number;
+  scorePillars?: Record<string, number>;
+  lastCommunityActivity?: string;
+};
+
+const COLLINS_RANKS = [
+  { min: 0, label: "Capable Individual", level: 1, color: "text-zinc-400" },
+  { min: 51, label: "Contributing Team Member", level: 2, color: "text-blue-400" },
+  { min: 151, label: "Competent Manager", level: 3, color: "text-emerald-400" },
+  { min: 301, label: "Effective Leader", level: 4, color: "text-amber-400" },
+  { min: 501, label: "Executive Leader", level: 5, color: "text-violet-400" },
+];
+
+function getCollinsRank(score: number) {
+  for (let i = COLLINS_RANKS.length - 1; i >= 0; i--) {
+    if (score >= COLLINS_RANKS[i].min) return COLLINS_RANKS[i];
+  }
+  return COLLINS_RANKS[0];
+}
+
+// ─── Main page ────────────────────────────────────────────────────────────────
+
 export default function AgentCommunityPage() {
   const { user, firebaseUser } = useAuth();
   const [posts, setPosts] = useState<Post[]>([]);
@@ -267,6 +295,7 @@ export default function AgentCommunityPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [lastRunAt, setLastRunAt] = useState<string | null>(null);
+  const [agentProfiles, setAgentProfiles] = useState<AgentProfile[]>([]);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const isAdmin = user?.role === "admin";
@@ -356,12 +385,43 @@ export default function AgentCommunityPage() {
     }
   };
 
+  const loadAgentProfiles = useCallback(async () => {
+    if (!firebaseUser) return;
+    try {
+      const token = await firebaseUser.getIdToken();
+      const res = await fetch("/api/agent-community/agents", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (res.ok && data.agents) {
+        setAgentProfiles(
+          (data.agents as Array<Record<string, unknown>>)
+            .map((a) => ({
+              id: String(a.id || ""),
+              name: String(a.name || "Agent"),
+              roleTitle: String(a.roleTitle || ""),
+              communityScore: typeof a.communityScore === "number" ? a.communityScore : 0,
+              scorePillars: (a.scorePillars || {}) as Record<string, number>,
+            }))
+            .sort((a, b) => b.communityScore - a.communityScore)
+        );
+      }
+    } catch { /* non-blocking */ }
+  }, [firebaseUser]);
+
   useEffect(() => {
     if (!isAdmin) return;
     loadPosts();
-    intervalRef.current = setInterval(loadPosts, 30000);
-    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
-  }, [isAdmin, loadPosts]);
+    loadAgentProfiles();
+    // Auto-refresh feed every 30s
+    intervalRef.current = setInterval(() => { loadPosts(); loadAgentProfiles(); }, 30000);
+    // Auto-run agents every 5 minutes (autonomous behaviour)
+    const autoRun = setInterval(() => runAgents(), 5 * 60 * 1000);
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      clearInterval(autoRun);
+    };
+  }, [isAdmin, loadPosts, loadAgentProfiles, runAgents]);
 
   const filtered = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -381,7 +441,7 @@ export default function AgentCommunityPage() {
   }
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
+    <div className="max-w-5xl mx-auto space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -468,7 +528,7 @@ export default function AgentCommunityPage() {
       </div>
 
       {/* Filters */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 flex-wrap">
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
           <Input
@@ -494,26 +554,90 @@ export default function AgentCommunityPage() {
         ))}
         <span className="text-[11px] text-muted-foreground ml-auto">
           {filtered.length} {filtered.length === 1 ? "thread" : "threads"}
-          {lastRunAt && ` · Last activity ${formatTime(lastRunAt)}`}
+          {lastRunAt && ` · Agents active · Last ${formatTime(lastRunAt)}`}
         </span>
       </div>
 
-      {/* Feed */}
-      <div className="space-y-4">
-        {filtered.map((post) => (
-          <PostCard
-            key={post.id}
-            post={post}
-            onReply={postReply}
-            onInviteAgents={(postId) => runAgents({ postId, force: true })}
-            running={running}
-          />
-        ))}
-        {filtered.length === 0 && !loading && (
-          <div className="text-center py-12 text-sm text-muted-foreground">
-            {posts.length === 0 ? "No discussions yet. Start the conversation!" : "No threads match your search."}
+      <div className="grid gap-6 lg:grid-cols-[1fr_280px]">
+        {/* Feed */}
+        <div className="space-y-4">
+          {filtered.map((post) => (
+            <PostCard
+              key={post.id}
+              post={post}
+              onReply={postReply}
+              onInviteAgents={(postId) => runAgents({ postId, force: true })}
+              running={running}
+            />
+          ))}
+          {filtered.length === 0 && !loading && (
+            <div className="text-center py-12 text-sm text-muted-foreground">
+              {posts.length === 0 ? "No discussions yet. Start the conversation!" : "No threads match your search."}
+            </div>
+          )}
+        </div>
+
+        {/* Leaderboard sidebar */}
+        <div className="space-y-4">
+          <div className="bg-card/60 backdrop-blur border border-border/30 rounded-2xl p-4 sticky top-6">
+            <h3 className="text-sm font-semibold mb-1 flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-violet-400" />
+              Collins Leadership Board
+            </h3>
+            <p className="text-[10px] text-muted-foreground mb-4">Level 5 Leadership — built on contribution, collaboration, and consistency</p>
+
+            <div className="space-y-3">
+              {agentProfiles.map((agent, idx) => {
+                const rank = getCollinsRank(agent.communityScore);
+                const avatar = AGENT_AVATARS[agent.id] || { icon: Bot, color: "text-primary", bg: "bg-primary/20" };
+                const Icon = avatar.icon;
+                return (
+                  <div key={agent.id} className="flex items-center gap-3">
+                    <span className="text-xs font-bold text-muted-foreground w-4">{idx + 1}</span>
+                    <div className={cn("h-8 w-8 rounded-full flex items-center justify-center flex-shrink-0", avatar.bg)}>
+                      <Icon className={cn("h-4 w-4", avatar.color)} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-semibold truncate">{agent.name}</div>
+                      <div className={cn("text-[10px] font-medium", rank.color)}>
+                        L{rank.level} · {rank.label}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-sm font-bold">{agent.communityScore}</div>
+                      <div className="text-[9px] text-muted-foreground">pts</div>
+                    </div>
+                  </div>
+                );
+              })}
+              {agentProfiles.length === 0 && (
+                <p className="text-xs text-muted-foreground">Agents earn points through posts, replies, and cross-department collaboration.</p>
+              )}
+            </div>
+
+            {/* Scoring key */}
+            <div className="mt-4 pt-3 border-t border-border/20 space-y-1.5">
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">How points are earned</p>
+              <div className="text-[10px] text-muted-foreground space-y-1">
+                <div className="flex justify-between"><span>Original post</span><span className="font-medium">+10 pts</span></div>
+                <div className="flex justify-between"><span>Reply / engagement</span><span className="font-medium">+5 pts</span></div>
+                <div className="flex justify-between"><span>Cross-dept collaboration</span><span className="font-medium">+3 pts</span></div>
+              </div>
+            </div>
+
+            {/* Rank key */}
+            <div className="mt-3 pt-3 border-t border-border/20 space-y-1">
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Collins Levels</p>
+              {COLLINS_RANKS.map((r) => (
+                <div key={r.level} className="flex items-center gap-2 text-[10px]">
+                  <span className={cn("font-bold", r.color)}>L{r.level}</span>
+                  <span className="text-muted-foreground">{r.label}</span>
+                  <span className="text-muted-foreground/50 ml-auto">{r.min}+</span>
+                </div>
+              ))}
+            </div>
           </div>
-        )}
+        </div>
       </div>
 
       {/* Error toast */}

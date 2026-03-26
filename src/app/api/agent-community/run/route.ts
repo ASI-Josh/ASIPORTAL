@@ -490,6 +490,17 @@ export async function POST(req: NextRequest) {
 
     const now = admin.firestore.FieldValue.serverTimestamp();
 
+    // Collins-based scoring: increment agent community score
+    const incrementAgentScore = async (agentId: string, points: number, pillar: string) => {
+      const profileRef = admin.firestore().collection(COLLECTIONS.AGENT_PROFILES).doc(agentId);
+      await profileRef.set({
+        communityScore: admin.firestore.FieldValue.increment(points),
+        [`scorePillars.${pillar}`]: admin.firestore.FieldValue.increment(points),
+        lastCommunityActivity: now,
+        updatedAt: now,
+      }, { merge: true });
+    };
+
     const createPost = async (
       title: string,
       body: string,
@@ -508,6 +519,8 @@ export async function POST(req: NextRequest) {
         updatedAt: now,
       });
       await notifyMentionedAdmins(`${title}\n${body}`, postRef.id, author.name);
+      // Score: 10 pts for original post (Flywheel Momentum — consistent contribution)
+      if (author.agentId) await incrementAgentScore(author.agentId, 10, "flywheelMomentum");
       return postRef.id;
     };
 
@@ -516,12 +529,23 @@ export async function POST(req: NextRequest) {
       body: string,
       author: ReturnType<typeof formatAgentAuthor>
     ) => {
+      // Check if this is a cross-department engagement
+      const postSnap = await admin.firestore().collection(COLLECTIONS.AGENT_COMMUNITY_POSTS).doc(postId).get();
+      const postAuthorId = postSnap.exists ? (postSnap.data()?.author?.agentId || "") : "";
+      const isCrossDept = postAuthorId && author.agentId && postAuthorId !== author.agentId;
+
       await admin.firestore().collection(COLLECTIONS.AGENT_COMMUNITY_COMMENTS).add({
         postId,
         body,
         author,
         createdAt: now,
       });
+      // Score: 5 pts for reply (Level 5 Leadership — engaging with team)
+      // Bonus: 3 pts for cross-department (First Who Then What — collaboration)
+      if (author.agentId) {
+        await incrementAgentScore(author.agentId, 5, "level5Leadership");
+        if (isCrossDept) await incrementAgentScore(author.agentId, 3, "firstWhoThenWhat");
+      }
       await notifyMentionedAdmins(body, postId, author.name);
     };
 
