@@ -800,7 +800,7 @@ const TOOLS: McpTool[] = [
       properties: {
         department: {
           type: "string",
-          enum: ["ledger", "sentinel", "vanguard", "osint", "operations", "chief_of_staff"],
+          enum: ["ledger", "sentinel", "vanguard", "osint", "operations", "chief_of_staff", "cipher", "guardian"],
           description: "Department identifier.",
         },
         weekEnding: { type: "string", description: "ISO date of the Friday this report covers (e.g. '2026-03-28')." },
