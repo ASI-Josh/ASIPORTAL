@@ -19,6 +19,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { admin } from "@/lib/firebaseAdmin";
 import { COLLECTIONS } from "@/lib/collections";
+import {
+  xeroCreateInvoice, xeroSendInvoice, xeroGetInvoice,
+  xeroListContacts, xeroListInvoices, xeroGetConnectionStatus,
+} from "@/lib/xero";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -492,6 +496,91 @@ const TOOLS: McpTool[] = [
       properties: {
         limit: { type: "number", description: "Number of reports to return (default 7, max 30)." },
       },
+    },
+  },
+  // ─── Xero Accounting tools ──────────────────────────────────────────────────
+  {
+    name: "xero_status",
+    description: "Check whether Xero is connected and authorised. Returns connection status, organisation name, and token expiry.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "xero_create_invoice",
+    description:
+      "Create a DRAFT invoice in Xero. Returns the Xero invoice ID and number. The invoice is created as DRAFT — call xero_send_invoice to approve and email it to the client.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        contactName: { type: "string", description: "Client/organisation name (must match or will be created in Xero)." },
+        contactEmail: { type: "string", description: "Client email for invoice delivery." },
+        reference: { type: "string", description: "ASI job number (e.g. 'MCK-26-0023') — appears as Reference on the invoice." },
+        dueDate: { type: "string", description: "Invoice due date (ISO date, e.g. '2026-04-26')." },
+        lineItems: {
+          type: "array",
+          description: "Invoice line items. Each: { description, quantity, unitAmount (ex-GST), accountCode (default '200'), taxType (default 'OUTPUT') }.",
+          items: {
+            type: "object",
+            properties: {
+              description: { type: "string" },
+              quantity: { type: "number" },
+              unitAmount: { type: "number", description: "Amount per unit, ex-GST." },
+              accountCode: { type: "string", description: "Xero account code (default '200' = Sales)." },
+              taxType: { type: "string", description: "Xero tax type (default 'OUTPUT' = GST on Income)." },
+            },
+            required: ["description", "quantity", "unitAmount"],
+          },
+        },
+        poNumber: { type: "string", description: "Client PO or works order number (optional)." },
+      },
+      required: ["contactName", "contactEmail", "reference", "dueDate", "lineItems"],
+    },
+  },
+  {
+    name: "xero_send_invoice",
+    description:
+      "Approve a DRAFT invoice and email it to the client. Moves the invoice from DRAFT → AUTHORISED, then sends via Xero's email system.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        invoiceId: { type: "string", description: "The Xero InvoiceID (UUID) returned by xero_create_invoice." },
+      },
+      required: ["invoiceId"],
+    },
+  },
+  {
+    name: "xero_get_invoice",
+    description: "Get details of a Xero invoice by its InvoiceID.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        invoiceId: { type: "string", description: "The Xero InvoiceID (UUID)." },
+      },
+      required: ["invoiceId"],
+    },
+  },
+  {
+    name: "xero_list_contacts",
+    description: "Search Xero contacts by name. Use this to find existing clients before creating invoices.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        searchTerm: { type: "string", description: "Partial name match (e.g. 'McKenzie')." },
+      },
+    },
+  },
+  {
+    name: "close_out_job",
+    description:
+      "Full turnkey job close-out: creates a Xero invoice from job data, approves and sends it to the client, then closes the job in the portal with the invoice details. This is the single-call workflow for LEDGER agents.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        jobId: { type: "string", description: "ASI Portal job Firestore document ID." },
+        dueDate: { type: "string", description: "Invoice due date (ISO date). Defaults to 30 days from today." },
+        accountCode: { type: "string", description: "Xero account code for line items (default '200' = Sales)." },
+        skipSend: { type: "boolean", description: "If true, create invoice as DRAFT but don't send. Default false." },
+      },
+      required: ["jobId"],
     },
   },
 ];
@@ -1129,6 +1218,149 @@ async function handleGetVanguardReports(args: Record<string, unknown>) {
   return snap.docs.map((d) => serializeDoc(d.id, d.data()));
 }
 
+// ─── Xero handlers ────────────────────────────────────────────────────────────
+
+async function handleXeroStatus() {
+  return xeroGetConnectionStatus();
+}
+
+async function handleXeroCreateInvoice(args: Record<string, unknown>) {
+  return xeroCreateInvoice({
+    contactName: String(args.contactName),
+    contactEmail: String(args.contactEmail),
+    reference: String(args.reference),
+    dueDate: String(args.dueDate),
+    lineItems: (args.lineItems as Array<{ description: string; quantity: number; unitAmount: number; accountCode?: string; taxType?: string }>) || [],
+    poNumber: typeof args.poNumber === "string" ? args.poNumber : undefined,
+  });
+}
+
+async function handleXeroSendInvoice(args: Record<string, unknown>) {
+  return xeroSendInvoice(String(args.invoiceId));
+}
+
+async function handleXeroGetInvoice(args: Record<string, unknown>) {
+  return xeroGetInvoice(String(args.invoiceId));
+}
+
+async function handleXeroListContacts(args: Record<string, unknown>) {
+  return xeroListContacts(typeof args.searchTerm === "string" ? args.searchTerm : undefined);
+}
+
+async function handleCloseOutJob(args: Record<string, unknown>) {
+  const jobId = String(args.jobId);
+  const accountCode = typeof args.accountCode === "string" ? args.accountCode : "200";
+  const skipSend = args.skipSend === true;
+
+  // 1. Get the job
+  const db = admin.firestore();
+  const jobRef = db.collection(COLLECTIONS.JOBS).doc(jobId);
+  const jobSnap = await jobRef.get();
+  if (!jobSnap.exists) throw new Error(`Job '${jobId}' not found.`);
+  const job = jobSnap.data()!;
+
+  if (job.status !== "completed") {
+    throw new Error(`Job status is '${job.status}' — only 'completed' jobs can be closed out.`);
+  }
+
+  const clientName = String(job.clientName || job.clientOrganisationName || "Unknown Client");
+  const clientEmail = String(job.clientEmail || "");
+  const jobNumber = String(job.jobNumber || jobId);
+
+  if (!clientEmail) throw new Error("Job has no clientEmail — cannot send invoice.");
+
+  // 2. Build line items from repair sites
+  const lineItems: Array<{ description: string; quantity: number; unitAmount: number; accountCode: string }> = [];
+  const vehicles = (job.jobVehicles || []) as Array<Record<string, unknown>>;
+
+  for (const vehicle of vehicles) {
+    const rego = String(vehicle.registration || vehicle.vin || "Vehicle");
+    const repairs = (vehicle.repairSites || []) as Array<Record<string, unknown>>;
+    for (const repair of repairs) {
+      if (!repair.isCompleted) continue;
+      const cost = typeof repair.totalCost === "number" ? repair.totalCost : 0;
+      if (cost <= 0) continue;
+      const repairType = String(repair.repairType || "Service");
+      const location = String(repair.location || "");
+      lineItems.push({
+        description: `${repairType}${location ? ` — ${location}` : ""} (${rego})`,
+        quantity: 1,
+        unitAmount: cost,
+        accountCode,
+      });
+    }
+  }
+
+  // Fallback: if no line items from repair sites, use job total
+  if (lineItems.length === 0) {
+    const total = typeof job.totalJobCost === "number" ? job.totalJobCost : 0;
+    if (total <= 0) throw new Error("Job has no cost data to invoice.");
+    lineItems.push({
+      description: `Services — ${jobNumber}`,
+      quantity: 1,
+      unitAmount: total,
+      accountCode,
+    });
+  }
+
+  // 3. Due date: provided or 30 days from today
+  const dueDate = typeof args.dueDate === "string"
+    ? args.dueDate
+    : new Date(Date.now() + 30 * 86400_000).toISOString().split("T")[0];
+
+  // Get PO number from first vehicle if available
+  const poNumber = vehicles.length > 0 ? String(vehicles[0].poWorksOrderNumber || "") : "";
+
+  // 4. Create invoice in Xero
+  const invoice = await xeroCreateInvoice({
+    contactName: clientName,
+    contactEmail: clientEmail,
+    reference: jobNumber,
+    dueDate,
+    lineItems,
+    poNumber: poNumber || undefined,
+  });
+
+  // 5. Send if not skipped
+  if (!skipSend) {
+    await xeroSendInvoice(invoice.invoiceId);
+  }
+
+  // 6. Close job in portal
+  const today = new Date().toISOString().split("T")[0];
+  const statusLog = (job.statusLog as Array<Record<string, unknown>>) || [];
+  statusLog.push({
+    status: "closed",
+    changedAt: new Date().toISOString(),
+    changedBy: "ledger-agent",
+    note: `Invoice ${invoice.invoiceNumber} created and ${skipSend ? "drafted" : "sent"} via Xero.`,
+  });
+
+  await jobRef.set({
+    status: "closed",
+    invoiceNumber: invoice.invoiceNumber,
+    invoiceDate: admin.firestore.Timestamp.fromDate(new Date(today + "T00:00:00")),
+    invoiceSentAt: skipSend ? null : admin.firestore.FieldValue.serverTimestamp(),
+    closedAt: admin.firestore.FieldValue.serverTimestamp(),
+    closedBy: "ledger-agent",
+    statusLog,
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  }, { merge: true });
+
+  return {
+    ok: true,
+    jobId,
+    jobNumber,
+    xeroInvoiceId: invoice.invoiceId,
+    xeroInvoiceNumber: invoice.invoiceNumber,
+    invoiceStatus: skipSend ? "DRAFT" : "SENT",
+    lineItemCount: lineItems.length,
+    clientName,
+    clientEmail,
+    dueDate,
+  };
+}
+
 // ─── Dispatch ─────────────────────────────────────────────────────────────────
 
 async function callTool(name: string, args: Record<string, unknown>): Promise<unknown> {
@@ -1157,6 +1389,13 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
     case "push_vanguard_report": return handlePushVanguardReport(args);
     case "get_vanguard_report":  return handleGetVanguardReport(args);
     case "get_vanguard_reports": return handleGetVanguardReports(args);
+    // Xero accounting
+    case "xero_status":          return handleXeroStatus();
+    case "xero_create_invoice":  return handleXeroCreateInvoice(args);
+    case "xero_send_invoice":    return handleXeroSendInvoice(args);
+    case "xero_get_invoice":     return handleXeroGetInvoice(args);
+    case "xero_list_contacts":   return handleXeroListContacts(args);
+    case "close_out_job":        return handleCloseOutJob(args);
     default:
       throw new Error(`Unknown tool: ${name}`);
   }
