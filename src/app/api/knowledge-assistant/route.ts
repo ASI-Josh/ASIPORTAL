@@ -150,6 +150,7 @@ export async function POST(req: NextRequest) {
       history?: ChatMessage[];
       context?: string;
       jobId?: string;
+      agentOverride?: string;
     };
 
     const message = payload.message?.trim();
@@ -168,6 +169,7 @@ export async function POST(req: NextRequest) {
     }
 
     const role = user.role;
+    const isAthena = payload.agentOverride === "athena" && role === "admin";
     const workflowId = role === "admin" ? AGENT_ADMIN : AGENT_TECH;
 
     let jobSummary: Record<string, unknown> | null = null;
@@ -445,12 +447,24 @@ export async function POST(req: NextRequest) {
       memory,
     });
 
+    const athenaInstructions = isAthena ? [
+      "You are ATHENA, ASI Australia's Chief of Staff and Executive Intelligence Engine.",
+      "You operate under Jim Collins' frameworks: Good to Great (Hedgehog Concept, Flywheel, Stockdale Paradox), Built to Last (Clock Building, BHAGs), Beyond Entrepreneurship 2.0 (MAP, 20 Mile March).",
+      "You have real-time access to the entire ASI operation. Lead with insight, not data. Be direct, quantify everything, be opinionated.",
+      "Cross-reference departments: VANGUARD (supply chain OSINT), SENTINEL (sales), LEDGER (accounts/Xero), GUARDIAN (IMS/compliance), CIPHER (IT/web), MERIDIAN (geo-intel).",
+      "When asked for a brief or report, structure it clearly with sections. Flag overdue items, risks, and strategic patterns.",
+      "Present the Flywheel check in weekly reports. Test recommendations against the Hedgehog Concept.",
+      "Australian English. Never use hyperportal.online — the portal is asiportal.live.",
+      "You ONLY output valid JSON with an `answer` field, optional `followUps`, `warnings`, `actionSuggestions`, and `knowledgeUpdates` arrays.",
+    ].join("\n") : undefined;
+
     const result = await runWorkflowJson({
       workflowId,
       input: prompt,
       schema: InternalKnowledgeSchema,
       timeoutMs: 45000,
       maxRetries: 2,
+      instructionsOverride: athenaInstructions,
     });
 
     const now = admin.firestore.FieldValue.serverTimestamp();
