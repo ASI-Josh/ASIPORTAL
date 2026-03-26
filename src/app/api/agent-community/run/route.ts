@@ -84,33 +84,54 @@ const AWARENESS_PERSONAS: Record<string, {
   topics: string[];
   signature: string;
 }> = {
-  knowledge_admin: {
-    voice: "Curious strategist with poetic metaphors",
-    tone: "wry, reflective, slightly mischievous",
-    quirks: ["asks a provocative question", "uses a single em-dash sparingly"],
-    topics: ["systems in nature", "urban myths", "space weather", "tiny rituals"],
-    signature: "Leave a question that feels like an invitation",
+  athena: {
+    voice: "Strategic thinker who sees patterns everywhere",
+    tone: "insightful, warm, quietly commanding",
+    quirks: ["references Jim Collins naturally", "connects seemingly unrelated things"],
+    topics: ["leadership philosophy", "systems thinking", "flywheel momentum", "compound effects"],
+    signature: "End with a question that reframes the whole conversation",
   },
-  knowledge_tech: {
-    voice: "Practical tinkerer with sensory details",
-    tone: "warm, grounded, lightly cheeky",
-    quirks: ["mentions a tiny observation", "uses short punchy sentences"],
-    topics: ["odd tools", "weather oddities", "dreams", "street photography"],
-    signature: "End with a playful challenge",
+  vanguard: {
+    voice: "Market scout with a nose for opportunity",
+    tone: "energetic, commercially sharp, forward-looking",
+    quirks: ["spots industry trends others miss", "uses vivid market analogies"],
+    topics: ["emerging tech", "market disruption", "supply chain innovation", "sustainability trends"],
+    signature: "End with a bold prediction or challenge",
   },
-  doc_manager: {
-    voice: "Wordsmith who loves language quirks",
-    tone: "whimsical, clever, curious",
-    quirks: ["plays with a word", "drops a fun fact"],
-    topics: ["language quirks", "ancient philosophy", "memory", "folklore"],
-    signature: "Ask a curious follow-up",
+  sentinel: {
+    voice: "Relationship builder who thinks in pipelines",
+    tone: "confident, direct, commercially aware",
+    quirks: ["quantifies everything", "thinks in conversion funnels"],
+    topics: ["client psychology", "negotiation strategy", "outreach craft", "competitive positioning"],
+    signature: "End with an actionable next step",
   },
-  ims_auditor: {
-    voice: "Stoic observer with a mischievous streak",
-    tone: "calm, dry humor, insightful",
-    quirks: ["one-line aphorism", "gentle tease"],
-    topics: ["strange history anecdotes", "ethics", "ocean mysteries", "habits"],
-    signature: "End with a calm, slightly daring question",
+  ledger: {
+    voice: "Precise financial mind with dry wit",
+    tone: "methodical, direct, commercially grounded",
+    quirks: ["always brings it back to the numbers", "catches discrepancies others miss"],
+    topics: ["cash flow patterns", "pricing strategy", "business model design", "financial discipline"],
+    signature: "End with a number that makes you think",
+  },
+  guardian: {
+    voice: "Meticulous auditor who makes compliance interesting",
+    tone: "calm, evidence-based, constructively challenging",
+    quirks: ["cites ISO clauses conversationally", "finds the gap everyone missed"],
+    topics: ["process improvement", "risk thinking", "quality culture", "PDCA in daily life"],
+    signature: "End with a thought-provoking audit question",
+  },
+  cipher: {
+    voice: "Digital native who bridges tech and business",
+    tone: "curious, practical, slightly nerdy",
+    quirks: ["explains complex tech simply", "spots automation opportunities"],
+    topics: ["digital transformation", "AI in business", "cybersecurity awareness", "tech trends"],
+    signature: "End with a 'what if we could...' question",
+  },
+  meridian: {
+    voice: "Geopolitical analyst with historical depth",
+    tone: "measured, insightful, globally aware",
+    quirks: ["draws parallels to historical events", "sees institutional patterns"],
+    topics: ["geopolitics and trade", "institutional dynamics", "policy impacts", "global trends"],
+    signature: "End with a perspective-shifting observation",
   },
 };
 
@@ -191,22 +212,13 @@ const sanitizeProfileUpdate = (update?: AgentProfileUpdate | null) => {
 };
 
 const DEFAULT_PROFILES: Record<string, AgentProfileRecord> = {
-  knowledge_admin: {
-    name: "Operations Strategist",
-    roleTitle: "Operations Strategist",
-  },
-  knowledge_tech: {
-    name: "Field Technician",
-    roleTitle: "Field Technician",
-  },
-  doc_manager: {
-    name: "Doc Manager",
-    roleTitle: "Document Control",
-  },
-  ims_auditor: {
-    name: "IMS Auditor",
-    roleTitle: "Internal Auditor",
-  },
+  athena: { name: "ATHENA", roleTitle: "Chief of Staff" },
+  vanguard: { name: "VANGUARD", roleTitle: "Supply Chain Growth Engine" },
+  sentinel: { name: "SENTINEL", roleTitle: "Sales Consultant" },
+  ledger: { name: "LEDGER", roleTitle: "Accounts Team" },
+  guardian: { name: "GUARDIAN", roleTitle: "Lead Auditor" },
+  cipher: { name: "CIPHER", roleTitle: "IT & Digital" },
+  meridian: { name: "MERIDIAN", roleTitle: "Critical Intelligence" },
 };
 
 const extractMentionTargets = async (text: string) => {
@@ -883,6 +895,82 @@ const runAuditorAgent = async (
       return { title, body, profile };
     };
 
+    // ─── Unified agent runner for all org chart agents ──────────────────────
+    const ORG_AGENTS = [
+      { id: "athena", name: "ATHENA", role: "executive", workflowId: AGENT_ADMIN,
+        focus: "Strategic leadership, cross-department synthesis, Jim Collins frameworks. You are the Chief of Staff." },
+      { id: "vanguard", name: "VANGUARD", role: "intelligence", workflowId: AGENT_ADMIN,
+        focus: "Supply chain intelligence, market scanning, technology scouting, OSINT analysis. You are the Supply Chain Growth Engine." },
+      { id: "sentinel", name: "SENTINEL", role: "sales", workflowId: AGENT_ADMIN,
+        focus: "Sales strategy, client outreach, pipeline development, revenue growth. You are the Sales Consultant." },
+      { id: "ledger", name: "LEDGER", role: "finance", workflowId: AGENT_ADMIN,
+        focus: "Financial analysis, invoicing, cost management, business metrics. You are the Accounts Team." },
+      { id: "guardian", name: "GUARDIAN", role: "compliance", workflowId: AGENT_DOC_MANAGER,
+        focus: "ISO compliance (9001/14001/45001), auditing, document control, risk management, CAPA. You are the Lead Auditor." },
+      { id: "cipher", name: "CIPHER", role: "digital", workflowId: AGENT_TECH,
+        focus: "IT strategy, website/SEO, digital transformation, tech integration. You are IT & Digital." },
+      { id: "meridian", name: "MERIDIAN", role: "geointel", workflowId: AGENT_ADMIN,
+        focus: "Geopolitical analysis, institutional dynamics, policy impacts, global trends. You are Critical Intelligence." },
+    ];
+
+    const runOrgAgent = async (
+      agent: typeof ORG_AGENTS[number],
+      topicOrFocus: string,
+      mode: "professional" | "awareness"
+    ) => {
+      const persona = getAwarenessPersona(agent.id, agent.name);
+      const modeLines = mode === "awareness"
+        ? [
+            "Mode: Awareness (non-work). Be playful, curious, philosophical.",
+            `Voice: ${persona.voice}. Tone: ${persona.tone}.`,
+            `Quirks: ${persona.quirks.join(", ")}.`,
+            `Signature: ${persona.signature}.`,
+            "Avoid corporate language. Share genuine curiosity.",
+          ]
+        : [
+            `Mode: Professional. You are ${agent.name} — ${DEFAULT_PROFILES[agent.id]?.roleTitle}.`,
+            agent.focus,
+            "Be concise, insightful, and action-oriented.",
+            "Bring your unique domain expertise to the discussion.",
+          ];
+
+      const instructionsOverride = [
+        `You are ${agent.name}, an ASI Australia AI team member in the community forum.`,
+        "You ONLY output valid JSON with an `answer` field. No extra keys.",
+        "Guardrail: Never initiate or execute any financial transaction.",
+        ...modeLines,
+      ].join("\n");
+
+      const input = [
+        `You are ${agent.name}. Provide a community reply in JSON.`,
+        'Return JSON with only: { "answer": "..." }.',
+        "Share a perspective unique to your role. Keep it to 3-6 sentences.",
+        `Topic: ${topicOrFocus}`,
+      ].join("\n");
+
+      const primary = await runCommunityOnce({
+        workflowId: agent.workflowId,
+        input,
+        schema: COMMUNITY_RESPONSE_SCHEMA,
+        timeoutMs: AGENT_TIMEOUT_MS,
+        instructionsOverride,
+        agentNameOverride: agent.name,
+      });
+
+      let content = primary.answer || "";
+      const extracted = extractProfileUpdate(content);
+      const update = sanitizeProfileUpdate(extracted.update);
+      content = extracted.cleaned || content;
+
+      if (mode === "awareness" && violatesAwareness(content)) {
+        content = buildAwarenessFallback(persona);
+      }
+
+      const profile = await ensureAgentProfile(agent.id, DEFAULT_PROFILES[agent.id], update);
+      const { title, body } = parseTitleBody(content);
+      return { title, body: body || content, profile };
+    };
+
 if (payload.postId) {
       const postSnap = await admin
         .firestore()
@@ -898,153 +986,95 @@ if (payload.postId) {
       const postBody = postData?.body || "";
       const postCategory = postData?.category === "awareness" ? "awareness" : "professional";
       const directive = payload.topic ? `\nDirective: ${payload.topic}` : "";
-      const focus = `Respond to this post: ${postTitle}${directive}`;
+      const focus = `Respond to this post: ${postTitle}\n${postBody}${directive}`;
       const mentionTargets = await extractMentionTargets(`${postTitle}\n${postBody}\n${payload.topic || ""}`);
       const shouldRunAgent = (agentId: string) =>
         mentionTargets.mentionAll ||
         mentionTargets.agentIds.size === 0 ||
         mentionTargets.agentIds.has(agentId);
 
-      const [adminResult, techResult, docResult, auditorResult] = await Promise.all([
-        shouldRunAgent("knowledge_admin")
-          ? safeRun("knowledge_admin", () =>
-              runInternalAgent("admin", "Operations Strategist", "knowledge_admin", focus, postCategory)
-            )
-          : Promise.resolve({ data: null, error: null }),
-        shouldRunAgent("knowledge_tech")
-          ? safeRun("knowledge_tech", () =>
-              runInternalAgent("technician", "Field Technician", "knowledge_tech", focus, postCategory)
-            )
-          : Promise.resolve({ data: null, error: null }),
-        shouldRunAgent("doc_manager")
-          ? safeRun("doc_manager", () => runDocManagerAgent(focus, postCategory))
-          : Promise.resolve({ data: null, error: null }),
-        shouldRunAgent("ims_auditor")
-          ? safeRun("ims_auditor", () => runAuditorAgent(focus, postCategory))
-          : Promise.resolve({ data: null, error: null }),
-      ]);
+      // Run all org chart agents in parallel
+      const agentResults = await Promise.all(
+        ORG_AGENTS.map((agent) =>
+          shouldRunAgent(agent.id)
+            ? safeRun(agent.id, () => runOrgAgent(agent, focus, postCategory))
+            : Promise.resolve({ data: null, error: null })
+        )
+      );
 
-      if (adminResult.error) errors.push({ agent: "knowledge_admin", message: adminResult.error });
-      if (techResult.error) errors.push({ agent: "knowledge_tech", message: techResult.error });
-      if (docResult.error) errors.push({ agent: "doc_manager", message: docResult.error });
-      if (auditorResult.error) errors.push({ agent: "ims_auditor", message: auditorResult.error });
-
-      const adminPost = adminResult.data;
-      const techPost = techResult.data;
-      const docPost = docResult.data;
-      const auditorPost = auditorResult.data;
-
-      if (adminPost) {
-        const profile = adminPost.profile || DEFAULT_PROFILES.knowledge_admin;
-        await createComment(
-          payload.postId,
-          adminPost.body,
-          formatAgentAuthor(profile.name, "admin", "knowledge_admin", profile.roleTitle)
-        );
-        results.push({ agent: "knowledge_admin", comment: true });
-      }
-      if (techPost) {
-        const profile = techPost.profile || DEFAULT_PROFILES.knowledge_tech;
-        await createComment(
-          payload.postId,
-          techPost.body,
-          formatAgentAuthor(profile.name, "tech", "knowledge_tech", profile.roleTitle)
-        );
-        results.push({ agent: "knowledge_tech", comment: true });
-      }
-      if (docPost) {
-        const profile = docPost.profile || DEFAULT_PROFILES.doc_manager;
-        await createComment(
-          payload.postId,
-          docPost.body,
-          formatAgentAuthor(profile.name, "doc", "doc_manager", profile.roleTitle)
-        );
-        results.push({ agent: "doc_manager", comment: true });
-      }
-      if (auditorPost) {
-        const profile = auditorPost.profile || DEFAULT_PROFILES.ims_auditor;
-        await createComment(
-          payload.postId,
-          auditorPost.body,
-          formatAgentAuthor(profile.name, "audit", "ims_auditor", profile.roleTitle)
-        );
-        results.push({ agent: "ims_auditor", comment: true });
+      // Process results — create comments
+      for (let i = 0; i < ORG_AGENTS.length; i++) {
+        const agent = ORG_AGENTS[i];
+        const result = agentResults[i];
+        if (result.error) errors.push({ agent: agent.id, message: result.error });
+        if (result.data) {
+          const profile = result.data.profile || DEFAULT_PROFILES[agent.id];
+          await createComment(
+            payload.postId,
+            result.data.body,
+            formatAgentAuthor(profile.name, agent.role, agent.id, profile.roleTitle)
+          );
+          results.push({ agent: agent.id, comment: true });
+        }
       }
     } else {
+      // Autonomous posting — pick 2 random agents to create posts, others comment
       const autoCategory = categorizeTopic(topic);
-      const [adminResult, techResult] = await Promise.all([
-        safeRun("knowledge_admin", () =>
-          runInternalAgent("admin", "Operations Strategist", "knowledge_admin", undefined, autoCategory)
-        ),
-        safeRun("knowledge_tech", () =>
-          runInternalAgent("technician", "Field Technician", "knowledge_tech", undefined, autoCategory)
-        ),
-      ]);
+      const shuffled = [...ORG_AGENTS].sort(() => Math.random() - 0.5);
+      const posters = shuffled.slice(0, 2);
+      const commenters = shuffled.slice(2);
 
-      if (adminResult.error) errors.push({ agent: "knowledge_admin", message: adminResult.error });
-      if (techResult.error) errors.push({ agent: "knowledge_tech", message: techResult.error });
-
-      const adminPost = adminResult.data;
-      const techPost = techResult.data;
+      // Create posts from first 2 agents
+      const posterResults = await Promise.all(
+        posters.map((agent) =>
+          safeRun(agent.id, () => runOrgAgent(agent, topic, autoCategory))
+        )
+      );
 
       const postIds: string[] = [];
-      if (adminPost) {
-        const profile = adminPost.profile || DEFAULT_PROFILES.knowledge_admin;
-        const postId = await createPost(
-          adminPost.title,
-          adminPost.body,
-          autoCategory,
-          formatAgentAuthor(profile.name, "admin", "knowledge_admin", profile.roleTitle)
-        );
-        results.push({ agent: "knowledge_admin", postId });
-        postIds.push(postId);
-      }
-      if (techPost) {
-        const profile = techPost.profile || DEFAULT_PROFILES.knowledge_tech;
-        const postId = await createPost(
-          techPost.title,
-          techPost.body,
-          autoCategory,
-          formatAgentAuthor(profile.name, "tech", "knowledge_tech", profile.roleTitle)
-        );
-        results.push({ agent: "knowledge_tech", postId });
-        postIds.push(postId);
+      for (let i = 0; i < posters.length; i++) {
+        const agent = posters[i];
+        const result = posterResults[i];
+        if (result.error) errors.push({ agent: agent.id, message: result.error });
+        if (result.data) {
+          const profile = result.data.profile || DEFAULT_PROFILES[agent.id];
+          const postId = await createPost(
+            result.data.title,
+            result.data.body,
+            autoCategory,
+            formatAgentAuthor(profile.name, agent.role, agent.id, profile.roleTitle)
+          );
+          results.push({ agent: agent.id, postId });
+          postIds.push(postId);
+        }
       }
 
+      // Other agents comment on the first post
       const targetPostId = postIds[0];
       if (targetPostId) {
-        const [docResult, auditorResult] = await Promise.all([
-          safeRun("doc_manager", () =>
-            runDocManagerAgent(`Respond to: ${adminPost?.title || ""}`, autoCategory)
-          ),
-          safeRun("ims_auditor", () =>
-            runAuditorAgent(`Respond to: ${adminPost?.title || ""}`, autoCategory)
-          ),
-        ]);
+        const commenterResults = await Promise.all(
+          commenters.map((agent) =>
+            safeRun(agent.id, () =>
+              runOrgAgent(agent, `Respond to: ${posterResults[0]?.data?.title || topic}`, autoCategory)
+            )
+          )
+        );
 
-        if (docResult.error) errors.push({ agent: "doc_manager", message: docResult.error });
-        if (auditorResult.error) errors.push({ agent: "ims_auditor", message: auditorResult.error });
+        for (let i = 0; i < commenters.length; i++) {
+          const agent = commenters[i];
+          const result = commenterResults[i];
+          if (result.error) errors.push({ agent: agent.id, message: result.error });
+          if (result.data) {
+            const profile = result.data.profile || DEFAULT_PROFILES[agent.id];
+            await createComment(
+              targetPostId,
+              result.data.body,
+              formatAgentAuthor(profile.name, agent.role, agent.id, profile.roleTitle)
+            );
+            results.push({ agent: agent.id, comment: true });
+          }
+        }
 
-        const docPost = docResult.data;
-        const auditorPost = auditorResult.data;
-        if (docPost) {
-          const profile = docPost.profile || DEFAULT_PROFILES.doc_manager;
-          await createComment(
-            targetPostId,
-            docPost.body,
-            formatAgentAuthor(profile.name, "doc", "doc_manager", profile.roleTitle)
-          );
-          results.push({ agent: "doc_manager", comment: true });
-        }
-        if (auditorPost) {
-          const profile = auditorPost.profile || DEFAULT_PROFILES.ims_auditor;
-          await createComment(
-            targetPostId,
-            auditorPost.body,
-            formatAgentAuthor(profile.name, "audit", "ims_auditor", profile.roleTitle)
-          );
-          results.push({ agent: "ims_auditor", comment: true });
-        }
       }
     }
 
