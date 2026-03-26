@@ -608,11 +608,13 @@ function serializeDoc(id: string, data: FirebaseFirestore.DocumentData) {
 
 async function handleGetJobs(args: Record<string, unknown>) {
   const db = admin.firestore();
-  const limit = safeLimit(args.limit);
-  let q: FirebaseFirestore.Query = db.collection(COLLECTIONS.JOBS).orderBy("createdAt", "desc").limit(limit);
-  if (typeof args.status === "string") q = q.where("status", "==", args.status);
-  const snap = await q.get();
+  const requestedLimit = safeLimit(args.limit);
+  // Fetch all then filter in memory to avoid Firestore composite index requirements
+  const snap = await db.collection(COLLECTIONS.JOBS).orderBy("createdAt", "desc").limit(200).get();
   let docs = snap.docs.map((d) => serializeDoc(d.id, d.data()));
+  if (typeof args.status === "string") {
+    docs = docs.filter((d) => d.status === args.status);
+  }
   if (typeof args.clientName === "string" && args.clientName) {
     const term = args.clientName.toLowerCase();
     docs = docs.filter((d) => {
@@ -620,7 +622,7 @@ async function handleGetJobs(args: Record<string, unknown>) {
       return cn.includes(term);
     });
   }
-  return docs;
+  return docs.slice(0, requestedLimit);
 }
 
 async function handleGetJob(args: Record<string, unknown>) {
