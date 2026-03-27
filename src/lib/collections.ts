@@ -23,6 +23,7 @@ export const COLLECTIONS = {
   CLIENT_INSIGHTS: "clientInsights",
   FLEET_VEHICLES: "fleetVehicles",
   STOCK_ITEMS: "stockItems",
+  PURCHASE_ORDERS: "purchaseOrders",
   PRESTART_CHECKS: "prestartChecks",
   IMS_DOCUMENTS: "imsDocuments",
   IMS_DOCUMENT_COUNTERS: "imsDocumentCounters",

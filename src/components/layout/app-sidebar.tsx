@@ -27,6 +27,7 @@ import {
   MessagesSquare,
   AlertTriangle,
   Radar,
+  PackageCheck,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import {
@@ -57,7 +58,7 @@ const adminMenuItems = [
   { href: "/dashboard/bookings", label: "Bookings", icon: Briefcase },
   { href: "/dashboard/job-lifecycle", label: "Job Lifecycle", icon: GitBranch },
   { href: "/dashboard/inspections", label: "Inspections", icon: ClipboardCheck },
-  { href: "/dashboard/goods-received", label: "Stock Control", icon: ClipboardCheck },
+  { href: "/dashboard/procurement", label: "Procurement", icon: PackageCheck },
   { href: "/dashboard/daily-prestart", label: "Daily Prestart", icon: ClipboardCheck },
   { href: "/dashboard/calendar", label: "Calendar", icon: Calendar },
   { href: "/dashboard/resource-planner", label: "Resource Planner", icon: CalendarDays },

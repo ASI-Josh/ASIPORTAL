@@ -618,13 +618,55 @@ export interface StockItem {
   lookupKey: string;
   internalStockNumber: string;
   supplierPartNumber?: string;
+  xeroItemCode?: string;
   category?: string;
   itemType: StockItemType;
   quantityOnHand: number;
+  reorderThreshold?: number;
+  reorderQuantity?: number;
+  costPrice?: number;
   unit?: string;
+  notes?: string;
   lastReceivedAt?: Timestamp;
   createdAt: Timestamp;
   updatedAt: Timestamp;
+}
+
+// ============================================
+// PURCHASE ORDERS (Xero-linked)
+// ============================================
+
+export type PurchaseOrderStatus = "DRAFT" | "AUTHORISED" | "SUBMITTED" | "BILLED" | "DELETED";
+
+export interface PurchaseOrderLineItem {
+  itemCode?: string;
+  description: string;
+  quantity: number;
+  unitAmount: number;
+  accountCode?: string;
+  taxType?: string;
+  stockItemId?: string;
+}
+
+export interface PurchaseOrder {
+  id: string;
+  xeroPurchaseOrderId?: string;
+  purchaseOrderNumber?: string;
+  supplierName: string;
+  supplierId?: string;
+  reference?: string;
+  status: PurchaseOrderStatus;
+  deliveryDate?: string;
+  lineItems: PurchaseOrderLineItem[];
+  subTotal?: number;
+  totalTax?: number;
+  total?: number;
+  isAutoReorder?: boolean;
+  goodsReceivedId?: string;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+  createdBy: string;
+  sentAt?: Timestamp;
 }
 
 // ============================================
