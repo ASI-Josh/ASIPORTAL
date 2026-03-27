@@ -919,6 +919,18 @@ const TOOLS: McpTool[] = [
       },
     },
   },
+  {
+    name: "check_and_draft_reorders",
+    description:
+      "Automated reorder check: scans all portal stock items below their reorder threshold, groups them by supplier, matches to Xero item codes, and creates DRAFT purchase orders in Xero (one PO per supplier). Returns the list of drafted POs for Josh's review. Does NOT send — drafts only. LEDGER's scheduled task calls this daily.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        dryRun: { type: "boolean", description: "If true, return what WOULD be ordered without creating POs. Default false." },
+        deliveryLeadDays: { type: "number", description: "Days to add to today for delivery date on POs. Default 7." },
+      },
+    },
+  },
   // ─── Executive / Chief of Staff tools ───────────────────────────────────────
   {
     name: "get_company_overview",
@@ -2013,6 +2025,117 @@ async function handleGetGoodsReceived(args: Record<string, unknown>) {
   return snap.docs.map((d) => serializeDoc(d.id, d.data()));
 }
 
+async function handleCheckAndDraftReorders(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const dryRun = args.dryRun === true;
+  const leadDays = typeof args.deliveryLeadDays === "number" ? args.deliveryLeadDays : 7;
+  const deliveryDate = new Date(Date.now() + leadDays * 86400_000).toISOString().split("T")[0];
+
+  // 1. Find all stock items below reorder threshold
+  const stockSnap = await db.collection(COLLECTIONS.STOCK_ITEMS).limit(500).get();
+  const belowThreshold = stockSnap.docs
+    .map((d) => ({ id: d.id, ...d.data() } as Record<string, unknown>))
+    .filter((item) => {
+      const qty = typeof item.quantity === "number" ? item.quantity : 0;
+      const threshold = typeof item.reorderThreshold === "number" ? item.reorderThreshold : 0;
+      return threshold > 0 && qty <= threshold;
+    });
+
+  if (belowThreshold.length === 0) {
+    return { ok: true, message: "All stock levels are above reorder thresholds.", itemsChecked: stockSnap.size, reorderNeeded: 0, purchaseOrders: [] };
+  }
+
+  // 2. Group by supplier
+  const bySupplier = new Map<string, Array<Record<string, unknown>>>();
+  for (const item of belowThreshold) {
+    const supplier = String(item.supplierName || item.supplier || "Unknown Supplier");
+    const list = bySupplier.get(supplier) || [];
+    list.push(item);
+    bySupplier.set(supplier, list);
+  }
+
+  // 3. Build PO line items per supplier
+  const poPlans: Array<{
+    supplier: string;
+    lineItems: Array<{ itemCode: string; description: string; quantity: number; unitAmount: number; currentStock: number; reorderThreshold: number }>;
+  }> = [];
+
+  for (const [supplier, items] of bySupplier) {
+    const lineItems = items.map((item) => {
+      const currentQty = typeof item.quantity === "number" ? item.quantity : 0;
+      const reorderQty = typeof item.reorderQuantity === "number" && item.reorderQuantity > 0
+        ? item.reorderQuantity
+        : (typeof item.reorderThreshold === "number" ? item.reorderThreshold * 2 : 10);
+      const orderQty = Math.max(1, reorderQty - currentQty);
+
+      return {
+        itemCode: String(item.xeroItemCode || item.itemCode || ""),
+        description: String(item.name || item.description || item.itemName || "Stock item"),
+        quantity: orderQty,
+        unitAmount: typeof item.costPrice === "number" ? item.costPrice : (typeof item.unitCost === "number" ? item.unitCost : 0),
+        currentStock: currentQty,
+        reorderThreshold: typeof item.reorderThreshold === "number" ? item.reorderThreshold : 0,
+      };
+    });
+    poPlans.push({ supplier, lineItems });
+  }
+
+  if (dryRun) {
+    return {
+      ok: true,
+      dryRun: true,
+      itemsChecked: stockSnap.size,
+      reorderNeeded: belowThreshold.length,
+      supplierCount: poPlans.length,
+      purchaseOrders: poPlans.map((po) => ({
+        supplier: po.supplier,
+        lineItems: po.lineItems,
+        estimatedTotal: po.lineItems.reduce((sum, li) => sum + li.quantity * li.unitAmount, 0),
+      })),
+    };
+  }
+
+  // 4. Create draft POs in Xero
+  const createdPOs: Array<{ supplier: string; purchaseOrderId: string; purchaseOrderNumber: string; lineItemCount: number; total: number }> = [];
+  const poErrors: Array<{ supplier: string; error: string }> = [];
+
+  for (const po of poPlans) {
+    try {
+      const result = await xeroCreatePurchaseOrder({
+        contactName: po.supplier,
+        reference: `AUTO-REORDER-${new Date().toISOString().split("T")[0]}`,
+        deliveryDate,
+        lineItems: po.lineItems.map((li) => ({
+          itemCode: li.itemCode || undefined,
+          description: li.description,
+          quantity: li.quantity,
+          unitAmount: li.unitAmount,
+          accountCode: "300",
+        })),
+      });
+      createdPOs.push({
+        supplier: po.supplier,
+        purchaseOrderId: result.purchaseOrderId,
+        purchaseOrderNumber: result.purchaseOrderNumber,
+        lineItemCount: po.lineItems.length,
+        total: po.lineItems.reduce((sum, li) => sum + li.quantity * li.unitAmount, 0),
+      });
+    } catch (err) {
+      poErrors.push({ supplier: po.supplier, error: err instanceof Error ? err.message : "PO creation failed" });
+    }
+  }
+
+  return {
+    ok: true,
+    itemsChecked: stockSnap.size,
+    reorderNeeded: belowThreshold.length,
+    purchaseOrdersCreated: createdPOs.length,
+    purchaseOrders: createdPOs,
+    errors: poErrors.length > 0 ? poErrors : undefined,
+    note: "All POs created as DRAFT. Review in Xero and call xero_send_purchase_order to approve and send.",
+  };
+}
+
 async function handleCloseOutJob(args: Record<string, unknown>) {
   const jobId = String(args.jobId);
   const accountCode = typeof args.accountCode === "string" ? args.accountCode : "200";
@@ -2389,6 +2512,7 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
     case "update_stock_item":          return handleUpdateStockItem(args);
     case "create_goods_received":      return handleCreateGoodsReceived(args);
     case "get_goods_received":         return handleGetGoodsReceived(args);
+    case "check_and_draft_reorders": return handleCheckAndDraftReorders(args);
     // Executive / Chief of Staff
     case "get_company_overview": return handleGetCompanyOverview(args);
     case "push_department_report": return handlePushDepartmentReport(args);
