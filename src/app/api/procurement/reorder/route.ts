@@ -164,6 +164,37 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Send email notification if POs were created
+    if (createdPOs.length > 0) {
+      const poSummary = createdPOs
+        .map((po) => `  • ${po.purchaseOrderNumber} — ${po.supplier} (${po.lineItemCount} items, $${po.total.toFixed(2)} ex-GST)`)
+        .join("\n");
+      const errorNote = poErrors.length > 0
+        ? `\n\nErrors (${poErrors.length}):\n` + poErrors.map((e) => `  • ${e.supplier}: ${e.error}`).join("\n")
+        : "";
+
+      try {
+        await db.collection(COLLECTIONS.MAIL).add({
+          to: ["accounts@asi-australia.com.au"],
+          message: {
+            subject: `ASI Portal — ${createdPOs.length} Draft PO${createdPOs.length !== 1 ? "s" : ""} Ready for Review`,
+            text: `Hi Josh,\n\n` +
+              `The automated stock reorder check has created ${createdPOs.length} draft purchase order${createdPOs.length !== 1 ? "s" : ""} in Xero.\n\n` +
+              `Purchase Orders:\n${poSummary}\n\n` +
+              `Total items below reorder threshold: ${belowThreshold.length}\n` +
+              `Delivery date set: ${deliveryDate}\n` +
+              errorNote +
+              `\n\nReview and approve these draft POs:\n` +
+              `  Portal: https://asiportal.live/dashboard/procurement\n` +
+              `  Xero: https://go.xero.com/AccountsPayable/Search/PurchaseOrders\n\n` +
+              `— ASI Portal (LEDGER Automation)`,
+          },
+        });
+      } catch {
+        // Don't fail the reorder check if email fails
+      }
+    }
+
     return NextResponse.json({
       ok: true,
       itemsChecked: stockSnap.size,
@@ -171,6 +202,7 @@ export async function POST(req: NextRequest) {
       purchaseOrdersCreated: createdPOs.length,
       purchaseOrders: createdPOs,
       errors: poErrors.length > 0 ? poErrors : undefined,
+      emailSent: createdPOs.length > 0,
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Server error";
