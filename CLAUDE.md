@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Company Reference
+
+**ASI Company Bible** — `asibible.md` (project root). Master reference for all AI agents covering company identity, five sectors, core services, APEAX product lines, procurement & costing, ASIPortal platform, environmental/sustainability, competitive advantages, and critical agent context. Read this file when you need business context for UI copy, reports, dashboards, or agent-facing features.
+
 ## Commands
 
 ```bash
