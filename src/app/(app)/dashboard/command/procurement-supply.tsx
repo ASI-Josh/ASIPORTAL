@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { AlertTriangle, Boxes, RefreshCw, ShoppingCart, Truck } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { StockItem, PurchaseOrder, GoodsReceivedInspection } from "@/lib/types";
@@ -30,20 +30,22 @@ export function ProcurementSupply({ stockItems, purchaseOrders, goodsReceived }:
   }, 0);
 
   return (
-    <Card className="bg-card/50 backdrop-blur-lg border-border/20 h-full">
-      <CardHeader className="pb-3">
+    <Card className="bg-card/50 backdrop-blur-lg border-border/20 h-full overflow-hidden">
+      <div className="px-6 py-3 bg-gradient-to-r from-blue-500/10 via-blue-500/5 to-transparent border-b border-blue-500/10">
         <div className="flex items-center justify-between">
-          <CardTitle className="flex items-center gap-2 text-base">
+          <div className="flex items-center gap-2">
             <ShoppingCart className="h-4 w-4 text-blue-400" />
-            Procurement &amp; Supply Chain
-          </CardTitle>
+            <span className="font-headline font-semibold text-sm text-blue-400">
+              Procurement &amp; Supply Chain
+            </span>
+          </div>
           <Link href="/dashboard/procurement">
             <Button variant="ghost" size="sm" className="text-xs">
               Open Module
             </Button>
           </Link>
         </div>
-      </CardHeader>
+      </div>
       <CardContent className="space-y-4">
         {/* KPI row */}
         <div className="grid grid-cols-2 gap-3">

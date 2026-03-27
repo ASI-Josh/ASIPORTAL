@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Radar, ExternalLink, AlertTriangle, TrendingUp } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { auth } from "@/lib/firebaseClient";
@@ -61,20 +61,22 @@ export function OSINTFeed() {
   };
 
   return (
-    <Card className="bg-card/50 backdrop-blur-lg border-border/20 h-full">
-      <CardHeader className="pb-3">
+    <Card className="bg-card/50 backdrop-blur-lg border-border/20 h-full overflow-hidden">
+      <div className="px-6 py-3 bg-gradient-to-r from-cyan-500/10 via-cyan-500/5 to-transparent border-b border-cyan-500/10">
         <div className="flex items-center justify-between">
-          <CardTitle className="flex items-center gap-2 text-base">
+          <div className="flex items-center gap-2">
             <Radar className="h-4 w-4 text-cyan-400" />
-            OSINT Intelligence Feed
-          </CardTitle>
+            <span className="font-headline font-semibold text-sm text-cyan-400">
+              OSINT Intelligence Feed
+            </span>
+          </div>
           <Link href="/dashboard/osint">
             <Button variant="ghost" size="sm" className="text-xs">
               Full Intel
             </Button>
           </Link>
         </div>
-      </CardHeader>
+      </div>
       <CardContent className="space-y-4">
         {/* Summary stats */}
         <div className="grid grid-cols-2 gap-3">

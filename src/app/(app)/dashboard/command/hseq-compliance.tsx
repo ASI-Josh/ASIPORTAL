@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Shield, ShieldCheck, AlertTriangle, FileText, ClipboardCheck } from "lucide-react";
 import { collection, onSnapshot, orderBy, query, where } from "firebase/firestore";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { db } from "@/lib/firebaseClient";
@@ -110,18 +110,17 @@ export function HSEQCompliance({ ohsMetrics, operations, selectedOrgName }: Prop
   }, []);
 
   return (
-    <Card className="bg-card/50 backdrop-blur-lg border-border/20">
-      <CardHeader className="pb-3">
+    <Card className="bg-card/50 backdrop-blur-lg border-border/20 overflow-hidden">
+      <div className="px-6 py-3 bg-gradient-to-r from-emerald-500/10 via-emerald-500/5 to-transparent border-b border-emerald-500/10">
         <div className="flex items-center justify-between">
-          <div>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <ShieldCheck className="h-4 w-4 text-emerald-400" />
+          <div className="flex items-center gap-2">
+            <ShieldCheck className="h-4 w-4 text-emerald-400" />
+            <span className="font-headline font-semibold text-sm text-emerald-400">
               HSEQ &amp; ISO 9001 Compliance
-            </CardTitle>
-            <CardDescription>
-              OHS, risk assessments, operations QA, and IMS data
-              {selectedOrgName && <span className="text-primary"> — {selectedOrgName}</span>}
-            </CardDescription>
+            </span>
+            {selectedOrgName && (
+              <span className="text-xs text-primary ml-2">— {selectedOrgName}</span>
+            )}
           </div>
           <Link href="/dashboard/ims">
             <Button variant="ghost" size="sm" className="text-xs">
@@ -129,7 +128,7 @@ export function HSEQCompliance({ ohsMetrics, operations, selectedOrgName }: Prop
             </Button>
           </Link>
         </div>
-      </CardHeader>
+      </div>
       <CardContent>
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
           {/* Vehicle Prestarts */}

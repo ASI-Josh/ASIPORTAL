@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { collection, doc, onSnapshot, orderBy, query } from "firebase/firestore";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -15,9 +15,9 @@ import {
 } from "@/components/ui/select";
 import {
   CalendarCheck,
+  DollarSign,
   LineChart,
-  AlertTriangle,
-  Wrench,
+  Monitor,
 } from "lucide-react";
 import { OpsAssistantPanel } from "@/components/dashboard/ops-assistant-panel";
 import { WeatherCard } from "@/components/dashboard/weather-card";
@@ -158,6 +158,11 @@ export default function CommandCenterPage() {
     [filteredJobs, filteredInspections, worksRegister, organizations]
   );
 
+  const totalMetrics = useMemo(
+    () => calculateDashboardMetrics({ jobs, inspections, worksRegister, organizations }),
+    [jobs, inspections, worksRegister, organizations]
+  );
+
   const ohsMetrics = useMemo(() => {
     const completedPrestarts = prestarts.filter((p) => p.status === "completed");
     const vehicleSafetyPassed = completedPrestarts.filter((p) => {
@@ -296,35 +301,33 @@ export default function CommandCenterPage() {
       </div>
 
       {/* Revenue Pipeline */}
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card className="bg-card/50 backdrop-blur-lg border-border/20">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Works Quoted</CardTitle>
-            <CardDescription>{metrics.revenue.quoted.count} jobs</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{formatCurrency(metrics.revenue.quoted.total)}</div>
-          </CardContent>
-        </Card>
-        <Card className="bg-card/50 backdrop-blur-lg border-border/20">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Works Confirmed</CardTitle>
-            <CardDescription>{metrics.revenue.confirmed.count} jobs</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{formatCurrency(metrics.revenue.confirmed.total)}</div>
-          </CardContent>
-        </Card>
-        <Card className="bg-card/50 backdrop-blur-lg border-border/20">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Works Completed</CardTitle>
-            <CardDescription>{metrics.revenue.completed.count} jobs</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{formatCurrency(metrics.revenue.completed.total)}</div>
-          </CardContent>
-        </Card>
-      </div>
+      <Card className="bg-card/50 backdrop-blur-lg border-border/20 overflow-hidden">
+        <div className="relative px-6 py-3 bg-gradient-to-r from-primary/10 via-primary/5 to-transparent border-b border-primary/10">
+          <div className="flex items-center gap-2">
+            <DollarSign className="h-4 w-4 text-primary" />
+            <span className="font-headline font-semibold text-sm text-primary">Revenue Pipeline</span>
+          </div>
+        </div>
+        <CardContent className="pt-5">
+          <div className="grid gap-4 md:grid-cols-3">
+            <div className="rounded-lg border border-border/40 bg-background/60 p-4">
+              <div className="text-xs text-muted-foreground mb-1">Works Quoted</div>
+              <div className="text-2xl font-bold">{formatCurrency(metrics.revenue.quoted.total)}</div>
+              <div className="text-xs text-muted-foreground">{metrics.revenue.quoted.count} jobs</div>
+            </div>
+            <div className="rounded-lg border border-border/40 bg-background/60 p-4">
+              <div className="text-xs text-muted-foreground mb-1">Works Confirmed</div>
+              <div className="text-2xl font-bold">{formatCurrency(metrics.revenue.confirmed.total)}</div>
+              <div className="text-xs text-muted-foreground">{metrics.revenue.confirmed.count} jobs</div>
+            </div>
+            <div className="rounded-lg border border-border/40 bg-background/60 p-4">
+              <div className="text-xs text-muted-foreground mb-1">Works Completed</div>
+              <div className="text-2xl font-bold">{formatCurrency(metrics.revenue.completed.total)}</div>
+              <div className="text-xs text-muted-foreground">{metrics.revenue.completed.count} jobs</div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Agent Division Overview */}
       <AgentOverview />
@@ -369,10 +372,13 @@ export default function CommandCenterPage() {
           {/* Ops Command Deck */}
           <Card className="relative overflow-hidden border-border/30 bg-card/50 backdrop-blur-lg">
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.12),_transparent_55%)]" />
-            <CardHeader className="relative z-10 pb-3">
-              <CardTitle className="text-base">Operations Command Deck</CardTitle>
-            </CardHeader>
-            <CardContent className="relative z-10">
+            <div className="relative z-10 px-6 py-3 bg-gradient-to-r from-sky-500/10 via-sky-500/5 to-transparent border-b border-sky-500/10">
+              <div className="flex items-center gap-2">
+                <Monitor className="h-4 w-4 text-sky-400" />
+                <span className="font-headline font-semibold text-sm text-sky-400">Operations Command Deck</span>
+              </div>
+            </div>
+            <CardContent className="relative z-10 pt-5">
               <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
                 <OpsAssistantPanel variant="embedded" layout="compact" className="rounded-2xl border border-border/30 bg-background/40 p-4" />
                 <WeatherCard variant="embedded" layout="compact" className="rounded-2xl border border-border/30 bg-background/40 p-4" />
@@ -384,23 +390,33 @@ export default function CommandCenterPage() {
 
       {/* Environmental Impact */}
       <EnvironmentalImpact
-        glassSavedKg={metrics.glassSavedKg}
-        replacementValueSaved={metrics.replacementValueSaved}
-        downtimeSavedHours={metrics.downtimeSavedHours}
+        total={{
+          glassSavedKg: totalMetrics.glassSavedKg,
+          replacementValueSaved: totalMetrics.replacementValueSaved,
+          downtimeSavedHours: totalMetrics.downtimeSavedHours,
+        }}
+        filtered={selectedOrgId !== "all" ? {
+          glassSavedKg: metrics.glassSavedKg,
+          replacementValueSaved: metrics.replacementValueSaved,
+          downtimeSavedHours: metrics.downtimeSavedHours,
+        } : undefined}
+        selectedOrgName={selectedOrgName}
       />
 
       {/* Bottom strip: AI Insights + Schedule */}
       <div className="grid gap-6 lg:grid-cols-2">
-        <Card className="bg-card/50 backdrop-blur-lg border-border/20">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <LineChart className="h-4 w-4 text-primary" />
-              AI Insights
-            </CardTitle>
-            <CardDescription>
-              {lastInsightAt ? `Last updated ${lastInsightAt}` : "Run insights for today."}
-            </CardDescription>
-          </CardHeader>
+        <Card className="bg-card/50 backdrop-blur-lg border-border/20 overflow-hidden">
+          <div className="px-6 py-3 bg-gradient-to-r from-violet-500/10 via-violet-500/5 to-transparent border-b border-violet-500/10">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <LineChart className="h-4 w-4 text-violet-400" />
+                <span className="font-headline font-semibold text-sm text-violet-400">AI Insights</span>
+              </div>
+              {lastInsightAt && (
+                <span className="text-xs text-muted-foreground">Updated {lastInsightAt}</span>
+              )}
+            </div>
+          </div>
           <CardContent className="space-y-4">
             {insightDoc?.summary && <p className="text-sm text-muted-foreground">{insightDoc.summary}</p>}
             {insightDoc?.risks?.length ? (
@@ -428,14 +444,13 @@ export default function CommandCenterPage() {
           </CardContent>
         </Card>
 
-        <Card className="bg-card/50 backdrop-blur-lg border-border/20">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
+        <Card className="bg-card/50 backdrop-blur-lg border-border/20 overflow-hidden">
+          <div className="px-6 py-3 bg-gradient-to-r from-emerald-500/10 via-emerald-500/5 to-transparent border-b border-emerald-500/10">
+            <div className="flex items-center gap-2">
               <CalendarCheck className="h-4 w-4 text-emerald-400" />
-              Today&apos;s Schedule
-            </CardTitle>
-            <CardDescription>Calendar-linked jobs for today.</CardDescription>
-          </CardHeader>
+              <span className="font-headline font-semibold text-sm text-emerald-400">Today&apos;s Schedule</span>
+            </div>
+          </div>
           <CardContent className="space-y-3 text-sm">
             {calendarLoading && <p className="text-muted-foreground">Loading...</p>}
             <div className="max-h-44 space-y-3 overflow-y-auto pr-2">
