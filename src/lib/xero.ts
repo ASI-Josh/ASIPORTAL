@@ -26,7 +26,6 @@ const SCOPES = [
   "accounting.invoices",
   "accounting.contacts",
   "accounting.settings",
-  "accounting.purchaseorders",
   "offline_access",
 ].join(" ");
 
