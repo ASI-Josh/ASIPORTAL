@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { doc, onSnapshot, Timestamp } from "firebase/firestore";
+import { doc, onSnapshot, Timestamp, updateDoc } from "firebase/firestore";
 import {
   ArrowLeft,
   Play,
@@ -11,11 +11,15 @@ import {
   Users,
   FileText,
   CheckCircle2,
+  Calendar,
+  Edit2,
+  Square,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { COLLECTIONS } from "@/lib/collections";
@@ -64,13 +68,28 @@ function formatTimestamp(ts?: Timestamp | null): string {
 export default function MeetingDetailPage() {
   const params = useParams();
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, firebaseUser } = useAuth();
   const { toast } = useToast();
 
   const meetingId = params.id as string;
   const [meeting, setMeeting] = useState<Meeting | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+
+  /* ---- inline edit state ---- */
+  const [editing, setEditing] = useState(false);
+  const [editDate, setEditDate] = useState("");
+  const [editDuration, setEditDuration] = useState("");
+  const [editLocation, setEditLocation] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  /* ---- meeting control state ---- */
+  const [startingMeeting, setStartingMeeting] = useState(false);
+  const [endingMeeting, setEndingMeeting] = useState(false);
+  const [addingToCalendar, setAddingToCalendar] = useState(false);
+
+  /* ---- elapsed time for in_progress ---- */
+  const [elapsed, setElapsed] = useState("");
 
   /* ---- real-time listener ---- */
   useEffect(() => {
@@ -87,7 +106,7 @@ export default function MeetingDetailPage() {
         }
         setLoading(false);
       },
-      (err) => {
+      (err: unknown) => {
         console.error("Meeting snapshot error", err);
         toast({ title: "Error", description: "Failed to load meeting.", variant: "destructive" });
         setLoading(false);
@@ -95,6 +114,152 @@ export default function MeetingDetailPage() {
     );
     return () => unsubscribe();
   }, [meetingId, toast]);
+
+  /* ---- elapsed time ticker ---- */
+  useEffect(() => {
+    if (meeting?.status !== "in_progress" || !meeting.startedAt) {
+      setElapsed("");
+      return;
+    }
+    const startMs = meeting.startedAt.toDate().getTime();
+    const tick = () => {
+      const diff = Date.now() - startMs;
+      const hrs = Math.floor(diff / 3_600_000);
+      const mins = Math.floor((diff % 3_600_000) / 60_000);
+      const secs = Math.floor((diff % 60_000) / 1_000);
+      setElapsed(
+        hrs > 0
+          ? `${hrs}h ${String(mins).padStart(2, "0")}m ${String(secs).padStart(2, "0")}s`
+          : `${mins}m ${String(secs).padStart(2, "0")}s`,
+      );
+    };
+    tick();
+    const id = setInterval(tick, 1_000);
+    return () => clearInterval(id);
+  }, [meeting?.status, meeting?.startedAt]);
+
+  /* ---- helpers ---- */
+  const openEditForm = useCallback(() => {
+    if (!meeting) return;
+    // Convert Timestamp to datetime-local value
+    const d = meeting.scheduledDate?.toDate?.();
+    if (d) {
+      const iso = new Date(d.getTime() - d.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+      setEditDate(iso);
+    } else {
+      setEditDate("");
+    }
+    setEditDuration(String(meeting.scheduledDuration ?? 60));
+    setEditLocation(meeting.location ?? "");
+    setEditing(true);
+  }, [meeting]);
+
+  const saveDetails = async () => {
+    if (!meeting) return;
+    setSaving(true);
+    try {
+      const ref = doc(db, COLLECTIONS.MEETINGS, meeting.id);
+      const updates: Record<string, ReturnType<typeof Timestamp.now> | string | number> = { updatedAt: Timestamp.now() };
+      if (editDate) {
+        updates.scheduledDate = Timestamp.fromDate(new Date(editDate));
+      }
+      updates.scheduledDuration = parseInt(editDuration, 10) || 60;
+      updates.location = editLocation;
+      await updateDoc(ref, updates);
+      setEditing(false);
+      toast({ title: "Saved", description: "Meeting details updated." });
+    } catch (e) {
+      console.error("Save error", e);
+      toast({ title: "Error", description: "Failed to save details.", variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleStartMeeting = async () => {
+    if (!meeting) return;
+    setStartingMeeting(true);
+    try {
+      const ref = doc(db, COLLECTIONS.MEETINGS, meeting.id);
+      await updateDoc(ref, {
+        status: "in_progress",
+        startedAt: Timestamp.now(),
+        updatedAt: Timestamp.now(),
+      });
+      toast({ title: "Meeting Started", description: "The meeting is now in progress." });
+    } catch (e) {
+      console.error("Start meeting error", e);
+      toast({ title: "Error", description: "Failed to start meeting.", variant: "destructive" });
+    } finally {
+      setStartingMeeting(false);
+    }
+  };
+
+  const handleEndMeeting = async () => {
+    if (!meeting) return;
+    setEndingMeeting(true);
+    try {
+      const ref = doc(db, COLLECTIONS.MEETINGS, meeting.id);
+      await updateDoc(ref, {
+        status: "completed",
+        completedAt: Timestamp.now(),
+        updatedAt: Timestamp.now(),
+      });
+      toast({ title: "Meeting Ended", description: "The meeting has been completed." });
+    } catch (e) {
+      console.error("End meeting error", e);
+      toast({ title: "Error", description: "Failed to end meeting.", variant: "destructive" });
+    } finally {
+      setEndingMeeting(false);
+    }
+  };
+
+  const handleAddToCalendar = async () => {
+    if (!meeting || !firebaseUser) return;
+    setAddingToCalendar(true);
+    try {
+      const token = await firebaseUser.getIdToken();
+      const startDate = meeting.scheduledDate?.toDate?.();
+      if (!startDate) {
+        toast({ title: "Error", description: "No scheduled date set.", variant: "destructive" });
+        return;
+      }
+      const endDate = new Date(startDate.getTime() + (meeting.scheduledDuration ?? 60) * 60_000);
+      const res = await fetch("/api/google/calendar/create-event", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          summary: meeting.title,
+          start: startDate.toISOString(),
+          end: endDate.toISOString(),
+          location: meeting.location ?? "",
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error((data as { error?: string }).error || "Calendar API error");
+      }
+      const data = await res.json() as { htmlLink?: string };
+      toast({
+        title: "Added to Calendar",
+        description: data.htmlLink
+          ? "Event created. Check your Google Calendar."
+          : "Event created successfully.",
+      });
+    } catch (e) {
+      console.error("Calendar error", e);
+      toast({
+        title: "Calendar Error",
+        description: e instanceof Error ? e.message : "Failed to add to calendar.",
+        variant: "destructive",
+      });
+    } finally {
+      setAddingToCalendar(false);
+    }
+  };
 
   /* ---- guards ---- */
   if (loading) {
@@ -121,6 +286,9 @@ export default function MeetingDetailPage() {
   }
 
   const isChair = user?.uid === meeting.chair?.id;
+  const isAdmin = user?.role === "admin";
+  const canEdit = isChair || isAdmin;
+
   const attendeeRoleBadge = (role: string) => {
     const map: Record<string, string> = {
       chair: "bg-violet-600/30 text-violet-300 border-violet-500/40",
@@ -163,19 +331,65 @@ export default function MeetingDetailPage() {
               {meeting.status.replace("_", " ").toUpperCase()}
             </Badge>
             <Badge variant="outline">{TYPE_LABELS[meeting.meetingType] ?? meeting.meetingType}</Badge>
+            {meeting.status === "in_progress" && elapsed && (
+              <span className="flex items-center gap-1 text-sm text-amber-400">
+                <Clock className="h-3.5 w-3.5" />
+                {elapsed}
+              </span>
+            )}
           </div>
         </div>
 
         {/* Action buttons */}
-        <div className="flex items-center gap-2">
-          {meeting.status === "scheduled" && isChair && (
-            <Button asChild>
-              <Link href={`/dashboard/meetings/${meeting.id}/run`}>
-                <Play className="mr-2 h-4 w-4" />
-                Start Meeting
-              </Link>
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Edit Details button */}
+          {canEdit && meeting.status !== "completed" && meeting.status !== "cancelled" && !editing && (
+            <Button variant="outline" size="sm" onClick={openEditForm}>
+              <Edit2 className="mr-2 h-4 w-4" />
+              Edit Details
             </Button>
           )}
+
+          {/* Add to Calendar */}
+          {meeting.scheduledDate && meeting.status !== "cancelled" && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleAddToCalendar}
+              disabled={addingToCalendar}
+            >
+              <Calendar className="mr-2 h-4 w-4" />
+              {addingToCalendar ? "Adding..." : "Add to Calendar"}
+            </Button>
+          )}
+
+          {/* Scheduled: Start Meeting */}
+          {meeting.status === "scheduled" && isChair && (
+            <>
+              <Button onClick={handleStartMeeting} disabled={startingMeeting}>
+                <Play className="mr-2 h-4 w-4" />
+                {startingMeeting ? "Starting..." : "Start Meeting"}
+              </Button>
+            </>
+          )}
+
+          {/* In Progress: Resume + End */}
+          {meeting.status === "in_progress" && isChair && (
+            <>
+              <Button asChild>
+                <Link href={`/dashboard/meetings/${meeting.id}/run`}>
+                  <Play className="mr-2 h-4 w-4" />
+                  Resume Meeting
+                </Link>
+              </Button>
+              <Button variant="destructive" onClick={handleEndMeeting} disabled={endingMeeting}>
+                <Square className="mr-2 h-4 w-4" />
+                {endingMeeting ? "Ending..." : "End Meeting"}
+              </Button>
+            </>
+          )}
+
+          {/* Completed */}
           {meeting.status === "completed" && meeting.completedAt && (
             <div className="flex items-center gap-1.5 text-sm text-green-400">
               <CheckCircle2 className="h-4 w-4" />
@@ -194,24 +408,66 @@ export default function MeetingDetailPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <dl className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-4">
-            <div>
-              <dt className="text-xs text-muted-foreground">Scheduled Date</dt>
-              <dd className="mt-0.5 text-sm">{formatTimestamp(meeting.scheduledDate)}</dd>
+          {editing ? (
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <div>
+                  <label className="mb-1 block text-xs text-muted-foreground">Scheduled Date &amp; Time</label>
+                  <Input
+                    type="datetime-local"
+                    value={editDate}
+                    onChange={(e) => setEditDate(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs text-muted-foreground">Duration (minutes)</label>
+                  <Input
+                    type="number"
+                    min={5}
+                    max={480}
+                    value={editDuration}
+                    onChange={(e) => setEditDuration(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs text-muted-foreground">Location</label>
+                  <Input
+                    type="text"
+                    value={editLocation}
+                    onChange={(e) => setEditLocation(e.target.value)}
+                    placeholder="e.g. Boardroom, Teams, etc."
+                  />
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button size="sm" onClick={saveDetails} disabled={saving}>
+                  {saving ? "Saving..." : "Save"}
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setEditing(false)} disabled={saving}>
+                  Cancel
+                </Button>
+              </div>
             </div>
-            <div>
-              <dt className="text-xs text-muted-foreground">Duration</dt>
-              <dd className="mt-0.5 text-sm">{meeting.scheduledDuration} min</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-muted-foreground">Location</dt>
-              <dd className="mt-0.5 text-sm">{meeting.location || "—"}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-muted-foreground">Chair</dt>
-              <dd className="mt-0.5 text-sm">{meeting.chair?.name ?? "—"}</dd>
-            </div>
-          </dl>
+          ) : (
+            <dl className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-4">
+              <div>
+                <dt className="text-xs text-muted-foreground">Scheduled Date</dt>
+                <dd className="mt-0.5 text-sm">{formatTimestamp(meeting.scheduledDate)}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground">Duration</dt>
+                <dd className="mt-0.5 text-sm">{meeting.scheduledDuration} min</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground">Location</dt>
+                <dd className="mt-0.5 text-sm">{meeting.location || "—"}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground">Chair</dt>
+                <dd className="mt-0.5 text-sm">{meeting.chair?.name ?? "—"}</dd>
+              </div>
+            </dl>
+          )}
         </CardContent>
       </Card>
 

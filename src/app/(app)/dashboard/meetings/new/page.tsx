@@ -96,7 +96,7 @@ const AGENDA_TYPE_LABELS: Record<AgendaItem["type"], string> = {
 
 export default function NewMeetingPage() {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, firebaseUser } = useAuth();
   const { toast } = useToast();
   const [templates, setTemplates] = useState<MeetingTemplate[]>([]);
   const [submitting, setSubmitting] = useState(false);
@@ -264,6 +264,30 @@ export default function NewMeetingPage() {
 
       await setDoc(meetingRef, { id: meetingRef.id, ...meeting });
 
+      // Try to add to Google Calendar (non-blocking)
+      try {
+        if (firebaseUser) {
+          const token = await firebaseUser.getIdToken();
+          const startDate = new Date(data.scheduledDate);
+          const endDate = new Date(startDate.getTime() + data.scheduledDuration * 60000);
+          await fetch("/api/google/calendar/create-event", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              summary: data.title,
+              start: startDate.toISOString(),
+              end: endDate.toISOString(),
+              location: data.location || undefined,
+            }),
+          });
+        }
+      } catch {
+        // Calendar sync is best-effort
+      }
+
       toast({
         title: "Meeting Created",
         description: `${meetingNumber} — ${data.title}`,
@@ -366,10 +390,10 @@ export default function NewMeetingPage() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {/* Scheduled Date */}
               <div className="space-y-2">
-                <Label htmlFor="scheduledDate">Date *</Label>
+                <Label htmlFor="scheduledDate">Date &amp; Time *</Label>
                 <Input
                   id="scheduledDate"
-                  type="date"
+                  type="datetime-local"
                   {...register("scheduledDate")}
                 />
                 {errors.scheduledDate && (

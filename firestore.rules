@@ -266,6 +266,27 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    match /meetings/{meetingId} {
+      allow read: if isStaff();
+      allow create: if isAdmin();
+      allow update: if isStaff();
+      allow delete: if false;
+    }
+
+    match /meetingTemplates/{templateId} {
+      allow read: if isStaff();
+      allow create: if isAdmin();
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    match /meetingActions/{actionId} {
+      allow read: if isStaff();
+      allow create: if isStaff();
+      allow update: if isStaff();
+      allow delete: if false;
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }

@@ -1706,6 +1706,34 @@ export interface MeetingTemplate {
 }
 
 // ============================================
+// EXECUTIVE REPORTS
+// ============================================
+
+export interface ExecutiveReportKpi {
+  label: string;
+  value: number | string;
+  trend?: "up" | "down" | "flat";
+  target?: number | string;
+}
+
+export interface ExecutiveReport {
+  id: string;
+  weekEnding: string;
+  generatedAt: string;
+  report: {
+    executiveSummary: string;
+    operations: Record<string, unknown>;
+    salesPipeline: Record<string, unknown>;
+    accounts: Record<string, unknown>;
+    intelligence: Record<string, unknown>;
+    risks: Array<{ title: string; severity: string; description: string; mitigation?: string }>;
+    recommendations: Array<{ title: string; description: string; priority: string; owner?: string }>;
+    nextWeekPriorities: Array<{ title: string; description: string }>;
+    kpis: ExecutiveReportKpi[];
+  };
+}
+
+// ============================================
 // HELPER TYPES
 // ============================================
 
