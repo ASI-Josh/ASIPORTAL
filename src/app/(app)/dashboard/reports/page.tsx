@@ -288,22 +288,30 @@ export default function ReportsPage() {
           </div>
         </Section>
 
-        {/* KPIs */}
-        {rpt?.kpis && rpt.kpis.length > 0 && (
-          <Section title="Key Performance Indicators" icon={BarChart3} badge={rpt.kpis.length}>
+        {/* KPIs — handles both array [{label,value}] and object {key:value} formats */}
+        {rpt?.kpis && (Array.isArray(rpt.kpis) ? rpt.kpis.length > 0 : Object.keys(rpt.kpis).length > 0) && (
+          <Section title="Key Performance Indicators" icon={BarChart3} badge={Array.isArray(rpt.kpis) ? rpt.kpis.length : Object.keys(rpt.kpis).length}>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-              {rpt.kpis.map((kpi: ExecutiveReportKpi, i: number) => {
+              {(Array.isArray(rpt.kpis)
+                ? rpt.kpis.map((kpi: ExecutiveReportKpi, i: number) => ({ key: i, label: kpi.label, value: kpi.value, trend: kpi.trend, target: kpi.target }))
+                : Object.entries(rpt.kpis as Record<string, unknown>).map(([k, v], i) => ({ key: i, label: k.replace(/([A-Z])/g, " $1").replace(/_/g, " ").trim(), value: v, trend: undefined, target: undefined }))
+              ).map((kpi) => {
                 const trend = kpi.trend ? TREND_ICON[kpi.trend] : null;
+                const displayValue = typeof kpi.value === "number" && kpi.value > 10000
+                  ? kpi.value.toLocaleString("en-AU")
+                  : typeof kpi.value === "number"
+                    ? String(kpi.value)
+                    : String(kpi.value ?? "—");
                 return (
                   <div
-                    key={i}
+                    key={kpi.key}
                     className="bg-muted/20 rounded-lg p-3 border border-border/20 text-center"
                   >
                     <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">
                       {kpi.label}
                     </p>
                     <div className="flex items-center justify-center gap-1.5">
-                      <p className="text-xl font-bold">{kpi.value}</p>
+                      <p className="text-xl font-bold">{displayValue}</p>
                       {trend && (
                         <span className={cn("text-sm", trend.color)}>{trend.symbol}</span>
                       )}
@@ -341,25 +349,33 @@ export default function ReportsPage() {
           </Section>
         )}
 
-        {/* Risks */}
+        {/* Risks — handles both string[] and {title,severity,description}[] */}
         {rpt?.risks && rpt.risks.length > 0 && (
           <Section title="Risks" icon={AlertTriangle} badge={rpt.risks.length}>
             <div className="space-y-3">
               {rpt.risks.map((risk, i) => {
-                const sev = risk.severity?.toLowerCase() || "low";
-                const styles = SEVERITY_STYLES[sev] || SEVERITY_STYLES.low;
+                if (typeof risk === "string") {
+                  return (
+                    <div key={i} className="bg-muted/20 rounded-lg p-4 border border-border/20">
+                      <p className="text-sm">{risk}</p>
+                    </div>
+                  );
+                }
+                const r = risk as { title?: string; severity?: string; description?: string; mitigation?: string };
+                const sev = r.severity?.toLowerCase() || "medium";
+                const styles = SEVERITY_STYLES[sev] || SEVERITY_STYLES.medium;
                 return (
                   <div key={i} className="bg-muted/20 rounded-lg p-4 border border-border/20">
                     <div className="flex items-start justify-between gap-3 mb-2">
-                      <h4 className="text-sm font-semibold">{risk.title}</h4>
+                      <h4 className="text-sm font-semibold">{r.title || "Risk"}</h4>
                       <Badge variant="outline" className={cn("text-[10px] capitalize flex-shrink-0", styles)}>
-                        {risk.severity}
+                        {r.severity || "risk"}
                       </Badge>
                     </div>
-                    <p className="text-sm text-muted-foreground">{risk.description}</p>
-                    {risk.mitigation && (
+                    <p className="text-sm text-muted-foreground">{r.description}</p>
+                    {r.mitigation && (
                       <p className="text-xs text-muted-foreground mt-2">
-                        <span className="font-semibold text-foreground">Mitigation:</span> {risk.mitigation}
+                        <span className="font-semibold text-foreground">Mitigation:</span> {r.mitigation}
                       </p>
                     )}
                   </div>
@@ -369,25 +385,36 @@ export default function ReportsPage() {
           </Section>
         )}
 
-        {/* Recommendations */}
+        {/* Recommendations — handles both string[] and {title,priority,description}[] */}
         {rpt?.recommendations && rpt.recommendations.length > 0 && (
           <Section title="Recommendations" icon={Lightbulb} badge={rpt.recommendations.length}>
             <div className="space-y-3">
               {rpt.recommendations.map((rec, i) => {
-                const pri = rec.priority?.toLowerCase() || "low";
-                const styles = PRIORITY_STYLES[pri] || PRIORITY_STYLES.low;
+                if (typeof rec === "string") {
+                  return (
+                    <div key={i} className="flex items-start gap-3 bg-muted/20 rounded-lg p-4 border border-border/20">
+                      <span className="text-xs font-bold text-primary bg-primary/10 rounded-full w-6 h-6 flex items-center justify-center flex-shrink-0">
+                        {i + 1}
+                      </span>
+                      <p className="text-sm">{rec}</p>
+                    </div>
+                  );
+                }
+                const r = rec as { title?: string; priority?: string; description?: string; owner?: string };
+                const pri = r.priority?.toLowerCase() || "medium";
+                const styles = PRIORITY_STYLES[pri] || PRIORITY_STYLES.medium;
                 return (
                   <div key={i} className="bg-muted/20 rounded-lg p-4 border border-border/20">
                     <div className="flex items-start justify-between gap-3 mb-2">
-                      <h4 className="text-sm font-semibold">{rec.title}</h4>
+                      <h4 className="text-sm font-semibold">{r.title}</h4>
                       <Badge variant="outline" className={cn("text-[10px] capitalize flex-shrink-0", styles)}>
-                        {rec.priority}
+                        {r.priority}
                       </Badge>
                     </div>
-                    <p className="text-sm text-muted-foreground">{rec.description}</p>
-                    {rec.owner && (
+                    <p className="text-sm text-muted-foreground">{r.description}</p>
+                    {r.owner && (
                       <p className="text-xs text-muted-foreground mt-2">
-                        <span className="font-semibold text-foreground">Owner:</span> {rec.owner}
+                        <span className="font-semibold text-foreground">Owner:</span> {r.owner}
                       </p>
                     )}
                   </div>
@@ -397,23 +424,26 @@ export default function ReportsPage() {
           </Section>
         )}
 
-        {/* Next Week Priorities */}
+        {/* Next Week Priorities — handles both string[] and {title,description}[] */}
         {rpt?.nextWeekPriorities && rpt.nextWeekPriorities.length > 0 && (
           <Section title="Next Week Priorities" icon={Target} badge={rpt.nextWeekPriorities.length}>
             <div className="space-y-2">
-              {rpt.nextWeekPriorities.map((item, i) => (
-                <div key={i} className="flex items-start gap-3 py-1.5">
-                  <span className="text-xs font-bold text-primary bg-primary/10 rounded-full w-6 h-6 flex items-center justify-center flex-shrink-0">
-                    {i + 1}
-                  </span>
-                  <div>
-                    <p className="text-sm font-semibold">{item.title}</p>
-                    {item.description && (
-                      <p className="text-sm text-muted-foreground mt-0.5">{item.description}</p>
-                    )}
+              {rpt.nextWeekPriorities.map((item, i) => {
+                const isString = typeof item === "string";
+                return (
+                  <div key={i} className="flex items-start gap-3 py-1.5">
+                    <span className="text-xs font-bold text-primary bg-primary/10 rounded-full w-6 h-6 flex items-center justify-center flex-shrink-0">
+                      {i + 1}
+                    </span>
+                    <div>
+                      <p className="text-sm font-semibold">{isString ? item : (item as { title: string }).title}</p>
+                      {!isString && (item as { description?: string }).description && (
+                        <p className="text-sm text-muted-foreground mt-0.5">{(item as { description: string }).description}</p>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </Section>
         )}

@@ -1726,10 +1726,10 @@ export interface ExecutiveReport {
     salesPipeline: Record<string, unknown>;
     accounts: Record<string, unknown>;
     intelligence: Record<string, unknown>;
-    risks: Array<{ title: string; severity: string; description: string; mitigation?: string }>;
-    recommendations: Array<{ title: string; description: string; priority: string; owner?: string }>;
-    nextWeekPriorities: Array<{ title: string; description: string }>;
-    kpis: ExecutiveReportKpi[];
+    risks: Array<string | { title: string; severity: string; description: string; mitigation?: string }>;
+    recommendations: Array<string | { title: string; description: string; priority: string; owner?: string }>;
+    nextWeekPriorities: Array<string | { title: string; description: string }>;
+    kpis: ExecutiveReportKpi[] | Record<string, unknown>;
   };
 }
 

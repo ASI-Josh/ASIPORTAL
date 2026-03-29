@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import Link from "next/link";
 import { doc, onSnapshot, Timestamp, updateDoc } from "firebase/firestore";
 import {
@@ -14,12 +14,15 @@ import {
   Calendar,
   Edit2,
   Square,
+  StickyNote,
+  Bot,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { COLLECTIONS } from "@/lib/collections";
@@ -67,7 +70,6 @@ function formatTimestamp(ts?: Timestamp | null): string {
 
 export default function MeetingDetailPage() {
   const params = useParams();
-  const router = useRouter();
   const { user, firebaseUser } = useAuth();
   const { toast } = useToast();
 
@@ -91,6 +93,11 @@ export default function MeetingDetailPage() {
   /* ---- elapsed time for in_progress ---- */
   const [elapsed, setElapsed] = useState("");
 
+  /* ---- notes state ---- */
+  const [notes, setNotes] = useState("");
+  const [savingNotes, setSavingNotes] = useState(false);
+  const [notesLoaded, setNotesLoaded] = useState(false);
+
   /* ---- real-time listener ---- */
   useEffect(() => {
     const ref = doc(db, COLLECTIONS.MEETINGS, meetingId);
@@ -101,7 +108,12 @@ export default function MeetingDetailPage() {
           setNotFound(true);
           setMeeting(null);
         } else {
-          setMeeting({ id: snap.id, ...(snap.data() as Omit<Meeting, "id">) });
+          const m = { id: snap.id, ...(snap.data() as Omit<Meeting, "id">) };
+          setMeeting(m);
+          if (!notesLoaded) {
+            setNotes(m.summary || "");
+            setNotesLoaded(true);
+          }
           setNotFound(false);
         }
         setLoading(false);
@@ -261,6 +273,20 @@ export default function MeetingDetailPage() {
     }
   };
 
+  const saveNotes = async () => {
+    if (!meeting) return;
+    setSavingNotes(true);
+    try {
+      const ref = doc(db, COLLECTIONS.MEETINGS, meeting.id);
+      await updateDoc(ref, { summary: notes, updatedAt: Timestamp.now() });
+      toast({ title: "Saved", description: "Notes saved." });
+    } catch {
+      toast({ title: "Error", description: "Failed to save notes.", variant: "destructive" });
+    } finally {
+      setSavingNotes(false);
+    }
+  };
+
   /* ---- guards ---- */
   if (loading) {
     return (
@@ -364,7 +390,7 @@ export default function MeetingDetailPage() {
           )}
 
           {/* Scheduled: Start Meeting */}
-          {meeting.status === "scheduled" && isChair && (
+          {meeting.status === "scheduled" && canEdit && (
             <>
               <Button onClick={handleStartMeeting} disabled={startingMeeting}>
                 <Play className="mr-2 h-4 w-4" />
@@ -374,7 +400,7 @@ export default function MeetingDetailPage() {
           )}
 
           {/* In Progress: Resume + End */}
-          {meeting.status === "in_progress" && isChair && (
+          {meeting.status === "in_progress" && canEdit && (
             <>
               <Button asChild>
                 <Link href={`/dashboard/meetings/${meeting.id}/run`}>
@@ -560,6 +586,58 @@ export default function MeetingDetailPage() {
           ) : (
             <p className="text-sm text-muted-foreground">No agenda items.</p>
           )}
+        </CardContent>
+      </Card>
+
+      {/* Agent Reports card */}
+      {(meeting.agentReports?.length ?? 0) > 0 && (
+        <Card className="border-border/40 bg-card/60 backdrop-blur">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Bot className="h-4 w-4 text-muted-foreground" />
+              Agent Reports ({meeting.agentReports!.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ul className="space-y-3">
+              {meeting.agentReports!.map((r, i) => (
+                <li key={`${r.department}-${i}`} className="rounded-md border border-cyan-500/20 bg-cyan-500/5 p-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Badge className="bg-cyan-600/30 text-cyan-300 border-cyan-500/40" variant="outline">
+                        {r.department}
+                      </Badge>
+                      <span className="text-xs text-muted-foreground">{r.reportType}</span>
+                    </div>
+                  </div>
+                  {r.summary && <p className="mt-2 text-sm text-muted-foreground">{r.summary}</p>}
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Notes card */}
+      <Card className="border-border/40 bg-card/60 backdrop-blur">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <StickyNote className="h-4 w-4 text-muted-foreground" />
+            Meeting Notes
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <Textarea
+            placeholder="Add meeting notes, discussion points, or action items..."
+            className="min-h-[120px] bg-background/40"
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+          />
+          <div className="flex justify-end">
+            <Button size="sm" onClick={saveNotes} disabled={savingNotes}>
+              {savingNotes ? "Saving..." : "Save Notes"}
+            </Button>
+          </div>
         </CardContent>
       </Card>
 
