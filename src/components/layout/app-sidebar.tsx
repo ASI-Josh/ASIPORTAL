@@ -62,6 +62,7 @@ const adminMenuItems = [
   { href: "/dashboard/daily-prestart", label: "Daily Prestart", icon: ClipboardCheck },
   { href: "/dashboard/calendar", label: "Calendar", icon: Calendar },
   { href: "/dashboard/resource-planner", label: "Resource Planner", icon: CalendarDays },
+  { href: "/dashboard/meetings", label: "Meetings", icon: Users },
   { href: "/dashboard/contacts", label: "Contacts", icon: Building2 },
   { href: "/dashboard/films", label: "Film Management", icon: FileText },
   { href: "/dashboard/works-register", label: "Works Register", icon: ClipboardList },

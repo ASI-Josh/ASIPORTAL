@@ -48,4 +48,7 @@ export const COLLECTIONS = {
   XERO_TOKENS: "xeroTokens",
   EXECUTIVE_REPORTS: "executiveReports",
   DEPARTMENT_REPORTS: "departmentReports",
+  MEETINGS: "meetings",
+  MEETING_TEMPLATES: "meetingTemplates",
+  MEETING_ACTIONS: "meetingActions",
 } as const;

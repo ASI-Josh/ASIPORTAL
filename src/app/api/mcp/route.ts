@@ -1003,6 +1003,118 @@ const TOOLS: McpTool[] = [
       },
     },
   },
+  // ─── Meetings ───────────────────────────────────────────────────────────────
+  {
+    name: "get_meetings",
+    description: "List meetings from ASI Portal. Optionally filter by status or type.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        status: { type: "string", enum: ["draft","scheduled","in_progress","completed","cancelled"], description: "Filter by status" },
+        meetingType: { type: "string", description: "Filter by meeting type" },
+        limit: { type: "number", description: "Max results (default 20)" },
+      },
+    },
+  },
+  {
+    name: "get_meeting",
+    description: "Get a single meeting by its Firestore document ID.",
+    inputSchema: {
+      type: "object",
+      properties: { meetingId: { type: "string", description: "Meeting document ID" } },
+      required: ["meetingId"],
+    },
+  },
+  {
+    name: "create_meeting",
+    description: "Create a new scheduled meeting.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        title: { type: "string" },
+        meetingType: { type: "string", enum: ["management_review","startup","whs_committee","department","project","incident_review","custom"] },
+        scheduledDate: { type: "string", description: "ISO 8601 date string" },
+        scheduledDuration: { type: "number", description: "Duration in minutes" },
+        location: { type: "string" },
+        chairName: { type: "string" },
+        chairEmail: { type: "string" },
+      },
+      required: ["title", "meetingType", "scheduledDate"],
+    },
+  },
+  {
+    name: "update_meeting",
+    description: "Update fields on an existing meeting.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        meetingId: { type: "string" },
+        status: { type: "string", enum: ["draft","scheduled","in_progress","completed","cancelled"] },
+        summary: { type: "string" },
+        location: { type: "string" },
+      },
+      required: ["meetingId"],
+    },
+  },
+  {
+    name: "get_meeting_actions",
+    description: "List meeting action items with optional filters.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        status: { type: "string", enum: ["open","in_progress","completed","overdue","cancelled"] },
+        meetingId: { type: "string" },
+        overdueOnly: { type: "boolean" },
+        limit: { type: "number" },
+      },
+    },
+  },
+  {
+    name: "create_meeting_action",
+    description: "Create a new action item linked to a meeting.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        meetingId: { type: "string" },
+        meetingNumber: { type: "string" },
+        title: { type: "string" },
+        description: { type: "string" },
+        assigneeName: { type: "string" },
+        assigneeEmail: { type: "string" },
+        dueDate: { type: "string", description: "ISO 8601 date" },
+        priority: { type: "string", enum: ["low","medium","high","critical"] },
+      },
+      required: ["meetingId", "meetingNumber", "title", "assigneeName", "dueDate"],
+    },
+  },
+  {
+    name: "update_meeting_action",
+    description: "Update a meeting action item status or closure notes.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        actionId: { type: "string" },
+        status: { type: "string", enum: ["open","in_progress","completed","overdue","cancelled"] },
+        closureNotes: { type: "string" },
+      },
+      required: ["actionId"],
+    },
+  },
+  {
+    name: "attach_agent_report",
+    description: "Attach an AI agent department report to a meeting.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        meetingId: { type: "string" },
+        department: { type: "string" },
+        reportId: { type: "string" },
+        reportType: { type: "string", enum: ["executive","department","vanguard"] },
+        summary: { type: "string" },
+      },
+      required: ["meetingId", "department", "reportId", "reportType"],
+    },
+  },
 ];
 
 // ─── Firestore helpers ────────────────────────────────────────────────────────
@@ -2551,6 +2663,132 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
     case "get_department_reports": return handleGetDepartmentReports(args);
     case "push_executive_report": return handlePushExecutiveReport(args);
     case "get_executive_reports": return handleGetExecutiveReports(args);
+    // ─── Meetings ───────────────────────────────────────────────────────────
+    case "get_meetings": {
+      const fdb = admin.firestore();
+      let q: admin.firestore.Query = fdb.collection(COLLECTIONS.MEETINGS).orderBy("scheduledDate", "desc");
+      if (args.status) q = q.where("status", "==", args.status);
+      if (args.meetingType) q = q.where("meetingType", "==", args.meetingType);
+      q = q.limit(Number(args.limit) || 20);
+      const snap = await q.get();
+      return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    }
+
+    case "get_meeting": {
+      const fdb = admin.firestore();
+      const d = await fdb.collection(COLLECTIONS.MEETINGS).doc(String(args.meetingId)).get();
+      if (!d.exists) return { error: "Meeting not found" };
+      return { id: d.id, ...d.data() };
+    }
+
+    case "create_meeting": {
+      const fdb = admin.firestore();
+      // Generate meeting number
+      const existing = await fdb.collection(COLLECTIONS.MEETINGS).orderBy("meetingNumber", "desc").limit(1).get();
+      let seq = 1;
+      if (!existing.empty) {
+        const last = existing.docs[0].data().meetingNumber as string;
+        const m = last.match(/MTG-\d{4}-(\d{3})/);
+        if (m) seq = parseInt(m[1], 10) + 1;
+      }
+      const year = new Date().getFullYear();
+      const meetingNumber = `MTG-${year}-${String(seq).padStart(3, "0")}`;
+      const now = admin.firestore.Timestamp.now();
+      const data = {
+        meetingNumber,
+        title: String(args.title),
+        meetingType: String(args.meetingType),
+        status: "scheduled",
+        scheduledDate: admin.firestore.Timestamp.fromDate(new Date(String(args.scheduledDate))),
+        scheduledDuration: Number(args.scheduledDuration) || 60,
+        location: args.location ? String(args.location) : "",
+        chair: { id: "mcp", name: String(args.chairName || "MCP Agent"), email: String(args.chairEmail || "") },
+        attendees: [],
+        agendaItems: [],
+        agentReports: [],
+        decisions: [],
+        summary: "",
+        createdAt: now,
+        createdBy: "mcp",
+        createdByName: String(args.chairName || "MCP Agent"),
+        updatedAt: now,
+      };
+      const ref = await fdb.collection(COLLECTIONS.MEETINGS).add(data);
+      return { id: ref.id, ...data };
+    }
+
+    case "update_meeting": {
+      const fdb = admin.firestore();
+      const updates: Record<string, unknown> = { updatedAt: admin.firestore.Timestamp.now() };
+      if (args.status) updates.status = String(args.status);
+      if (args.summary) updates.summary = String(args.summary);
+      if (args.location) updates.location = String(args.location);
+      if (args.status === "completed") updates.completedAt = admin.firestore.Timestamp.now();
+      await fdb.collection(COLLECTIONS.MEETINGS).doc(String(args.meetingId)).update(updates);
+      return { success: true, meetingId: args.meetingId };
+    }
+
+    case "get_meeting_actions": {
+      const fdb = admin.firestore();
+      let q: admin.firestore.Query = fdb.collection(COLLECTIONS.MEETING_ACTIONS).orderBy("dueDate", "asc");
+      if (args.status) q = q.where("status", "==", args.status);
+      if (args.meetingId) q = q.where("meetingId", "==", args.meetingId);
+      q = q.limit(Number(args.limit) || 50);
+      const snap = await q.get();
+      let results = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      if (args.overdueOnly) {
+        const now = admin.firestore.Timestamp.now();
+        results = results.filter((r: any) => r.dueDate && r.dueDate.toMillis() < now.toMillis() && r.status !== "completed" && r.status !== "cancelled");
+      }
+      return results;
+    }
+
+    case "create_meeting_action": {
+      const fdb = admin.firestore();
+      const now = admin.firestore.Timestamp.now();
+      const data = {
+        meetingId: String(args.meetingId),
+        meetingNumber: String(args.meetingNumber),
+        title: String(args.title),
+        description: args.description ? String(args.description) : "",
+        assignedTo: { id: "mcp", name: String(args.assigneeName), email: args.assigneeEmail ? String(args.assigneeEmail) : "" },
+        dueDate: admin.firestore.Timestamp.fromDate(new Date(String(args.dueDate))),
+        status: "open",
+        priority: String(args.priority || "medium"),
+        createdAt: now,
+        updatedAt: now,
+      };
+      const ref = await fdb.collection(COLLECTIONS.MEETING_ACTIONS).add(data);
+      return { id: ref.id, ...data };
+    }
+
+    case "update_meeting_action": {
+      const fdb = admin.firestore();
+      const updates: Record<string, unknown> = { updatedAt: admin.firestore.Timestamp.now() };
+      if (args.status) updates.status = String(args.status);
+      if (args.closureNotes) updates.closureNotes = String(args.closureNotes);
+      if (args.status === "completed") { updates.completedAt = admin.firestore.Timestamp.now(); }
+      await fdb.collection(COLLECTIONS.MEETING_ACTIONS).doc(String(args.actionId)).update(updates);
+      return { success: true, actionId: args.actionId };
+    }
+
+    case "attach_agent_report": {
+      const fdb = admin.firestore();
+      const ref = fdb.collection(COLLECTIONS.MEETINGS).doc(String(args.meetingId));
+      const snap = await ref.get();
+      if (!snap.exists) return { error: "Meeting not found" };
+      const existing = (snap.data()?.agentReports || []) as any[];
+      existing.push({
+        department: String(args.department),
+        reportId: String(args.reportId),
+        reportType: String(args.reportType),
+        summary: args.summary ? String(args.summary) : "",
+        attachedAt: admin.firestore.Timestamp.now(),
+      });
+      await ref.update({ agentReports: existing, updatedAt: admin.firestore.Timestamp.now() });
+      return { success: true, meetingId: args.meetingId };
+    }
+
     default:
       throw new Error(`Unknown tool: ${name}`);
   }

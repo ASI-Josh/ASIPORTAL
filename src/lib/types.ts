@@ -1604,6 +1604,108 @@ export interface ImsRiskRegisterEntry {
 }
 
 // ============================================
+// MEETINGS MODULE
+// ============================================
+
+export type MeetingStatus = "draft" | "scheduled" | "in_progress" | "completed" | "cancelled";
+export type MeetingType = "management_review" | "startup" | "whs_committee" | "department" | "project" | "incident_review" | "custom";
+
+export interface MeetingAttendee {
+  id: string;
+  name: string;
+  email?: string;
+  role: "chair" | "attendee" | "observer" | "agent";
+  attended: boolean;
+  department?: string;
+}
+
+export interface AgendaItem {
+  id: string;
+  order: number;
+  title: string;
+  description?: string;
+  presenter?: string;
+  duration?: number;
+  type: "discussion" | "decision" | "information" | "agent_report" | "action_review";
+  agentDepartment?: string;
+  notes?: string;
+  status: "pending" | "in_progress" | "completed" | "skipped";
+}
+
+export interface MeetingDecision {
+  id: string;
+  agendaItemId?: string;
+  description: string;
+  decidedBy: string;
+  rationale?: string;
+  createdAt: Timestamp;
+}
+
+export interface AgentReportRef {
+  department: string;
+  reportId: string;
+  reportType: "executive" | "department" | "vanguard";
+  summary?: string;
+  attachedAt: Timestamp;
+}
+
+export interface MeetingAction {
+  id: string;
+  meetingId: string;
+  meetingNumber: string;
+  agendaItemId?: string;
+  title: string;
+  description?: string;
+  assignedTo: { id: string; name: string; email?: string };
+  dueDate: Timestamp;
+  status: "open" | "in_progress" | "completed" | "overdue" | "cancelled";
+  priority: "low" | "medium" | "high" | "critical";
+  completedAt?: Timestamp;
+  completedBy?: string;
+  closureNotes?: string;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
+export interface Meeting {
+  id: string;
+  meetingNumber: string;
+  title: string;
+  meetingType: MeetingType;
+  status: MeetingStatus;
+  scheduledDate: Timestamp;
+  scheduledDuration: number;
+  location?: string;
+  chair: { id: string; name: string; email: string };
+  attendees: MeetingAttendee[];
+  agendaItems: AgendaItem[];
+  agentReports?: AgentReportRef[];
+  decisions: MeetingDecision[];
+  summary?: string;
+  isoClause?: string;
+  templateId?: string;
+  attachments?: FileAttachment[];
+  startedAt?: Timestamp;
+  completedAt?: Timestamp;
+  createdAt: Timestamp;
+  createdBy: string;
+  createdByName: string;
+  updatedAt: Timestamp;
+}
+
+export interface MeetingTemplate {
+  id: string;
+  name: string;
+  meetingType: MeetingType;
+  defaultDuration: number;
+  agendaTemplate: AgendaItem[];
+  isoClause?: string;
+  createdAt: Timestamp;
+  createdBy: string;
+  updatedAt: Timestamp;
+}
+
+// ============================================
 // HELPER TYPES
 // ============================================
 
