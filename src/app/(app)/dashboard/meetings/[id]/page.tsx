@@ -16,6 +16,8 @@ import {
   Square,
   StickyNote,
   Bot,
+  Paperclip,
+  ExternalLink,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -588,6 +590,38 @@ export default function MeetingDetailPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Attachments card */}
+      {(meeting.attachments?.length ?? 0) > 0 && (
+        <Card className="border-border/40 bg-card/60 backdrop-blur">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Paperclip className="h-4 w-4 text-muted-foreground" />
+              Attachments ({meeting.attachments!.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ul className="space-y-2">
+              {meeting.attachments!.map((att) => (
+                <li key={att.id} className="flex items-center justify-between rounded-md border border-border/30 bg-background/40 p-3">
+                  <div className="flex items-center gap-2">
+                    <FileText className="h-4 w-4 text-primary" />
+                    <span className="text-sm font-medium">{att.name}</span>
+                  </div>
+                  <a
+                    href={att.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1 text-sm text-primary hover:underline"
+                  >
+                    Open <ExternalLink className="h-3.5 w-3.5" />
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Agent Reports card */}
       {(meeting.agentReports?.length ?? 0) > 0 && (

@@ -1052,6 +1052,7 @@ const TOOLS: McpTool[] = [
         status: { type: "string", enum: ["draft","scheduled","in_progress","completed","cancelled"] },
         summary: { type: "string" },
         location: { type: "string" },
+        attachments: { type: "array", description: "Array of {id, name, url} file attachments", items: { type: "object" } },
       },
       required: ["meetingId"],
     },
@@ -2724,6 +2725,7 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
       if (args.summary) updates.summary = String(args.summary);
       if (args.location) updates.location = String(args.location);
       if (args.status === "completed") updates.completedAt = admin.firestore.Timestamp.now();
+      if (args.attachments && Array.isArray(args.attachments)) updates.attachments = args.attachments;
       await fdb.collection(COLLECTIONS.MEETINGS).doc(String(args.meetingId)).update(updates);
       return { success: true, meetingId: args.meetingId };
     }

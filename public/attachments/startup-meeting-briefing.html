@@ -1,0 +1,1071 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ASI Australia — Startup Meeting Briefing | 30 March 2026</title>
+<style>
+  :root {
+    --bg: #1a1a2e;
+    --card: #262633;
+    --card-hover: #2e2e40;
+    --primary: #8000FF;
+    --accent: #0080FF;
+    --green: #00c853;
+    --amber: #ffab00;
+    --red: #ff1744;
+    --text: #e8e8f0;
+    --muted: #9090a8;
+    --border: #3a3a50;
+    --glow: rgba(128, 0, 255, 0.15);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+  .container { max-width: 900px; margin: 0 auto; padding: 16px; }
+
+  /* Header */
+  .header {
+    text-align: center;
+    padding: 32px 16px 24px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 24px;
+  }
+  .header h1 {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 1.6rem;
+    font-weight: 700;
+    background: linear-gradient(135deg, var(--primary), var(--accent));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .header .subtitle {
+    color: var(--muted);
+    font-size: 0.85rem;
+    margin-top: 4px;
+  }
+  .header .classification {
+    display: inline-block;
+    background: rgba(255, 171, 0, 0.15);
+    color: var(--amber);
+    font-size: 0.7rem;
+    font-weight: 600;
+    padding: 2px 10px;
+    border-radius: 4px;
+    margin-top: 8px;
+    letter-spacing: 0.5px;
+  }
+
+  /* Navigation tabs */
+  .nav-tabs {
+    display: flex;
+    gap: 4px;
+    overflow-x: auto;
+    padding-bottom: 8px;
+    margin-bottom: 24px;
+    border-bottom: 1px solid var(--border);
+    -webkit-overflow-scrolling: touch;
+  }
+  .nav-tab {
+    flex-shrink: 0;
+    padding: 8px 14px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    background: transparent;
+    color: var(--muted);
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+  }
+  .nav-tab.active {
+    background: var(--primary);
+    color: #fff;
+  }
+  .nav-tab:hover:not(.active) { background: var(--card); color: var(--text); }
+
+  /* Sections */
+  .section { display: none; animation: fadeIn 0.3s ease; }
+  .section.active { display: block; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  /* Cards */
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+  .card h2 {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 1.1rem;
+    margin-bottom: 12px;
+    color: var(--text);
+  }
+  .card h3 {
+    font-size: 0.9rem;
+    margin: 14px 0 8px;
+    color: var(--accent);
+  }
+  .card p, .card li { font-size: 0.85rem; color: var(--text); line-height: 1.65; }
+  .card ul { padding-left: 18px; }
+  .card li { margin-bottom: 4px; }
+
+  /* KPI grid */
+  .kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .kpi {
+    background: linear-gradient(135deg, rgba(128, 0, 255, 0.08), rgba(0, 128, 255, 0.06));
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px;
+    text-align: center;
+  }
+  .kpi .value {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: var(--primary);
+  }
+  .kpi .value.green { color: var(--green); }
+  .kpi .value.accent { color: var(--accent); }
+  .kpi .value.amber { color: var(--amber); }
+  .kpi .label { font-size: 0.7rem; color: var(--muted); margin-top: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+
+  /* Tables */
+  .tbl-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 12px 0; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+  th { background: rgba(128, 0, 255, 0.12); color: var(--accent); font-weight: 600; text-align: left; padding: 8px 10px; white-space: nowrap; }
+  td { padding: 8px 10px; border-bottom: 1px solid var(--border); }
+  tr:hover td { background: rgba(128, 0, 255, 0.04); }
+  .right { text-align: right; }
+  .bold { font-weight: 600; }
+  .highlight-row td { background: rgba(0, 200, 83, 0.08); font-weight: 600; }
+
+  /* Tags */
+  .tag {
+    display: inline-block;
+    font-size: 0.65rem;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 4px;
+    letter-spacing: 0.3px;
+  }
+  .tag-green { background: rgba(0, 200, 83, 0.15); color: var(--green); }
+  .tag-amber { background: rgba(255, 171, 0, 0.15); color: var(--amber); }
+  .tag-purple { background: rgba(128, 0, 255, 0.15); color: var(--primary); }
+  .tag-blue { background: rgba(0, 128, 255, 0.15); color: var(--accent); }
+
+  /* Chart bar */
+  .bar-chart { margin: 12px 0; }
+  .bar-row { display: flex; align-items: center; margin-bottom: 6px; gap: 8px; }
+  .bar-label { font-size: 0.72rem; color: var(--muted); width: 32px; text-align: right; flex-shrink: 0; }
+  .bar-track { flex: 1; background: rgba(128, 0, 255, 0.08); border-radius: 4px; height: 22px; position: relative; overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 4px; transition: width 0.6s ease; display: flex; align-items: center; justify-content: flex-end; padding-right: 6px; font-size: 0.65rem; font-weight: 600; color: #fff; }
+  .bar-fill.revenue { background: linear-gradient(90deg, var(--primary), var(--accent)); }
+  .bar-fill.profit { background: linear-gradient(90deg, var(--green), #00e676); }
+
+  /* Divider */
+  .divider { height: 1px; background: var(--border); margin: 20px 0; }
+
+  /* Callout */
+  .callout {
+    background: linear-gradient(135deg, rgba(128, 0, 255, 0.1), rgba(0, 128, 255, 0.08));
+    border-left: 3px solid var(--primary);
+    border-radius: 0 8px 8px 0;
+    padding: 14px 16px;
+    margin: 14px 0;
+    font-size: 0.83rem;
+  }
+  .callout strong { color: var(--primary); }
+
+  /* Timeline */
+  .timeline { position: relative; padding-left: 24px; margin: 14px 0; }
+  .timeline::before { content: ''; position: absolute; left: 8px; top: 0; bottom: 0; width: 2px; background: var(--border); }
+  .tl-item { position: relative; margin-bottom: 14px; }
+  .tl-item::before {
+    content: '';
+    position: absolute;
+    left: -20px;
+    top: 6px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--primary);
+    border: 2px solid var(--bg);
+  }
+  .tl-item.done::before { background: var(--green); }
+  .tl-item.active::before { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+  .tl-date { font-size: 0.7rem; color: var(--muted); }
+  .tl-text { font-size: 0.82rem; }
+
+  /* Footer */
+  .footer {
+    text-align: center;
+    padding: 24px 16px;
+    color: var(--muted);
+    font-size: 0.7rem;
+    border-top: 1px solid var(--border);
+    margin-top: 32px;
+  }
+
+  /* Responsive */
+  @media (max-width: 480px) {
+    .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+    .header h1 { font-size: 1.3rem; }
+    .container { padding: 12px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+
+  <div class="header">
+    <h1>ASI Australia</h1>
+    <div class="subtitle">Startup Meeting Briefing — Monday 30 March 2026</div>
+    <div class="classification">INTERNAL — COMMERCIAL IN CONFIDENCE</div>
+  </div>
+
+  <div class="nav-tabs" id="navTabs">
+    <button class="nav-tab active" data-tab="overview">Overview</button>
+    <button class="nav-tab" data-tab="commercials">Commercials</button>
+    <button class="nav-tab" data-tab="rollout">Rollout Plan</button>
+    <button class="nav-tab" data-tab="cashflow">Cashflow</button>
+    <button class="nav-tab" data-tab="humai">HumAI Vision</button>
+    <button class="nav-tab" data-tab="workforce">Workforce Model</button>
+    <button class="nav-tab" data-tab="grants">R&D Grants</button>
+    <button class="nav-tab" data-tab="next">Next Steps</button>
+  </div>
+
+  <!-- ============ OVERVIEW ============ -->
+  <div class="section active" id="overview">
+    <div class="kpi-grid">
+      <div class="kpi">
+        <div class="value">$1.71M</div>
+        <div class="label">Year 1 Revenue</div>
+      </div>
+      <div class="kpi">
+        <div class="value green">$789K</div>
+        <div class="label">Gross Profit</div>
+      </div>
+      <div class="kpi">
+        <div class="value accent">46.3%</div>
+        <div class="label">Blended Margin</div>
+      </div>
+      <div class="kpi">
+        <div class="value amber">305</div>
+        <div class="label">Buses Year 1</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>What We're Proposing</h2>
+      <p>Two proposals to present to Brad Sanders (Dineen Group GM) — a standalone McKenzie's Tourist Services contract and a Dineen Group Master Services Agreement covering 700+ vehicles across 16+ subsidiaries.</p>
+
+      <h3>Four Product Lines Per Bus</h3>
+      <div class="tbl-wrap">
+        <table>
+          <tr><th>Product</th><th>What It Does</th><th>Warranty</th></tr>
+          <tr><td><strong>OptiShield</strong></td><td>Windscreen protection film (WPF 60)</td><td>3 yr commercial cycle</td></tr>
+          <tr><td><strong>PaintShield</strong></td><td>Front fascia PPF (Gloss 60)</td><td>10 yr</td></tr>
+          <tr><td><strong>GrafShield</strong></td><td>Anti-graffiti sideglass film</td><td>5 yr</td></tr>
+          <tr><td><strong>RadShield</strong></td><td>Nano ceramic tint (70% VLT)</td><td>Lifetime</td></tr>
+        </table>
+      </div>
+
+      <div class="callout">
+        <strong>Competitive Moat:</strong> ASI holds exclusive Australian distribution for OptiShield. No other company in Australia can offer this product. Unmatched optical clarity, UV protection, and adhesion performance in the local market.
+      </div>
+
+      <h3>Plus: Prep Work Revenue (Every Existing Bus)</h3>
+      <p>Before film goes on existing fleet buses, they need scratch removal, graffiti removal, and/or decontamination. This is billed as additional services — only PDI (new delivery) buses skip prep. Significant additional revenue per bus above film pricing.</p>
+    </div>
+
+    <div class="card">
+      <h2>FX Resilience</h2>
+      <p>All APEAX products priced in USD. We've stress-tested the model across FX scenarios:</p>
+      <div class="tbl-wrap">
+        <table>
+          <tr><th>AUD/USD</th><th>Scenario</th><th>Blended Margin</th><th>Annual Profit</th></tr>
+          <tr><td>1.50</td><td>AUD strengthens</td><td class="right bold" style="color: var(--green)">49.0%</td><td class="right">$837K</td></tr>
+          <tr class="highlight-row"><td>1.62</td><td>Current (budgeted)</td><td class="right bold">46.3%</td><td class="right">$789K</td></tr>
+          <tr><td>1.72</td><td>AUD weakens 6%</td><td class="right bold">44.3%</td><td class="right">$755K</td></tr>
+          <tr><td>1.85</td><td>Stress test</td><td class="right bold" style="color: var(--amber)">41.9%</td><td class="right">$716K</td></tr>
+        </table>
+      </div>
+      <p style="margin-top:8px; font-size:0.8rem; color:var(--muted);">Even at worst-case 1.85 AUD/USD, we hold 41.9% margin. RadShield (77% margin, no FX exposure) and GrafShield (51% margin, local supply) act as natural hedges against APEAX FX movement.</p>
+    </div>
+  </div>
+
+  <!-- ============ COMMERCIALS ============ -->
+  <div class="section" id="commercials">
+    <div class="card">
+      <h2>Per-Bus P&L — Dineen MSA at -10% (All 4 Products)</h2>
+      <div class="tbl-wrap">
+        <table>
+          <tr><th>Product</th><th class="right">Trade (ex-GST)</th><th class="right">Dineen -10%</th><th class="right">Cost</th><th class="right">GP</th><th class="right">Margin</th></tr>
+          <tr>
+            <td><strong>OptiShield</strong><br><span style="font-size:0.7rem;color:var(--muted)">WPF 60 windscreen</span></td>
+            <td class="right" style="color:var(--muted)">$2,078</td>
+            <td class="right">$1,870</td>
+            <td class="right">$1,559</td>
+            <td class="right" style="color:var(--green)">$311</td>
+            <td class="right">16.6%</td>
+          </tr>
+          <tr>
+            <td><strong>PaintShield</strong><br><span style="font-size:0.7rem;color:var(--muted)">Gloss 60 front fascia</span></td>
+            <td class="right" style="color:var(--muted)">$499</td>
+            <td class="right">$449</td>
+            <td class="right">$374</td>
+            <td class="right" style="color:var(--green)">$75</td>
+            <td class="right">16.7%</td>
+          </tr>
+          <tr>
+            <td><strong>GrafShield</strong><br><span style="font-size:0.7rem;color:var(--muted)">6 panes anti-graffiti</span></td>
+            <td class="right" style="color:var(--muted)">$1,364</td>
+            <td class="right">$1,227</td>
+            <td class="right">$600</td>
+            <td class="right" style="color:var(--green)">$627</td>
+            <td class="right">51.1%</td>
+          </tr>
+          <tr>
+            <td><strong>RadShield</strong><br><span style="font-size:0.7rem;color:var(--muted)">10 saloon panes tint</span></td>
+            <td class="right" style="color:var(--muted)">$2,273</td>
+            <td class="right">$2,045</td>
+            <td class="right">$471</td>
+            <td class="right" style="color:var(--green)">$1,574</td>
+            <td class="right" style="color:var(--green)"><strong>77.0%</strong></td>
+          </tr>
+          <tr class="highlight-row">
+            <td><strong>TOTAL PER BUS</strong></td>
+            <td class="right" style="color:var(--muted)">$6,214</td>
+            <td class="right">$5,591</td>
+            <td class="right">$3,004</td>
+            <td class="right" style="color:var(--green)">$2,587</td>
+            <td class="right"><strong>46.3%</strong></td>
+          </tr>
+        </table>
+      </div>
+      <p style="font-size:0.78rem;color:var(--muted);margin-top:8px;">All figures ex-GST. Dineen MSA receives a flat 10% discount off Trade pricing across all products and services. Prep work (scratch removal, graffiti removal, decontamination) billed separately — also at -10% for Dineen.</p>
+    </div>
+
+    <div class="card">
+      <h2>Margin Breakdown by Product</h2>
+      <p style="font-size:0.8rem;color:var(--muted);margin-bottom:8px;">Contribution to per-bus gross profit ($2,587 total):</p>
+      <div class="bar-chart">
+        <div class="bar-row">
+          <div class="bar-label">RS</div>
+          <div class="bar-track"><div class="bar-fill profit" style="width:61%;">$1,574 (61%)</div></div>
+        </div>
+        <div class="bar-row">
+          <div class="bar-label">GS</div>
+          <div class="bar-track"><div class="bar-fill profit" style="width:24%;">$627 (24%)</div></div>
+        </div>
+        <div class="bar-row">
+          <div class="bar-label">OS</div>
+          <div class="bar-track"><div class="bar-fill revenue" style="width:12%;">$311 (12%)</div></div>
+        </div>
+        <div class="bar-row">
+          <div class="bar-label">PS</div>
+          <div class="bar-track"><div class="bar-fill revenue" style="width:3%;">$75 (3%)</div></div>
+        </div>
+      </div>
+
+      <div class="callout">
+        <strong>Key insight:</strong> RadShield (tint) remains the margin engine at 77.0% even after the 10% MSA discount. No FX risk, minimal material cost (~$21/pane). GrafShield at 51% via Don is the second engine. OptiShield is the door opener — the product nobody else in Australia has — that gets us onto every bus to cross-sell the full stack.
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Trade vs Dineen MSA Pricing — Film Products</h2>
+      <div class="tbl-wrap">
+        <table>
+          <tr><th>Product</th><th class="right">Trade Price (inc GST)</th><th class="right">Dineen MSA (inc GST)</th><th class="right">Saving</th></tr>
+          <tr><td>OptiShield install</td><td class="right">$2,286</td><td class="right">$2,057</td><td class="right" style="color:var(--green)">-10%</td></tr>
+          <tr><td>PaintShield install</td><td class="right">$549</td><td class="right">$494</td><td class="right" style="color:var(--green)">-10%</td></tr>
+          <tr><td>GrafShield (6 panes)</td><td class="right">$1,500</td><td class="right">$1,350</td><td class="right" style="color:var(--green)">-10%</td></tr>
+          <tr><td>RadShield (10 panes)</td><td class="right">$2,500</td><td class="right">$2,250</td><td class="right" style="color:var(--green)">-10%</td></tr>
+          <tr class="highlight-row"><td><strong>Per-Bus Total (4 products)</strong></td><td class="right"><strong>$6,835</strong></td><td class="right"><strong>$6,151</strong></td><td class="right" style="color:var(--green)"><strong>-10%</strong></td></tr>
+        </table>
+      </div>
+      <p style="font-size:0.78rem;color:var(--muted);margin-top:6px;">Trade = McKenzie's pricing (standalone contract). Dineen MSA = flat 10% discount across ALL products for group commitment (700+ fleet). All prices inc GST.</p>
+    </div>
+
+    <div class="card">
+      <h2>Trade vs Dineen MSA Pricing — Services</h2>
+      <div class="tbl-wrap">
+        <table>
+          <tr><th>Service</th><th class="right">Trade (inc GST)</th><th class="right">Dineen MSA (inc GST)</th><th class="right">Saving</th></tr>
+          <tr><td>Annual OptiShield service</td><td class="right">$275</td><td class="right">$248</td><td class="right" style="color:var(--green)">-10%</td></tr>
+          <tr><td>Scratch removal — deep wiper arc</td><td class="right">$199</td><td class="right">$179</td><td class="right" style="color:var(--green)">-10%</td></tr>
+          <tr><td>Scratch removal — heavy impact</td><td class="right">$250</td><td class="right">$225</td><td class="right" style="color:var(--green)">-10%</td></tr>
+          <tr><td>Scratch removal — medium</td><td class="right">$190</td><td class="right">$171</td><td class="right" style="color:var(--green)">-10%</td></tr>
+          <tr><td>Scratch removal — light-mod</td><td class="right">$120</td><td class="right">$108</td><td class="right" style="color:var(--green)">-10%</td></tr>
+          <tr><td>Restoration — steering wheel</td><td class="right">$250</td><td class="right">$225</td><td class="right" style="color:var(--green)">-10%</td></tr>
+          <tr><td>Restoration — modesty panels</td><td class="right">$500</td><td class="right">$450</td><td class="right" style="color:var(--green)">-10%</td></tr>
+          <tr><td>Headlight lens (pair)</td><td class="right">$250</td><td class="right">$225</td><td class="right" style="color:var(--green)">-10%</td></tr>
+        </table>
+      </div>
+      <p style="font-size:0.78rem;color:var(--muted);margin-top:6px;">Flat 10% Dineen MSA discount applies to all services. Prep work (scratch/graffiti/decontam) is additional revenue on top of film installation — charged per bus as needed.</p>
+    </div>
+
+    <div class="card">
+      <h2>Annual Service Revenue (OptiShield)</h2>
+      <p><strong>Trade:</strong> $250/yr per bus (ex-GST) — HydroGuard application + inspection. 25 min on-site. 58.4% margin.</p>
+      <p style="margin-top:4px;"><strong>Dineen MSA:</strong> $225/yr per bus (ex-GST) — same service, 10% volume discount.</p>
+      <p style="margin-top:8px;">Purpose: keeps ASI engaged with client and ensures predictable 3-year replacement cycle. At 305 buses (Dineen rate): <strong>$68,625/yr recurring revenue</strong> from Year 2 onwards.</p>
+    </div>
+  </div>
+
+  <!-- ============ ROLLOUT ============ -->
+  <div class="section" id="rollout">
+    <div class="card">
+      <h2>12-Month Deployment Schedule (305 Buses)</h2>
+      <div class="bar-chart">
+        <div class="bar-row"><div class="bar-label">M1</div><div class="bar-track"><div class="bar-fill revenue" style="width:16%">8</div></div></div>
+        <div class="bar-row"><div class="bar-label">M2</div><div class="bar-track"><div class="bar-fill revenue" style="width:24%">12</div></div></div>
+        <div class="bar-row"><div class="bar-label">M3</div><div class="bar-track"><div class="bar-fill revenue" style="width:30%">15</div></div></div>
+        <div class="bar-row"><div class="bar-label">M4</div><div class="bar-track"><div class="bar-fill revenue" style="width:40%">20</div></div></div>
+        <div class="bar-row"><div class="bar-label">M5</div><div class="bar-track"><div class="bar-fill revenue" style="width:50%">25</div></div></div>
+        <div class="bar-row"><div class="bar-label">M6</div><div class="bar-track"><div class="bar-fill revenue" style="width:50%">25</div></div></div>
+        <div class="bar-row"><div class="bar-label">M7</div><div class="bar-track"><div class="bar-fill revenue" style="width:70%">35</div></div></div>
+        <div class="bar-row"><div class="bar-label">M8</div><div class="bar-track"><div class="bar-fill revenue" style="width:90%">45</div></div></div>
+        <div class="bar-row"><div class="bar-label">M9</div><div class="bar-track"><div class="bar-fill revenue" style="width:100%">50</div></div></div>
+        <div class="bar-row"><div class="bar-label">M10</div><div class="bar-track"><div class="bar-fill revenue" style="width:70%">35</div></div></div>
+        <div class="bar-row"><div class="bar-label">M11</div><div class="bar-track"><div class="bar-fill revenue" style="width:50%">25</div></div></div>
+        <div class="bar-row"><div class="bar-label">M12</div><div class="bar-track"><div class="bar-fill revenue" style="width:20%">10</div></div></div>
+      </div>
+
+      <h3>Subsidiary Allocation (Dineen Group)</h3>
+      <div class="tbl-wrap">
+        <table>
+          <tr><th>Subsidiary</th><th class="right">Est. Fleet</th><th class="right">Year 1 Buses</th><th>Phase</th></tr>
+          <tr><td>McKenzie's Tourist Services</td><td class="right">60</td><td class="right">48</td><td><span class="tag tag-green">M1 Pilot</span></td></tr>
+          <tr><td>Latrobe Valley Bus Lines</td><td class="right">80+</td><td class="right">60</td><td><span class="tag tag-blue">M2-4</span></td></tr>
+          <tr><td>Berwick Bus Lines</td><td class="right">60+</td><td class="right">50</td><td><span class="tag tag-blue">M3-6</span></td></tr>
+          <tr><td>Warragul / Westernport</td><td class="right">50+</td><td class="right">40</td><td><span class="tag tag-purple">M5-8</span></td></tr>
+          <tr><td>Panorama / Martyrs / Others</td><td class="right">150+</td><td class="right">107</td><td><span class="tag tag-purple">M6-12</span></td></tr>
+          <tr class="highlight-row"><td><strong>Total</strong></td><td class="right"><strong>700+</strong></td><td class="right"><strong>305</strong></td><td></td></tr>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Pilot Program — McKenzie's (Month 1)</h2>
+      <p>8-bus pilot with McKenzie's as proof of concept for the full Dineen rollout.</p>
+      <div class="tbl-wrap">
+        <table>
+          <tr><th>Phase</th><th>Scope</th><th>Timeline</th></tr>
+          <tr><td>Pilot Install</td><td>8 buses, all 4 products + prep work</td><td>Month 1 (4 weeks)</td></tr>
+          <tr><td>Evaluation</td><td>ASI Portal data review, driver feedback, damage comparison</td><td>Week 4-6</td></tr>
+          <tr><td>Decision Gate</td><td>Brad reviews results, approves full subsidiary rollout</td><td>Week 6</td></tr>
+          <tr><td>Scale</td><td>Remaining McKenzie's fleet + first Dineen subsidiaries</td><td>Month 2+</td></tr>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Procurement Schedule</h2>
+      <div class="tbl-wrap">
+        <table>
+          <tr><th>Order</th><th>Covers</th><th>Method</th><th class="right">Cost (ex-GST)</th></tr>
+          <tr><td><span class="tag tag-amber">Landed Stock</span></td><td>15 WPF + 15 PPF + 20 RS rolls</td><td>Already here</td><td class="right">$50,725</td></tr>
+          <tr><td>PO#1</td><td>M1-3 (35 buses)</td><td>Air freight</td><td class="right">~$82K</td></tr>
+          <tr><td>PO#2</td><td>M4-6 (70 buses)</td><td>Sea freight</td><td class="right">~$135K</td></tr>
+          <tr><td>PO#3</td><td>M7-9 (130 buses)</td><td>Sea freight</td><td class="right">~$189K</td></tr>
+          <tr><td>PO#4</td><td>M10-12 (70 buses)</td><td>Sea freight</td><td class="right">~$131K</td></tr>
+          <tr class="highlight-row"><td colspan="3"><strong>Total New Orders</strong></td><td class="right"><strong>$537,521</strong></td></tr>
+        </table>
+      </div>
+      <p style="font-size:0.78rem;color:var(--muted);">Landed stock covers M1 + partial M2 for OptiShield, ~8 months for PaintShield, and first 20 buses for RadShield. PO#1 air-freighted for speed. PO#2-4 sea to optimise cost.</p>
+    </div>
+  </div>
+
+  <!-- ============ CASHFLOW ============ -->
+  <div class="section" id="cashflow">
+    <div class="card">
+      <h2>Revenue Build — Monthly (Dineen MSA Pricing)</h2>
+      <div class="tbl-wrap">
+        <table>
+          <tr><th>Month</th><th class="right">Buses</th><th class="right">Revenue (ex-GST)</th><th class="right">COGS</th><th class="right">Gross Profit</th><th class="right">Cumulative GP</th></tr>
+          <tr><td>M1</td><td class="right">8</td><td class="right">$44,728</td><td class="right">$24,032</td><td class="right" style="color:var(--green)">$20,696</td><td class="right">$20,696</td></tr>
+          <tr><td>M2</td><td class="right">12</td><td class="right">$67,092</td><td class="right">$36,048</td><td class="right" style="color:var(--green)">$31,044</td><td class="right">$51,740</td></tr>
+          <tr><td>M3</td><td class="right">15</td><td class="right">$83,865</td><td class="right">$45,060</td><td class="right" style="color:var(--green)">$38,805</td><td class="right">$90,545</td></tr>
+          <tr><td>Q1</td><td class="right bold">35</td><td class="right bold">$195,685</td><td class="right bold">$105,140</td><td class="right bold" style="color:var(--green)">$90,545</td><td class="right"></td></tr>
+          <tr><td>M4</td><td class="right">20</td><td class="right">$111,820</td><td class="right">$60,080</td><td class="right" style="color:var(--green)">$51,740</td><td class="right">$142,285</td></tr>
+          <tr><td>M5</td><td class="right">25</td><td class="right">$139,775</td><td class="right">$75,100</td><td class="right" style="color:var(--green)">$64,675</td><td class="right">$206,960</td></tr>
+          <tr><td>M6</td><td class="right">25</td><td class="right">$139,775</td><td class="right">$75,100</td><td class="right" style="color:var(--green)">$64,675</td><td class="right">$271,635</td></tr>
+          <tr><td>Q2</td><td class="right bold">70</td><td class="right bold">$391,370</td><td class="right bold">$210,280</td><td class="right bold" style="color:var(--green)">$181,090</td><td class="right"></td></tr>
+          <tr><td>M7</td><td class="right">35</td><td class="right">$195,685</td><td class="right">$105,140</td><td class="right" style="color:var(--green)">$90,545</td><td class="right">$362,180</td></tr>
+          <tr><td>M8</td><td class="right">45</td><td class="right">$251,595</td><td class="right">$135,180</td><td class="right" style="color:var(--green)">$116,415</td><td class="right">$478,595</td></tr>
+          <tr><td>M9</td><td class="right">50</td><td class="right">$279,550</td><td class="right">$150,200</td><td class="right" style="color:var(--green)">$129,350</td><td class="right">$607,945</td></tr>
+          <tr><td>Q3</td><td class="right bold">130</td><td class="right bold">$726,830</td><td class="right bold">$390,520</td><td class="right bold" style="color:var(--green)">$336,310</td><td class="right"></td></tr>
+          <tr><td>M10</td><td class="right">35</td><td class="right">$195,685</td><td class="right">$105,140</td><td class="right" style="color:var(--green)">$90,545</td><td class="right">$698,490</td></tr>
+          <tr><td>M11</td><td class="right">25</td><td class="right">$139,775</td><td class="right">$75,100</td><td class="right" style="color:var(--green)">$64,675</td><td class="right">$763,165</td></tr>
+          <tr><td>M12</td><td class="right">10</td><td class="right">$55,910</td><td class="right">$30,040</td><td class="right" style="color:var(--green)">$25,870</td><td class="right">$789,035</td></tr>
+          <tr class="highlight-row">
+            <td><strong>YEAR 1</strong></td>
+            <td class="right"><strong>305</strong></td>
+            <td class="right"><strong>$1,705,255</strong></td>
+            <td class="right"><strong>$916,220</strong></td>
+            <td class="right"><strong>$789,035</strong></td>
+            <td class="right"></td>
+          </tr>
+        </table>
+      </div>
+      <p style="font-size:0.78rem;color:var(--muted);margin-top:6px;">Based on Dineen MSA pricing ($5,591/bus ex-GST). Does not include prep work revenue (scratch/graffiti/decontam before film — additional per bus) or annual OptiShield service revenue ($225/bus from Year 2).</p>
+    </div>
+
+    <div class="card">
+      <h2>Cashflow Profile</h2>
+      <div class="callout">
+        <strong>Key cashflow dynamic:</strong> Material procurement runs ahead of revenue. PO#1 (air freight ~$82K) goes out before M1 revenue comes in. Landed stock ($50K already paid) covers the gap for first 2 months. By M3, cumulative GP ($91K) exceeds cumulative procurement outlay. From Q2 onwards, this contract is strongly cash-positive.
+      </div>
+
+      <h3>Working Capital Requirements</h3>
+      <div class="tbl-wrap">
+        <table>
+          <tr><th>Period</th><th>Outflow</th><th>Inflow</th><th class="right">Net Position</th></tr>
+          <tr><td>Pre-start (landed stock)</td><td>$50,725 (already invested)</td><td>—</td><td class="right" style="color:var(--amber)">-$50,725</td></tr>
+          <tr><td>M1</td><td>PO#1 $82K + labour $8K</td><td>$49K (M1 rev inc GST)</td><td class="right" style="color:var(--amber)">-$92K</td></tr>
+          <tr><td>M2-3</td><td>Labour $16K</td><td>$166K (M2-3 rev inc GST)</td><td class="right" style="color:var(--green)">+$58K</td></tr>
+          <tr><td>M4 (PO#2)</td><td>PO#2 $135K + labour $10K</td><td>$123K</td><td class="right" style="color:var(--green)">+$36K</td></tr>
+          <tr class="highlight-row"><td>M6+</td><td colspan="2">Sustained cash-positive operations</td><td class="right" style="color:var(--green)">Growing</td></tr>
+        </table>
+      </div>
+      <p style="font-size:0.8rem;margin-top:10px;">Maximum cash exposure is ~$88K at end of M1 (pre-PO#1 receipt of air freight). This is manageable with existing landed stock as collateral and M1 invoicing on 14-day terms.</p>
+    </div>
+
+    <div class="card">
+      <h2>HR Ramp — Cashflow-Triggered</h2>
+      <p>Tech scaling is cashflow-limited, NOT skill-limited. Train-the-trainer program is built. APEAX installer network available at $65/hr as elastic labour supply.</p>
+      <div class="tbl-wrap">
+        <table>
+          <tr><th>Phase</th><th>Teams</th><th>Capacity</th><th>Trigger</th></tr>
+          <tr><td>M1-3</td><td>1 team (2 techs)</td><td>~4 buses/week</td><td>Start</td></tr>
+          <tr><td>M4-6</td><td>2 teams (4 techs)</td><td>~8 buses/week</td><td>Cashflow positive</td></tr>
+          <tr><td>M7-9</td><td>3 teams (6 techs)</td><td>~12 buses/week</td><td>Q2 GP milestone</td></tr>
+          <tr><td>M10-12</td><td>2-3 teams</td><td>~8-12 buses/week</td><td>Wind-down ramp</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ HUMAI VISION ============ -->
+  <div class="section" id="humai">
+    <div class="card">
+      <h2>1:1 HumAI Teams — The Vision</h2>
+      <div class="callout">
+        <strong>Josh's vision:</strong> Every human technician paired 1:1 with a robotic system. Not replacing people — amplifying them. The first company of our kind to do this. Not just in Melbourne. Not just in Australia. Not just APAC. <em>The world.</em>
+      </div>
+
+      <p style="margin-top:12px;">The immediate application: <strong>robotic scratch removal</strong>. This is ASI's most labour-intensive service — manual polishing of wiper arcs, mechanical impact scratches, and graffiti damage across curved coach glass. Perfect candidate for cobot (collaborative robot) augmentation.</p>
+
+      <h3>Why This Makes Sense</h3>
+      <ul>
+        <li><strong>Throughput:</strong> 4 buses/day (robotic) vs 1.5 buses/day (manual) — 2.7× increase</li>
+        <li><strong>Margin:</strong> 75% robotic vs 34% manual — doubles the profit per bus</li>
+        <li><strong>Consistency:</strong> Force-controlled polishing eliminates human fatigue variance</li>
+        <li><strong>Data capture:</strong> Every movement logged — feeds ML models for continuous improvement</li>
+        <li><strong>Safety:</strong> Removes repetitive strain from human techs</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2>Year 1 Robotics Investment — $150K Total (3 Systems)</h2>
+      <div class="callout" style="border-left-color: var(--amber);">
+        <strong>Important:</strong> The $150K is NOT one robot. It covers three separate investments across the year, each with a different purpose. Here's exactly what the money buys and when it's spent:
+      </div>
+
+      <div class="tbl-wrap">
+        <table>
+          <tr><th style="width:30%">Investment</th><th style="width:12%">When</th><th class="right" style="width:13%">Cost (AUD)</th><th style="width:45%">What It Delivers</th></tr>
+          <tr>
+            <td><strong>Unit 1: Dobot CR5 Scratch Removal System</strong></td>
+            <td>M1</td>
+            <td class="right" style="color:var(--primary)"><strong>~$65,000</strong></td>
+            <td>Complete cobot system — arm, force sensor, vision, polishing end-effector, mobile platform, software integration. First 1:1 HumAI team. 4 buses/day scratch removal at 75% margin (vs 1.5 buses/day manual at 34%).</td>
+          </tr>
+          <tr>
+            <td><strong>Unit 2: Refined Dobot CR5 System</strong></td>
+            <td>M6</td>
+            <td class="right" style="color:var(--primary)"><strong>~$55,000</strong></td>
+            <td>Second production unit. Cheaper because we've already done the R&D, software, and end-effector design on Unit 1. Second 1:1 HumAI team. Doubles robotic capacity to 8 buses/day.</td>
+          </tr>
+          <tr>
+            <td><strong>Unitree B2+Z1 Mobile Manipulation R&D</strong></td>
+            <td>M6-12</td>
+            <td class="right" style="color:var(--primary)"><strong>~$30,000</strong></td>
+            <td>R&D platform only (not production). Quadruped robot + arm for autonomous depot operations research. Target: robot walks around bus, detects scratches via vision, remediates without human positioning.</td>
+          </tr>
+          <tr class="highlight-row">
+            <td><strong>TOTAL YEAR 1 ROBOTICS</strong></td>
+            <td></td>
+            <td class="right"><strong>$150,000</strong></td>
+            <td><strong>2 production HumAI teams + 1 autonomous R&D platform</strong></td>
+          </tr>
+        </table>
+      </div>
+
+      <div class="kpi-grid" style="margin-top:16px;">
+        <div class="kpi">
+          <div class="value green">4-8 mo</div>
+          <div class="label">Unit 1 Payback</div>
+        </div>
+        <div class="kpi">
+          <div class="value accent">2.7×</div>
+          <div class="label">Throughput Gain</div>
+        </div>
+        <div class="kpi">
+          <div class="value green">75%</div>
+          <div class="label">Robotic Margin</div>
+        </div>
+        <div class="kpi">
+          <div class="value amber">61%</div>
+          <div class="label">Grant Recovery (Conservative)</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Unit 1 Breakdown: Dobot CR5 System</h2>
+
+      <h3>Why Dobot CR5 Over UR10e</h3>
+      <p>The UR10e (Universal Robots) is the industry standard at ~$75K for the arm alone. The Dobot CR5 delivers equivalent payload (5kg), reach (900mm), and ±0.02mm repeatability at $25-40K for the arm — less than half the price. Both are ISO 10218-1 and ISO/TS 15066 compliant collaborative robots. ASI doesn't need UR's ecosystem premium — we're building our own tooling and vision system.</p>
+
+      <h3>Component Breakdown (Unit 1)</h3>
+      <div class="tbl-wrap">
+        <table>
+          <tr><th>Component</th><th class="right">Est. Cost (AUD)</th></tr>
+          <tr><td>Dobot CR5 cobot arm</td><td class="right">$25,000 - $40,000</td></tr>
+          <tr><td>Force/torque sensor (ATI Mini45)</td><td class="right">$5,000</td></tr>
+          <tr><td>Vision system (Intel RealSense + custom)</td><td class="right">$3,000 - $5,000</td></tr>
+          <tr><td>Custom polishing end-effector</td><td class="right">$5,000 - $8,000</td></tr>
+          <tr><td>Mobile platform + enclosure</td><td class="right">$8,000 - $12,000</td></tr>
+          <tr><td>Software, integration, commissioning</td><td class="right">$10,000 - $15,000</td></tr>
+          <tr class="highlight-row"><td><strong>Unit 1 Total</strong></td><td class="right"><strong>$56,000 - $85,000 (midpoint ~$65K)</strong></td></tr>
+        </table>
+      </div>
+      <p style="font-size:0.78rem; color:var(--muted); margin-top:8px;">Unit 2 at ~$55K: same arm + sensors + platform, but no software/integration R&D cost (already done). Unitree B2+Z1 at ~$30K: off-the-shelf quadruped + Z1 arm for research exploration only.</p>
+    </div>
+
+    <div class="card">
+      <h2>Implementation Roadmap</h2>
+      <div class="timeline">
+        <div class="tl-item active">
+          <div class="tl-date">M1-3 — Phase 1: Foundation</div>
+          <div class="tl-text">Order Dobot CR5, begin integration R&D. Manual operations cover early rollout. Register R&D activities for tax incentive.</div>
+        </div>
+        <div class="tl-item">
+          <div class="tl-date">M4-6 — Phase 2: Prototype</div>
+          <div class="tl-text">First robotic scratch removal system operational. Testing on curved coach glass. 1:1 HumAI team deployed at Dineen depot.</div>
+        </div>
+        <div class="tl-item">
+          <div class="tl-date">M6-9 — Phase 3: Scale</div>
+          <div class="tl-text">Second unit ordered (~$55K, refined design). Two HumAI teams operating. Vision system trained on damage patterns.</div>
+        </div>
+        <div class="tl-item">
+          <div class="tl-date">M9-12 — Phase 4: Autonomy R&D</div>
+          <div class="tl-text">Begin Unitree B2+Z1 mobile manipulation R&D ($30K). Target: autonomous scratch detection and remediation without human positioning.</div>
+        </div>
+      </div>
+
+      <h3>Financial Impact — Robotics Integration</h3>
+      <div class="tbl-wrap">
+        <table>
+          <tr><th></th><th class="right">Manual Only</th><th class="right">With Robotics (M4+)</th><th class="right">Delta</th></tr>
+          <tr><td>Scratch removal margin</td><td class="right">34%</td><td class="right">75%</td><td class="right" style="color:var(--green)">+41pts</td></tr>
+          <tr><td>Buses/day (scratch prep)</td><td class="right">1.5</td><td class="right">4.0</td><td class="right" style="color:var(--green)">+2.7×</td></tr>
+          <tr><td>Annual scratch revenue capacity</td><td class="right">$180K</td><td class="right">$480K</td><td class="right" style="color:var(--green)">+$300K</td></tr>
+          <tr><td>Total Yr1 Robotics Capex<br><span style="font-size:0.65rem;color:var(--muted)">Unit 1 ~$65K + Unit 2 ~$55K + Unitree R&D ~$30K</span></td><td class="right">$0</td><td class="right">$150K</td><td class="right" style="color:var(--amber)">-$150K</td></tr>
+          <tr class="highlight-row"><td>Net Year 1 benefit</td><td class="right">—</td><td class="right">—</td><td class="right" style="color:var(--green)">+$150K</td></tr>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>The Bigger Picture</h2>
+      <p>This isn't just a tool purchase. This is ASI positioning as the world's first surface remediation company with integrated human-robot teams. The 1:1 HumAI model means:</p>
+      <ul>
+        <li><strong>Every tech becomes a supervisor</strong> — managing robotic operations while handling complex tasks the robot can't</li>
+        <li><strong>Data flywheel</strong> — every robotic operation generates training data that makes the next one better</li>
+        <li><strong>Depot-scale autonomy</strong> — long-term vision is robots operating overnight in depots, prepping buses for morning service</li>
+        <li><strong>Defensible competitive moat</strong> — competitors would need years and significant capital to replicate</li>
+      </ul>
+      <p style="margin-top:10px;">Josh's track record: brought FRP (fibre-reinforced polymer) into the Australian market and achieved a <strong>4-year adoption cycle</strong> where the industry norm is 20 years. He did this by supporting Curtin University Structural Lab PhD students — financially and professionally. That same R&D partnership model is the foundation for the HumAI program.</p>
+    </div>
+  </div>
+
+  <!-- ============ WORKFORCE MODEL ============ -->
+  <div class="section" id="workforce">
+    <div class="kpi-grid">
+      <div class="kpi">
+        <div class="value">250</div>
+        <div class="label">Working Days/Year</div>
+      </div>
+      <div class="kpi">
+        <div class="value accent">10 hr</div>
+        <div class="label">Shift Length</div>
+      </div>
+      <div class="kpi">
+        <div class="value amber">1.22</div>
+        <div class="label">Avg Buses/Day Needed</div>
+      </div>
+      <div class="kpi">
+        <div class="value" style="color:var(--red)">2.38</div>
+        <div class="label">Peak Day (M9)</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Service Time Per Bus (All 4 Products + Prep)</h2>
+      <div class="tbl-wrap">
+        <table>
+          <tr><th>Service</th><th class="right">Team</th><th class="right">Hours/Bus</th><th>Notes</th></tr>
+          <tr><td><strong>Prep Work</strong> (scratch, graffiti, decontam)</td><td class="right">2 techs</td><td class="right">~3.0</td><td>Average for existing fleet. Most variable service.</td></tr>
+          <tr><td><strong>OptiShield</strong> (windscreen film)</td><td class="right">2 techs</td><td class="right">1.0</td><td>1 hour max, both Marcopolo &amp; Irizar.</td></tr>
+          <tr><td><strong>PaintShield</strong> (front fascia PPF)</td><td class="right">2 techs</td><td class="right">1.75</td><td>Midpoint of 1.5-2.0 hr range.</td></tr>
+          <tr><td><strong>RadShield</strong> (tint, ~10 panes)</td><td class="right">2 techs</td><td class="right">2.5</td><td>Strip existing + clean + install. ~15 min/pane.</td></tr>
+          <tr><td style="color:var(--muted)"><em>GrafShield</em></td><td class="right" style="color:var(--muted)">Don</td><td class="right" style="color:var(--muted)">0</td><td style="color:var(--muted)">Subcontracted — no ASI labour.</td></tr>
+          <tr class="highlight-row"><td><strong>TOTAL ASI LABOUR</strong></td><td class="right"><strong>2 techs</strong></td><td class="right"><strong>~7.75 hrs</strong></td><td>One team, sequential = ~1.29 buses/day</td></tr>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Framework Comparison</h2>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;">
+        <div style="background:rgba(255,171,0,0.06);border:1px solid var(--border);border-radius:10px;padding:14px;">
+          <h3 style="color:var(--amber);margin-top:0;">Human-Only</h3>
+          <p style="font-size:0.8rem;">All manual. Prep team + install team = <strong>4 techs per unit</strong>.</p>
+          <div class="tbl-wrap">
+            <table>
+              <tr><td>Prep throughput/team/day</td><td class="right"><strong>1.5 buses</strong></td></tr>
+              <tr><td>Bottleneck</td><td class="right" style="color:var(--amber)">PREP</td></tr>
+              <tr><td>Effective buses/unit/day</td><td class="right"><strong>1.3</strong></td></tr>
+              <tr><td>Prep margin</td><td class="right">34%</td></tr>
+            </table>
+          </div>
+        </div>
+        <div style="background:rgba(0,200,83,0.06);border:1px solid var(--border);border-radius:10px;padding:14px;">
+          <h3 style="color:var(--green);margin-top:0;">HumAI</h3>
+          <p style="font-size:0.8rem;">1:1 human-robot. Cobot preps, techs install = <strong>3 techs + 1 robot</strong>.</p>
+          <div class="tbl-wrap">
+            <table>
+              <tr><td>Prep throughput/HumAI/day</td><td class="right" style="color:var(--green)"><strong>4.0 buses</strong></td></tr>
+              <tr><td>Bottleneck</td><td class="right" style="color:var(--accent)">FILM INSTALL</td></tr>
+              <tr><td>Effective buses/unit/day</td><td class="right" style="color:var(--green)"><strong>1.5</strong></td></tr>
+              <tr><td>Prep margin</td><td class="right" style="color:var(--green)">75%</td></tr>
+            </table>
+          </div>
+        </div>
+      </div>
+      <div class="callout">
+        <strong>Key insight:</strong> In Human-Only, prep is the bottleneck — you need a prep team for every install team. In HumAI, 1 robot preps 4 buses/day while install does 1.5 — so one robot keeps <strong>2-3 install teams</strong> fed. The robot is the force multiplier.
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Scaling: Human-Only (4 techs per unit)</h2>
+      <div class="tbl-wrap">
+        <table>
+          <tr><th>Scale</th><th class="right">Techs</th><th class="right">Buses/Day</th><th class="right">Buses/Month</th><th class="right">Annual</th><th>305?</th></tr>
+          <tr><td>1 unit</td><td class="right">4</td><td class="right">1.3</td><td class="right">27</td><td class="right">325</td><td style="color:var(--green)">YES <span style="font-size:0.65rem;color:var(--muted)">(no buffer)</span></td></tr>
+          <tr style="background:rgba(255,171,0,0.06)"><td>1 unit @ 85% utilisation</td><td class="right">4</td><td class="right">1.1</td><td class="right">23</td><td class="right" style="color:var(--red)">276</td><td style="color:var(--red)"><strong>NO (-29)</strong></td></tr>
+          <tr><td>1.5 units</td><td class="right">6</td><td class="right">1.95</td><td class="right">41</td><td class="right">488</td><td style="color:var(--green)">YES</td></tr>
+          <tr><td>2 units</td><td class="right">8</td><td class="right">2.6</td><td class="right">55</td><td class="right">650</td><td style="color:var(--green)">YES (2x)</td></tr>
+        </table>
+      </div>
+      <div class="callout" style="border-left-color:var(--amber)">
+        <strong>Problem:</strong> At realistic 85% utilisation, a single human-only unit <strong>cannot hit 305</strong>. Need 6-8 techs minimum, surging to 10 for peak months M7-M9.
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Scaling: HumAI (3 techs + 1 robot per unit)</h2>
+      <div class="tbl-wrap">
+        <table>
+          <tr><th>Scale</th><th class="right">Techs</th><th class="right">Robots</th><th class="right">Buses/Day</th><th class="right">Annual</th><th>305?</th></tr>
+          <tr><td>1 robot + 1 install team</td><td class="right">3</td><td class="right">1</td><td class="right">1.5</td><td class="right">375</td><td style="color:var(--green)">YES</td></tr>
+          <tr class="highlight-row"><td>1 robot + 1 install @ 85%</td><td class="right">3</td><td class="right">1</td><td class="right">1.28</td><td class="right" style="color:var(--green)"><strong>319</strong></td><td style="color:var(--green)"><strong>YES (+14)</strong></td></tr>
+          <tr><td>1 robot + 2 install teams</td><td class="right">5</td><td class="right">1</td><td class="right">3.0</td><td class="right">750</td><td style="color:var(--green)">YES (2.5x)</td></tr>
+          <tr><td>2 robots + 3 install teams</td><td class="right">7</td><td class="right">2</td><td class="right">4.5</td><td class="right">1,125</td><td style="color:var(--green)">Full Dineen fleet</td></tr>
+        </table>
+      </div>
+      <div class="callout" style="border-left-color:var(--green)">
+        <strong>Result:</strong> Even at 85% utilisation, <strong>1 robot + 1 install team (3 techs) hits 305</strong>. One fewer tech than human-only minimum. Scale to 2 robots + 3 teams for the full 700+ Dineen fleet in one year.
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Month-by-Month: Peak Capacity Test</h2>
+      <p style="font-size:0.8rem;color:var(--muted);margin-bottom:10px;">Can each configuration handle the deployment schedule? ~21 working days/month.</p>
+      <div class="tbl-wrap">
+        <table>
+          <tr>
+            <th>Month</th><th class="right">Target</th><th class="right">Need/Day</th>
+            <th class="right" style="color:var(--amber)">Human 4T</th>
+            <th class="right" style="color:var(--amber)">Human 8T</th>
+            <th class="right" style="color:var(--green)">HumAI 3T+1R</th>
+            <th class="right" style="color:var(--green)">HumAI 5T+1R</th>
+          </tr>
+          <tr><td>M1</td><td class="right">8</td><td class="right">0.38</td><td class="right" style="color:var(--green)">1.1</td><td class="right" style="color:var(--green)">2.2</td><td class="right" style="color:var(--green)">1.28</td><td class="right" style="color:var(--green)">2.55</td></tr>
+          <tr><td>M2</td><td class="right">12</td><td class="right">0.57</td><td class="right" style="color:var(--green)">1.1</td><td class="right" style="color:var(--green)">2.2</td><td class="right" style="color:var(--green)">1.28</td><td class="right" style="color:var(--green)">2.55</td></tr>
+          <tr><td>M3</td><td class="right">15</td><td class="right">0.71</td><td class="right" style="color:var(--green)">1.1</td><td class="right" style="color:var(--green)">2.2</td><td class="right" style="color:var(--green)">1.28</td><td class="right" style="color:var(--green)">2.55</td></tr>
+          <tr><td>M4</td><td class="right">20</td><td class="right">0.95</td><td class="right" style="color:var(--green)">1.1</td><td class="right" style="color:var(--green)">2.2</td><td class="right" style="color:var(--green)">1.28</td><td class="right" style="color:var(--green)">2.55</td></tr>
+          <tr><td>M5</td><td class="right">25</td><td class="right">1.19</td><td class="right" style="color:var(--amber)">1.1</td><td class="right" style="color:var(--green)">2.2</td><td class="right" style="color:var(--green)">1.28</td><td class="right" style="color:var(--green)">2.55</td></tr>
+          <tr><td>M6</td><td class="right">25</td><td class="right">1.19</td><td class="right" style="color:var(--amber)">1.1</td><td class="right" style="color:var(--green)">2.2</td><td class="right" style="color:var(--green)">1.28</td><td class="right" style="color:var(--green)">2.55</td></tr>
+          <tr style="background:rgba(255,171,0,0.06)"><td><strong>M7</strong></td><td class="right"><strong>35</strong></td><td class="right"><strong>1.67</strong></td><td class="right" style="color:var(--red)">1.1</td><td class="right" style="color:var(--green)">2.2</td><td class="right" style="color:var(--amber)">1.28</td><td class="right" style="color:var(--green)">2.55</td></tr>
+          <tr style="background:rgba(255,23,68,0.06)"><td><strong>M8</strong></td><td class="right"><strong>45</strong></td><td class="right" style="color:var(--red)"><strong>2.14</strong></td><td class="right" style="color:var(--red)">1.1</td><td class="right" style="color:var(--green)">2.2</td><td class="right" style="color:var(--red)">1.28</td><td class="right" style="color:var(--green)">2.55</td></tr>
+          <tr style="background:rgba(255,23,68,0.06)"><td><strong>M9</strong></td><td class="right" style="color:var(--red)"><strong>50</strong></td><td class="right" style="color:var(--red)"><strong>2.38</strong></td><td class="right" style="color:var(--red)">1.1</td><td class="right" style="color:var(--amber)">2.2</td><td class="right" style="color:var(--red)">1.28</td><td class="right" style="color:var(--green)">2.55</td></tr>
+          <tr style="background:rgba(255,171,0,0.06)"><td>M10</td><td class="right">35</td><td class="right">1.67</td><td class="right" style="color:var(--red)">1.1</td><td class="right" style="color:var(--green)">2.2</td><td class="right" style="color:var(--amber)">1.28</td><td class="right" style="color:var(--green)">2.55</td></tr>
+          <tr><td>M11</td><td class="right">25</td><td class="right">1.19</td><td class="right" style="color:var(--amber)">1.1</td><td class="right" style="color:var(--green)">2.2</td><td class="right" style="color:var(--green)">1.28</td><td class="right" style="color:var(--green)">2.55</td></tr>
+          <tr><td>M12</td><td class="right">10</td><td class="right">0.48</td><td class="right" style="color:var(--green)">1.1</td><td class="right" style="color:var(--green)">2.2</td><td class="right" style="color:var(--green)">1.28</td><td class="right" style="color:var(--green)">2.55</td></tr>
+        </table>
+      </div>
+      <p style="font-size:0.72rem;color:var(--muted);margin-top:6px;"><span style="color:var(--green)">Green</span> = 10%+ buffer. <span style="color:var(--amber)">Amber</span> = tight, no room for rework. <span style="color:var(--red)">Red</span> = will miss target.</p>
+    </div>
+
+    <div class="card">
+      <h2>Recommended Configuration</h2>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;">
+        <div style="background:rgba(255,171,0,0.06);border:1px solid var(--border);border-radius:10px;padding:14px;">
+          <h3 style="color:var(--amber);margin-top:0;">Human-Only Requirement</h3>
+          <div class="tbl-wrap">
+            <table>
+              <tr><td>M1-4</td><td class="right">4 techs</td></tr>
+              <tr><td>M5-6</td><td class="right">6 techs</td></tr>
+              <tr><td>M7-10 (peak)</td><td class="right">8-10 techs</td></tr>
+              <tr><td>M11-12</td><td class="right">4-6 techs</td></tr>
+              <tr style="font-weight:600"><td>Peak headcount</td><td class="right" style="color:var(--amber)">10</td></tr>
+              <tr style="font-weight:600"><td>Annual labour (avg 7)</td><td class="right">$1,137,500</td></tr>
+            </table>
+          </div>
+          <p style="font-size:0.75rem;color:var(--muted);margin-top:6px;">Still misses M9 at 8 techs. Need surge to 10 for 3 months. Hire/fire cycle.</p>
+        </div>
+        <div style="background:rgba(0,200,83,0.06);border:1px solid var(--border);border-radius:10px;padding:14px;">
+          <h3 style="color:var(--green);margin-top:0;">HumAI Requirement</h3>
+          <div class="tbl-wrap">
+            <table>
+              <tr><td>M1-3 (manual + R&D)</td><td class="right">4 techs, 0 robots</td></tr>
+              <tr><td>M4-6 (Unit 1 live)</td><td class="right">5 techs, 1 robot</td></tr>
+              <tr><td>M7-10 (Unit 2 live)</td><td class="right">5-7 techs, 2 robots</td></tr>
+              <tr><td>M11-12</td><td class="right">3-5 techs, 1-2 robots</td></tr>
+              <tr style="font-weight:600"><td>Peak headcount</td><td class="right" style="color:var(--green)">7</td></tr>
+              <tr style="font-weight:600"><td>Annual labour (avg 5)</td><td class="right" style="color:var(--green)">$812,500</td></tr>
+            </table>
+          </div>
+          <p style="font-size:0.75rem;color:var(--muted);margin-top:6px;">Hits every month including M9 peak. 3 fewer people. $325K labour saving.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Year 1 Economics: Head-to-Head</h2>
+      <div class="tbl-wrap">
+        <table>
+          <tr><th></th><th class="right">Human-Only</th><th class="right">HumAI</th><th class="right">Delta</th></tr>
+          <tr><td>Peak headcount</td><td class="right">10</td><td class="right">7</td><td class="right" style="color:var(--green)">-3 people</td></tr>
+          <tr><td>Avg annual headcount</td><td class="right">7</td><td class="right">5</td><td class="right" style="color:var(--green)">-2 people</td></tr>
+          <tr><td>Annual labour cost</td><td class="right">$1,137,500</td><td class="right">$812,500</td><td class="right" style="color:var(--green)">-$325,000</td></tr>
+          <tr><td>Robotics capex</td><td class="right">$0</td><td class="right">$150,000</td><td class="right" style="color:var(--amber)">+$150,000</td></tr>
+          <tr><td>Grant recovery (conservative)</td><td class="right">$0</td><td class="right">-$91,000</td><td class="right" style="color:var(--green)">-$91,000</td></tr>
+          <tr><td>Net robotics cost</td><td class="right">$0</td><td class="right">$59,000</td><td class="right" style="color:var(--amber)">+$59,000</td></tr>
+          <tr><td>Prep margin improvement</td><td class="right">34%</td><td class="right">75%</td><td class="right" style="color:var(--green)">+41pts</td></tr>
+          <tr><td>Prep GP (305 buses, avg $600)</td><td class="right">$62,220</td><td class="right">$137,250</td><td class="right" style="color:var(--green)">+$75,030</td></tr>
+          <tr class="highlight-row"><td><strong>Net Year 1 Advantage</strong></td><td class="right" colspan="2"></td><td class="right" style="color:var(--green)"><strong>+$341,030</strong></td></tr>
+        </table>
+      </div>
+      <p style="font-size:0.72rem;color:var(--muted);">= $325K labour saving - $59K net robotics + $75K additional prep margin</p>
+
+      <div class="callout" style="border-left-color:var(--green);">
+        <strong>Bottom line:</strong> HumAI pays for itself in Year 1. Not just robotics ROI, but the $325K labour saving from needing 2 fewer average techs. The $150K capex (net $59K after grants) is recovered many times over. <strong>$341K net advantage in Year 1 alone.</strong>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ R&D GRANTS ============ -->
+  <div class="section" id="grants">
+    <div class="card">
+      <h2>R&D Funding Strategy — 4-Tier Stack</h2>
+      <p>All four programs are compatible — different funding sources for different cost categories. Josh has used the R&D Tax Incentive on 5 previous projects. This is proven territory.</p>
+
+      <h3>Tier 1: R&D Tax Incentive <span class="tag tag-green">ACTIVE — START NOW</span></h3>
+      <p><strong>43.5% refundable offset</strong> on eligible R&D spend (ASI qualifies — under $20M turnover). On $95K robotic system development: ~$41K potential refund. Register activities within 10 months of FY end. Start spending now, claim next year.</p>
+
+      <h3>Tier 2: Industry Growth Program <span class="tag tag-amber">APPLY ASAP — POOL CLOSING</span></h3>
+      <p><strong>$50K-$5M</strong>, 50% matched. Rolling applications. ~90% of $392M pool projected spent by June 2026. Robotics projects already funded (Forager Automation $158K, Contactile robotic gripper). Needs Advisory Service Report first (free). <strong>Apply immediately — funding running out.</strong></p>
+
+      <h3>Tier 3: CRC-P Round 19 <span class="tag tag-blue">OPENED 18 MAR 2026</span></h3>
+      <p><strong>Up to $3M per project.</strong> AI systems and technologies = priority area. Needs research partner — Josh's Curtin University connections are the key. ASI + Curtin Structural Lab for AI-driven robotic surface remediation in transport. Josh estimates a few weeks to organise the partnership.</p>
+
+      <h3>Tier 4: Made in Victoria <span class="tag tag-purple">STATE GRANT</span></h3>
+      <p><strong>$50K-$250K</strong> for Victorian manufacturers investing in advanced technology. Simpler application than federal programs. Perfect for Dobot CR5 purchase + integration specifically.</p>
+    </div>
+
+    <div class="card">
+      <h2>Grant Stacking — Potential Funding</h2>
+      <div class="kpi-grid">
+        <div class="kpi">
+          <div class="value green">~$41K</div>
+          <div class="label">R&D Tax Refund (Yr1)</div>
+        </div>
+        <div class="kpi">
+          <div class="value accent">$50-250K</div>
+          <div class="label">IGP (if approved)</div>
+        </div>
+        <div class="kpi">
+          <div class="value">Up to $3M</div>
+          <div class="label">CRC-P (with Curtin)</div>
+        </div>
+        <div class="kpi">
+          <div class="value amber">$50-250K</div>
+          <div class="label">Made in Victoria</div>
+        </div>
+      </div>
+      <div class="callout">
+        <strong>Conservative scenario:</strong> R&D Tax Incentive alone ($41K refund) plus Made in Victoria ($50K) = $91K offset against $150K Year 1 robotics capex. That's a 61% recovery before IGP or CRC-P even come in. With IGP: potentially cost-neutral. With CRC-P: this becomes a funded R&D program.
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ NEXT STEPS ============ -->
+  <div class="section" id="next">
+    <div class="card">
+      <h2>Immediate Actions — This Week</h2>
+      <div class="timeline">
+        <div class="tl-item active">
+          <div class="tl-date">Monday 30 March — Startup Meeting</div>
+          <div class="tl-text"><strong>Bobby & Jaydan:</strong> Review this briefing. Discuss commercial model, rollout plan, and HumAI vision. Get team buy-in.</div>
+        </div>
+        <div class="tl-item">
+          <div class="tl-date">Monday-Tuesday — Finalise Proposal</div>
+          <div class="tl-text">Complete McKenzie's standalone proposal and Dineen MSA. Update OptiShield warranty to 3 years across all documents. Walk through figures one-by-one with Josh.</div>
+        </div>
+        <div class="tl-item">
+          <div class="tl-date">Tuesday-Wednesday — Send to Brad</div>
+          <div class="tl-text">Deliver completed proposal to Brad Sanders (Dineen Group GM). Include client-facing rollout plan (no internal margins), pilot program details, ASI capability statement.</div>
+        </div>
+        <div class="tl-item">
+          <div class="tl-date">This Week — R&D Actions</div>
+          <div class="tl-text">Register for IGP Advisory Service (free, do it now). Begin R&D Tax Incentive activity logging. Josh to contact Curtin re CRC-P partnership scope.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Documents Ready</h2>
+      <div class="tbl-wrap">
+        <table>
+          <tr><th>Document</th><th>Status</th><th>Notes</th></tr>
+          <tr><td>APEAX Procurement Tool (updated)</td><td><span class="tag tag-green">DONE</span></td><td>12-month forecast populated with landed costs</td></tr>
+          <tr><td>Dineen 12-Month Rollout Forecast</td><td><span class="tag tag-green">DONE</span></td><td>Material procurement by PO cycle, stock deductions</td></tr>
+          <tr><td>Client-Facing Rollout Plan</td><td><span class="tag tag-green">DONE</span></td><td>3 sheets: deployment, capability, pilot. No internal data.</td></tr>
+          <tr><td>Dineen MSA Proposal (DOCX)</td><td><span class="tag tag-amber">90%</span></td><td>Needs warranty correction (3yr) + final review</td></tr>
+          <tr><td>McKenzie's Standalone Proposal</td><td><span class="tag tag-amber">PENDING</span></td><td>Finalise tomorrow with Josh</td></tr>
+          <tr><td>GrafShield APEAX Negotiation Brief</td><td><span class="tag tag-amber">PENDING</span></td><td>Cost comparison data ready, formal brief to write</td></tr>
+          <tr><td>R&D Agent Skill</td><td><span class="tag tag-green">DRAFT</span></td><td>Ready for Josh to install and refine</td></tr>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>The Opportunity in Numbers</h2>
+      <div class="kpi-grid">
+        <div class="kpi">
+          <div class="value">$1.71M</div>
+          <div class="label">Year 1 Revenue</div>
+        </div>
+        <div class="kpi">
+          <div class="value green">$789K</div>
+          <div class="label">Year 1 GP</div>
+        </div>
+        <div class="kpi">
+          <div class="value accent">700+</div>
+          <div class="label">Total Fleet</div>
+        </div>
+        <div class="kpi">
+          <div class="value amber">$69K</div>
+          <div class="label">Recurring Rev (Yr2+)</div>
+        </div>
+      </div>
+      <div class="callout" style="border-left-color: var(--green);">
+        <strong>Year 1 alone — 305 buses:</strong> $1.71M revenue, $789K gross profit at 46.3% blended margin. Plus uncounted prep work revenue on every existing bus. Plus $69K annual service revenue from Year 2. Plus robotic integration driving scratch removal margins from 34% to 75%. FX-resilient to 1.85 AUD/USD. Dineen MSA gives Brad a clear 10% saving across ALL products and services vs Trade pricing — a real incentive for group commitment. This is a transformational contract for ASI.
+      </div>
+      <p style="margin-top:14px; text-align:center; font-size:0.9rem;">
+        <strong style="color:var(--primary);">ASI Australia — 4 humans + Claude-backed virtual operation.</strong><br>
+        <span style="color:var(--muted);">First company in the world to deploy 1:1 HumAI teams for surface remediation.</span>
+      </p>
+    </div>
+  </div>
+
+  <div class="footer">
+    ASI Australia Pty Ltd — Advanced Surface Innovations<br>
+    Prepared by ATHENA (Executive Intelligence Engine) — 29 March 2026<br>
+    INTERNAL USE ONLY — COMMERCIAL IN CONFIDENCE
+  </div>
+
+</div>
+
+<script>
+  // Tab navigation
+  document.querySelectorAll('.nav-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+      tab.classList.add('active');
+      document.getElementById(tab.dataset.tab).classList.add('active');
+    });
+  });
+
+  // Swipe support for mobile
+  let touchStartX = 0;
+  let touchEndX = 0;
+  const tabs = ['overview', 'commercials', 'rollout', 'cashflow', 'humai', 'workforce', 'grants', 'next'];
+
+  document.addEventListener('touchstart', e => { touchStartX = e.changedTouches[0].screenX; });
+  document.addEventListener('touchend', e => {
+    touchEndX = e.changedTouches[0].screenX;
+    const diff = touchStartX - touchEndX;
+    if (Math.abs(diff) > 60) {
+      const activeTab = document.querySelector('.nav-tab.active').dataset.tab;
+      const idx = tabs.indexOf(activeTab);
+      let nextIdx = diff > 0 ? idx + 1 : idx - 1;
+      if (nextIdx >= 0 && nextIdx < tabs.length) {
+        document.querySelectorAll('.nav-tab').forEach(t => {
+          if (t.dataset.tab === tabs[nextIdx]) t.click();
+        });
+      }
+    }
+  });
+
+  // Keyboard navigation
+  document.addEventListener('keydown', e => {
+    if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+      const activeTab = document.querySelector('.nav-tab.active').dataset.tab;
+      const idx = tabs.indexOf(activeTab);
+      let nextIdx = e.key === 'ArrowRight' ? idx + 1 : idx - 1;
+      if (nextIdx >= 0 && nextIdx < tabs.length) {
+        document.querySelectorAll('.nav-tab').forEach(t => {
+          if (t.dataset.tab === tabs[nextIdx]) t.click();
+        });
+      }
+    }
+  });
+</script>
+
+</body>
+</html>
