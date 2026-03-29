@@ -46,3 +46,10 @@ firestore-debug.log
 ASIPORTAL/
 # Local Netlify folder
 .netlify
+
+# ATHENA working documents
+*.xlsx
+*.docx
+/startup-meeting-briefing.html
+/workforce-capacity-model.html
+/skills/
