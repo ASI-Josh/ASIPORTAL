@@ -855,12 +855,13 @@ const TOOLS: McpTool[] = [
   // ─── Portal Stock & Procurement tools ───────────────────────────────────────
   {
     name: "get_stock_items",
-    description: "List stock items from ASI Portal with current quantities and reorder thresholds.",
+    description: "List stock items from ASI Portal with current quantities and reorder thresholds. Returns only active items by default.",
     inputSchema: {
       type: "object",
       properties: {
         belowReorder: { type: "boolean", description: "If true, only return items below their reorder threshold." },
         limit: { type: "number", description: "Max items (default 50, max 200)." },
+        includeArchived: { type: "boolean", description: "If true, include archived and discontinued items (default false — active only)." },
       },
     },
   },
@@ -873,7 +874,7 @@ const TOOLS: McpTool[] = [
         id: { type: "string", description: "Stock item Firestore ID." },
         updates: {
           type: "object",
-          description: "Fields: quantity, reorderThreshold, reorderQuantity, supplierName, xeroItemCode, notes.",
+          description: "Fields: quantity, reorderThreshold, reorderQuantity, supplierName, xeroItemCode, notes, status (active/archived/discontinued).",
         },
       },
       required: ["id", "updates"],
@@ -929,6 +930,47 @@ const TOOLS: McpTool[] = [
         dryRun: { type: "boolean", description: "If true, return what WOULD be ordered without creating POs. Default false." },
         deliveryLeadDays: { type: "number", description: "Days to add to today for delivery date on POs. Default 7." },
       },
+    },
+  },
+  {
+    name: "create_stock_item",
+    description: "Create a single stock item in the ASI Portal inventory. Validates against duplicate supplierPartNumber + supplierId combos.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        description: { type: "string", description: "Item description, e.g. 'Polishing Compound 4oz Tube'." },
+        supplierPartNumber: { type: "string", description: "Supplier's part number, e.g. 'GW-S03101'." },
+        supplierName: { type: "string", description: "Supplier name, e.g. 'Elegant IG Supply Line'." },
+        supplierId: { type: "string", description: "Firestore ID from suppliers collection (optional)." },
+        internalStockNumber: { type: "string", description: "Internal stock number (defaults to supplierPartNumber)." },
+        category: { type: "string", description: "Item category, e.g. 'GForce Scratch Removal Consumables'." },
+        itemType: { type: "string", enum: ["consumable", "plant"], description: "Item type: consumable or plant." },
+        quantityOnHand: { type: "number", description: "Current quantity on hand (default 0)." },
+        reorderThreshold: { type: "number", description: "Quantity at which reorder is triggered (default 0)." },
+        reorderQuantity: { type: "number", description: "Quantity to order when below threshold (default 0)." },
+        unit: { type: "string", description: "Unit of measure (default 'Ea')." },
+        costPrice: { type: "number", description: "Cost price ex-GST from supplier price list." },
+        xeroItemCode: { type: "string", description: "Xero catalogue item code (warns if not found in Xero)." },
+        lookupKey: { type: "string", description: "Quick search key, e.g. 'GWS03101'." },
+        notes: { type: "string", description: "Free text notes." },
+      },
+      required: ["description", "supplierPartNumber", "supplierName", "category", "itemType"],
+    },
+  },
+  {
+    name: "bulk_create_stock_items",
+    description: "Create multiple stock items in one call. Validates all items first, then batch-writes. Supports duplicate skipping.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        items: {
+          type: "array",
+          description: "Array of stock item objects matching create_stock_item schema (description, supplierPartNumber, supplierName, category, itemType required per item).",
+          items: { type: "object" },
+        },
+        skipDuplicates: { type: "boolean", description: "If true (default), skip items where supplierPartNumber already exists for that supplier." },
+      },
+      required: ["items"],
     },
   },
   // ─── Executive / Chief of Staff tools ───────────────────────────────────────
@@ -2064,9 +2106,16 @@ async function handleGetStockItems(args: Record<string, unknown>) {
   const limit = safeLimit(args.limit, 50, 200);
   const snap = await db.collection(COLLECTIONS.STOCK_ITEMS).orderBy("updatedAt", "desc").limit(limit).get();
   let docs = snap.docs.map((d) => serializeDoc(d.id, d.data()));
+  // Default to active-only unless includeArchived is true
+  if (args.includeArchived !== true) {
+    docs = docs.filter((d) => {
+      const status = typeof d.status === "string" ? d.status : "active";
+      return status === "active";
+    });
+  }
   if (args.belowReorder === true) {
     docs = docs.filter((d) => {
-      const qty = typeof d.quantity === "number" ? d.quantity : 0;
+      const qty = typeof d.quantityOnHand === "number" ? d.quantityOnHand : (typeof d.quantity === "number" ? d.quantity : 0);
       const threshold = typeof d.reorderThreshold === "number" ? d.reorderThreshold : 0;
       return threshold > 0 && qty <= threshold;
     });
@@ -2082,10 +2131,16 @@ async function handleUpdateStockItem(args: Record<string, unknown>) {
   const snap = await ref.get();
   if (!snap.exists) throw new Error(`Stock item '${id}' not found.`);
 
-  const allowed = new Set(["quantity", "reorderThreshold", "reorderQuantity", "supplierName", "xeroItemCode", "notes"]);
+  const allowed = new Set(["quantity", "reorderThreshold", "reorderQuantity", "supplierName", "xeroItemCode", "notes", "status"]);
+  const validStatuses = new Set(["active", "archived", "discontinued"]);
   const payload: Record<string, unknown> = { updatedAt: admin.firestore.FieldValue.serverTimestamp() };
   for (const [k, v] of Object.entries(updates)) {
-    if (allowed.has(k)) payload[k] = v;
+    if (allowed.has(k)) {
+      if (k === "status" && !validStatuses.has(String(v))) {
+        throw new Error(`Invalid status '${v}'. Must be one of: active, archived, discontinued.`);
+      }
+      payload[k] = v;
+    }
   }
   await ref.set(payload, { merge: true });
   const updated = await ref.get();
@@ -2138,18 +2193,202 @@ async function handleGetGoodsReceived(args: Record<string, unknown>) {
   return snap.docs.map((d) => serializeDoc(d.id, d.data()));
 }
 
+async function handleCreateStockItem(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const now = admin.firestore.FieldValue.serverTimestamp();
+
+  // Required fields
+  const description = String(args.description || "");
+  const supplierPartNumber = String(args.supplierPartNumber || "");
+  const supplierName = String(args.supplierName || "");
+  const category = String(args.category || "");
+  const itemType = String(args.itemType || "");
+
+  if (!description || !supplierPartNumber || !supplierName || !category || !itemType) {
+    throw new Error("Missing required fields: description, supplierPartNumber, supplierName, category, itemType.");
+  }
+  if (itemType !== "consumable" && itemType !== "plant") {
+    throw new Error("itemType must be 'consumable' or 'plant'.");
+  }
+
+  // Duplicate check: supplierPartNumber + supplierId (or supplierName if no supplierId)
+  const supplierId = typeof args.supplierId === "string" ? args.supplierId : "";
+  let dupQuery: admin.firestore.Query = db.collection(COLLECTIONS.STOCK_ITEMS)
+    .where("supplierPartNumber", "==", supplierPartNumber);
+  if (supplierId) {
+    dupQuery = dupQuery.where("supplierId", "==", supplierId);
+  } else {
+    dupQuery = dupQuery.where("supplierName", "==", supplierName);
+  }
+  const dupSnap = await dupQuery.limit(1).get();
+  if (!dupSnap.empty) {
+    throw new Error(`Duplicate: stock item with supplierPartNumber '${supplierPartNumber}' already exists for supplier '${supplierName}'.`);
+  }
+
+  // Xero item code warning (non-blocking)
+  let xeroWarning: string | undefined;
+  const xeroItemCode = typeof args.xeroItemCode === "string" ? args.xeroItemCode : "";
+  if (xeroItemCode) {
+    try {
+      await xeroGetItem(xeroItemCode);
+    } catch {
+      xeroWarning = `Xero item code '${xeroItemCode}' not found in Xero catalogue — item created anyway.`;
+    }
+  }
+
+  const internalStockNumber = typeof args.internalStockNumber === "string" ? args.internalStockNumber : supplierPartNumber;
+
+  const payload: Record<string, unknown> = {
+    description,
+    supplierPartNumber,
+    supplierName,
+    category,
+    itemType,
+    internalStockNumber,
+    quantityOnHand: typeof args.quantityOnHand === "number" ? args.quantityOnHand : 0,
+    reorderThreshold: typeof args.reorderThreshold === "number" ? args.reorderThreshold : 0,
+    reorderQuantity: typeof args.reorderQuantity === "number" ? args.reorderQuantity : 0,
+    unit: typeof args.unit === "string" ? args.unit : "Ea",
+    status: "active",
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  if (supplierId) payload.supplierId = supplierId;
+  if (typeof args.costPrice === "number") payload.costPrice = args.costPrice;
+  if (xeroItemCode) payload.xeroItemCode = xeroItemCode;
+  if (typeof args.lookupKey === "string") payload.lookupKey = args.lookupKey;
+  if (typeof args.notes === "string") payload.notes = args.notes;
+
+  const ref = await db.collection(COLLECTIONS.STOCK_ITEMS).add(payload);
+  const created = await ref.get();
+  const result = serializeDoc(created.id, created.data()!);
+  if (xeroWarning) (result as Record<string, unknown>).xeroWarning = xeroWarning;
+  return result;
+}
+
+async function handleBulkCreateStockItems(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const now = admin.firestore.FieldValue.serverTimestamp();
+  const items = (args.items as Array<Record<string, unknown>>) || [];
+  const skipDuplicates = args.skipDuplicates !== false; // default true
+
+  if (!items.length) throw new Error("items array is empty.");
+
+  // 1. Validate all items first
+  const requiredFields = ["description", "supplierPartNumber", "supplierName", "category", "itemType"];
+  const validTypes = new Set(["consumable", "plant"]);
+  const errors: Array<{ index: number; field?: string; error: string }> = [];
+
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    for (const field of requiredFields) {
+      if (!item[field] || typeof item[field] !== "string" || !String(item[field]).trim()) {
+        errors.push({ index: i, field, error: `required` });
+      }
+    }
+    if (item.itemType && !validTypes.has(String(item.itemType))) {
+      errors.push({ index: i, field: "itemType", error: "must be 'consumable' or 'plant'" });
+    }
+    if (item.costPrice !== undefined && item.costPrice !== null && typeof item.costPrice !== "number") {
+      errors.push({ index: i, field: "costPrice", error: "must be numeric" });
+    }
+  }
+
+  if (errors.length > 0) {
+    return { created: 0, skipped: [], errors, total: items.length };
+  }
+
+  // 2. Check for duplicates if skipDuplicates is true
+  const skipped: Array<{ index: number; supplierPartNumber: string; reason: string }> = [];
+  let toCreate = items;
+
+  if (skipDuplicates) {
+    // Gather all unique supplier names to query existing items
+    const supplierNames = [...new Set(items.map((it) => String(it.supplierName)))];
+    const existingParts = new Set<string>();
+
+    for (const sn of supplierNames) {
+      const snap = await db.collection(COLLECTIONS.STOCK_ITEMS)
+        .where("supplierName", "==", sn)
+        .select("supplierPartNumber")
+        .get();
+      for (const d of snap.docs) {
+        const pn = d.data().supplierPartNumber;
+        if (pn) existingParts.add(`${sn}::${pn}`);
+      }
+    }
+
+    toCreate = [];
+    for (let i = 0; i < items.length; i++) {
+      const key = `${String(items[i].supplierName)}::${String(items[i].supplierPartNumber)}`;
+      if (existingParts.has(key)) {
+        skipped.push({ index: i, supplierPartNumber: String(items[i].supplierPartNumber), reason: "duplicate" });
+      } else {
+        toCreate.push(items[i]);
+        existingParts.add(key); // prevent intra-batch dupes
+      }
+    }
+  }
+
+  // 3. Batch write (Firestore limit 500 per batch — well under for 83 items)
+  const batch = db.batch();
+  const createdIds: string[] = [];
+
+  for (const item of toCreate) {
+    const internalStockNumber = typeof item.internalStockNumber === "string" ? item.internalStockNumber : String(item.supplierPartNumber);
+    const payload: Record<string, unknown> = {
+      description: String(item.description),
+      supplierPartNumber: String(item.supplierPartNumber),
+      supplierName: String(item.supplierName),
+      category: String(item.category),
+      itemType: String(item.itemType),
+      internalStockNumber,
+      quantityOnHand: typeof item.quantityOnHand === "number" ? item.quantityOnHand : 0,
+      reorderThreshold: typeof item.reorderThreshold === "number" ? item.reorderThreshold : 0,
+      reorderQuantity: typeof item.reorderQuantity === "number" ? item.reorderQuantity : 0,
+      unit: typeof item.unit === "string" ? item.unit : "Ea",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    };
+    if (typeof item.supplierId === "string" && item.supplierId) payload.supplierId = item.supplierId;
+    if (typeof item.costPrice === "number") payload.costPrice = item.costPrice;
+    if (typeof item.xeroItemCode === "string" && item.xeroItemCode) payload.xeroItemCode = item.xeroItemCode;
+    if (typeof item.lookupKey === "string" && item.lookupKey) payload.lookupKey = item.lookupKey;
+    if (typeof item.notes === "string" && item.notes) payload.notes = item.notes;
+
+    const ref = db.collection(COLLECTIONS.STOCK_ITEMS).doc();
+    batch.set(ref, payload);
+    createdIds.push(ref.id);
+  }
+
+  await batch.commit();
+
+  return {
+    created: createdIds.length,
+    skipped: skipped.length > 0 ? skipped : undefined,
+    errors: undefined,
+    total: items.length,
+    ids: createdIds,
+  };
+}
+
 async function handleCheckAndDraftReorders(args: Record<string, unknown>) {
   const db = admin.firestore();
   const dryRun = args.dryRun === true;
   const leadDays = typeof args.deliveryLeadDays === "number" ? args.deliveryLeadDays : 7;
   const deliveryDate = new Date(Date.now() + leadDays * 86400_000).toISOString().split("T")[0];
 
-  // 1. Find all stock items below reorder threshold
+  // 1. Find all active stock items below reorder threshold
   const stockSnap = await db.collection(COLLECTIONS.STOCK_ITEMS).limit(500).get();
   const belowThreshold = stockSnap.docs
     .map((d) => ({ id: d.id, ...d.data() } as Record<string, unknown>))
     .filter((item) => {
-      const qty = typeof item.quantity === "number" ? item.quantity : 0;
+      // Skip non-active items (archived, discontinued)
+      const status = typeof item.status === "string" ? item.status : "active";
+      if (status !== "active") return false;
+      const qty = typeof item.quantityOnHand === "number" ? item.quantityOnHand : (typeof item.quantity === "number" ? item.quantity : 0);
       const threshold = typeof item.reorderThreshold === "number" ? item.reorderThreshold : 0;
       return threshold > 0 && qty <= threshold;
     });
@@ -2637,6 +2876,8 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
     // Portal Stock & Procurement
     case "get_stock_items":            return handleGetStockItems(args);
     case "update_stock_item":          return handleUpdateStockItem(args);
+    case "create_stock_item":          return handleCreateStockItem(args);
+    case "bulk_create_stock_items":    return handleBulkCreateStockItems(args);
     case "create_goods_received":      return handleCreateGoodsReceived(args);
     case "get_goods_received":         return handleGetGoodsReceived(args);
     case "check_and_draft_reorders": return handleCheckAndDraftReorders(args);
