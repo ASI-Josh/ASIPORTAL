@@ -1293,39 +1293,233 @@ export interface OrganizationContact {
 // FILM MANAGEMENT (APEAX)
 // ============================================
 
-export type FilmType = "APEAX" | "other";
-export type WarrantyStatus = "active" | "expired" | "claimed";
+export type FilmProductType = "optishield" | "grafshield" | "paintshield" | "radshield" | "clearshield";
+
+export type FilmAssetType = "windscreen" | "side_glass" | "rear_glass" | "destination_panel" | "headlight_lens" | "body_panel" | "other";
+
+export type FilmLifecycleStatus =
+  | "installed"
+  | "warranty_registration_overdue"
+  | "year_1_service_due"
+  | "year_1_serviced"
+  | "year_1_serviced_monitor"
+  | "year_2_service_due"
+  | "year_2_serviced"
+  | "year_2_serviced_monitor"
+  | "year_3_service_due"
+  | "year_3_serviced"
+  | "year_3_serviced_monitor"
+  | "replacement_due"
+  | "replaced"
+  | "warranty_claim_pending"
+  | "warranty_claim_submitted"
+  | "claim_approved"
+  | "claim_rejected"
+  | "replacement_under_warranty"
+  | "removed_early";
+
+export type FilmWarrantyRegistrationStatus = "pending" | "overdue" | "submitted" | "confirmed" | "rejected" | "expired";
+
+export type FilmClaimType = "defect" | "premature_failure" | "delamination" | "discolouration" | "adhesive_failure" | "optical_distortion" | "other";
+
+export type FilmClaimStatus = "draft" | "submitted_to_apeax" | "under_review" | "approved" | "rejected" | "resolved";
+
+export type FilmInspectionType = "year_1_inspection" | "year_2_inspection" | "year_3_inspection" | "ad_hoc_inspection" | "pre_replacement";
+
+export type FilmInspectionResult = "pass" | "conditional_pass" | "fail";
+
+export type FilmQaCriterionResult = "pass" | "fail" | "monitor";
+
+export type FilmHealthStatus = "healthy" | "monitor" | "at_risk" | "failed" | "expired";
+
+export interface FilmWarrantyRegistration {
+  status: FilmWarrantyRegistrationStatus;
+  registeredDate?: string;
+  registrationDeadline: string;
+  apeaxRegistrationRef?: string;
+  registrationMethod?: "email" | "online_form" | "api";
+  registrationEmailDraftId?: string;
+  notes?: string;
+}
+
+export interface FilmWarrantyClaim {
+  claimId: string;
+  claimNumber: string;
+  claimDate: string;
+  claimType: FilmClaimType;
+  description: string;
+  severity: "minor" | "major" | "critical";
+  evidencePhotos?: { url: string; caption: string; uploadedAt: string }[];
+  claimStatus: FilmClaimStatus;
+  apeaxClaimRef?: string;
+  submittedToApeaxDate?: string;
+  apeaxResponseDate?: string;
+  resolution?: string;
+  resolutionDate?: string;
+  replacementInstallationId?: string;
+  creditAmount?: number;
+  notes?: string;
+}
+
+export interface FilmServiceHistoryEntry {
+  serviceId: string;
+  serviceType: FilmInspectionType | "replacement";
+  serviceDate: string;
+  performedBy: string;
+  result: FilmInspectionResult;
+  hydroguardApplied: boolean;
+  notes?: string;
+}
 
 export interface FilmInstallation {
   id: string;
-  jobId: string;
+  installationNumber: string;
+  filmType: FilmProductType;
+  filmProduct: string;
+  filmGrade?: string;
+  batchNumber?: string;
+  rollNumber?: string;
   clientId: string;
   clientName: string;
-  clientEmail: string;
-  vehicle: Vehicle;
-  filmType: FilmType;
-  coverageAreas: string[];
-  installationDate: Timestamp;
+  assetId?: string;
+  assetIdentifier: string;
+  assetType: FilmAssetType;
+  assetDescription?: string;
+  vehicleMake?: string;
+  vehicleModel?: string;
+  vehicleYear?: number;
+  installedDate: string;
   installedBy: string;
-  warrantyYears: number;
-  warrantyExpiry: Timestamp;
-  warrantyStatus: WarrantyStatus;
-  serialNumber?: string;
-  notes?: string;
+  installedByTechId?: string;
+  installationJobId?: string;
+  installationJobNumber?: string;
+  siteLocation?: { name: string; address: string };
+  warrantyStartDate: string;
+  warrantyEndDate: string;
+  expectedReplacementDate: string;
+  lifecycleStatus: FilmLifecycleStatus;
+  warrantyRegistration: FilmWarrantyRegistration;
+  warrantyClaims: FilmWarrantyClaim[];
+  serviceHistory: FilmServiceHistoryEntry[];
+  replacedByInstallationId?: string;
+  replacementReason?: "end_of_life" | "warranty_claim" | "damage" | "customer_request";
+  replacementDate?: string;
+  status: "active" | "archived";
   createdAt: Timestamp;
   updatedAt: Timestamp;
+  createdBy: string;
+  notes?: string;
 }
 
-export interface FilmClaim {
+export interface FilmQaCriterion {
+  result: FilmQaCriterionResult;
+  details?: string;
+  location?: string;
+  photoUrls?: string[];
+}
+
+export interface FilmVisualInspection {
+  filmAdhesion: FilmQaCriterion;
+  edgeLift: FilmQaCriterion & { liftMeasurementMm?: number };
+  bubbling: FilmQaCriterion & { bubbleCount?: number; bubbleSizeMm?: number };
+  delamination: FilmQaCriterion & { delaminationAreaMm2?: number };
+  opticalClarity: FilmQaCriterion & { distortionObserved?: boolean; hazeLevel?: "none" | "slight" | "moderate" | "severe" };
+  discolouration: FilmQaCriterion & { discolourationArea?: string; colourChange?: string };
+  scratches: FilmQaCriterion & { scratchSeverity?: "light" | "moderate" | "deep"; driverLineOfSight?: boolean };
+  pitting: FilmQaCriterion & { pittingDensity?: "isolated" | "scattered" | "widespread" };
+  staining: FilmQaCriterion & { stainType?: "water_spot" | "chemical" | "organic" | "unknown"; removable?: boolean };
+  hydrophobicPerformance: FilmQaCriterion & { waterBeadingObserved?: boolean; waterSheetingObserved?: boolean };
+  wiperCompatibility: FilmQaCriterion & { wiperChatter?: boolean; wiperDrag?: "normal" | "slight" | "excessive"; wiperArcDamage?: boolean };
+  adasCompatibility?: FilmQaCriterion & { sensorObstructed?: boolean; cameraCalibrationNeeded?: boolean };
+}
+
+export interface FilmHydroguardService {
+  applied: boolean;
+  productUsed?: string;
+  batchNumber?: string;
+  applicationMethod?: "spray" | "wipe" | "machine";
+  coatsApplied?: number;
+  cureTimeMinutes?: number;
+  surfacePrepped?: boolean;
+  surfacePrepMethod?: string;
+  notes?: string;
+}
+
+export interface FilmWarrantyInspection {
+  id: string;
+  inspectionNumber: string;
+  filmInstallationId: string;
+  installationNumber: string;
+  jobId?: string;
+  jobNumber?: string;
+  clientId: string;
+  clientName: string;
+  assetIdentifier: string;
+  assetType: string;
+  inspectionType: FilmInspectionType;
+  inspectionDate: string;
+  inspectedBy: string;
+  inspectedByTechId?: string;
+  siteLocation?: { name: string; address: string };
+  yearOfWarranty: number;
+  filmAgeMonths: number;
+  overallCondition: "excellent" | "good" | "fair" | "poor" | "failed";
+  visualInspection?: FilmVisualInspection;
+  hydroguardService?: FilmHydroguardService;
+  overallResult: FilmInspectionResult;
+  conditions?: { conditionType: string; reviewDate: string; severity: "low" | "medium" | "high" }[];
+  failureAction?: "warranty_claim" | "replacement_recommended" | "customer_advised";
+  warrantyClaimTriggered?: boolean;
+  warrantyClaimId?: string;
+  nextServiceDue?: string;
+  nextServiceType?: "year_2_inspection" | "year_3_inspection" | "replacement";
+  technicianSignOff?: { signed: boolean; signedAt?: string; signedBy?: string };
+  customerSignOff?: { signed: boolean; signedAt?: string; signedBy?: string; customerComments?: string };
+  reportGenerated?: boolean;
+  reportUrl?: string;
+  reportSentToClient?: boolean;
+  reportSentDate?: string;
+  status: "draft" | "in_progress" | "completed" | "cancelled";
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+  createdBy: string;
+}
+
+export interface FilmWarrantyRegister {
   id: string;
   filmInstallationId: string;
-  claimDate: Timestamp;
-  issue: string;
-  photoUrls: string[];
-  status: "pending" | "approved" | "rejected" | "completed";
-  resolution?: string;
-  resolvedAt?: Timestamp;
-  createdAt: Timestamp;
+  installationNumber: string;
+  clientId: string;
+  clientName: string;
+  assetIdentifier: string;
+  filmType: string;
+  installedDate: string;
+  warrantyStartDate: string;
+  warrantyEndDate: string;
+  registrationStatus: FilmWarrantyRegistrationStatus;
+  registrationDeadline: string;
+  apeaxRegistrationRef?: string;
+  year1ServiceDue: string;
+  year1ServiceCompleted: boolean;
+  year1ServiceDate?: string;
+  year1ServiceResult?: string;
+  year2ServiceDue: string;
+  year2ServiceCompleted: boolean;
+  year2ServiceDate?: string;
+  year2ServiceResult?: string;
+  year3ServiceDue: string;
+  year3ServiceCompleted: boolean;
+  year3ServiceDate?: string;
+  year3ServiceResult?: string;
+  replacementDue: string;
+  replacementCompleted: boolean;
+  replacementDate?: string;
+  totalClaims: number;
+  openClaims: number;
+  currentHealth: FilmHealthStatus;
+  lastInspectionDate?: string;
+  lastInspectionResult?: string;
+  updatedAt: Timestamp;
 }
 
 // ============================================

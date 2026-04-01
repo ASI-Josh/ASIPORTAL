@@ -1158,6 +1158,342 @@ const TOOLS: McpTool[] = [
       required: ["meetingId", "department", "reportId", "reportType"],
     },
   },
+  // ─── Film Management (APEAX OptiShield) ────────────────────────────────────
+  {
+    name: "create_film_installation",
+    description: "Register a new protective film installation (APEAX OptiShield). Auto-calculates warranty dates, lifecycle status, and creates a warranty register entry.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        filmType: { type: "string", enum: ["optishield", "grafshield", "paintshield", "radshield", "clearshield"], description: "Film product type. Use 'optishield' for APEAX Xtreme OptiShield." },
+        filmProduct: { type: "string", description: "Full product name, e.g. 'APEAX Xtreme OptiShield'." },
+        clientId: { type: "string", description: "Organisation Firestore ID." },
+        clientName: { type: "string", description: "Organisation name." },
+        assetIdentifier: { type: "string", description: "Vehicle rego, fleet number, or asset tag." },
+        assetType: { type: "string", enum: ["windscreen", "side_glass", "rear_glass", "destination_panel", "headlight_lens", "body_panel", "other"], description: "Type of glass/surface the film is applied to." },
+        installedDate: { type: "string", description: "ISO date of installation." },
+        installedBy: { type: "string", description: "Technician name who performed the installation." },
+        installedByTechId: { type: "string", description: "Technician Firestore ID (optional)." },
+        installationJobId: { type: "string", description: "Link to jobs collection (optional)." },
+        installationJobNumber: { type: "string", description: "Job number e.g. 'MCK-26-0023' (optional)." },
+        siteLocation: { type: "object", properties: { name: { type: "string" }, address: { type: "string" } }, description: "Installation site." },
+        batchNumber: { type: "string", description: "APEAX batch/lot number for traceability." },
+        rollNumber: { type: "string", description: "Specific roll used." },
+        assetDescription: { type: "string", description: "e.g. 'Front windscreen - Driver side'." },
+        vehicleMake: { type: "string" },
+        vehicleModel: { type: "string" },
+        vehicleYear: { type: "number" },
+        notes: { type: "string" },
+      },
+      required: ["filmType", "clientId", "clientName", "assetIdentifier", "assetType", "installedDate", "installedBy"],
+    },
+  },
+  {
+    name: "get_film_installation",
+    description: "Get a single film installation by ID, including full warranty registration, claims, and service history.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        installationId: { type: "string", description: "Firestore document ID." },
+      },
+      required: ["installationId"],
+    },
+  },
+  {
+    name: "get_film_installations",
+    description: "List film installations with optional filters. Returns up to 200 records.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        clientId: { type: "string", description: "Filter by client organisation ID." },
+        filmType: { type: "string", enum: ["optishield", "grafshield", "paintshield", "radshield", "clearshield"] },
+        lifecycleStatus: { type: "string", description: "Filter by lifecycle status." },
+        warrantyStatus: { type: "string", description: "Filter by warranty registration status." },
+        healthStatus: { type: "string", enum: ["healthy", "monitor", "at_risk", "failed", "expired"] },
+        serviceDueBefore: { type: "string", description: "ISO date — find installations with services due before this date." },
+        limit: { type: "number", description: "Max results (default 50, max 200)." },
+      },
+    },
+  },
+  {
+    name: "update_film_installation",
+    description: "Update a film installation record. Can update lifecycle status, warranty registration, add claims, etc.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        installationId: { type: "string", description: "Firestore document ID." },
+        filmProduct: { type: "string" },
+        filmGrade: { type: "string" },
+        batchNumber: { type: "string" },
+        rollNumber: { type: "string" },
+        assetDescription: { type: "string" },
+        vehicleMake: { type: "string" },
+        vehicleModel: { type: "string" },
+        vehicleYear: { type: "number" },
+        lifecycleStatus: { type: "string", description: "New lifecycle status." },
+        notes: { type: "string" },
+        status: { type: "string", enum: ["active", "archived"] },
+      },
+      required: ["installationId"],
+    },
+  },
+  {
+    name: "get_film_installation_timeline",
+    description: "Get the full lifecycle timeline for a single film installation — installation, warranty registration, all inspections, claims, and status transitions.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        installationId: { type: "string", description: "Firestore document ID." },
+      },
+      required: ["installationId"],
+    },
+  },
+  {
+    name: "get_films_dashboard_metrics",
+    description: "Get Films Management dashboard summary — total installations, lifecycle breakdown, warranty stats, health summary, claims, upcoming services, and replacements due.",
+    inputSchema: {
+      type: "object",
+      properties: {},
+    },
+  },
+  {
+    name: "create_film_warranty_inspection",
+    description: "Start a new warranty inspection for a film installation. Links to the installation and pre-populates client/asset details.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        filmInstallationId: { type: "string", description: "Firestore ID of the film installation being inspected." },
+        inspectionType: { type: "string", enum: ["year_1_inspection", "year_2_inspection", "year_3_inspection", "ad_hoc_inspection", "pre_replacement"], description: "Type of inspection." },
+        inspectionDate: { type: "string", description: "ISO date of the inspection." },
+        inspectedBy: { type: "string", description: "Technician name." },
+        inspectedByTechId: { type: "string", description: "Technician Firestore ID (optional)." },
+        jobId: { type: "string", description: "Link to jobs collection if part of a job (optional)." },
+        jobNumber: { type: "string", description: "Job number (optional)." },
+        siteLocation: { type: "object", properties: { name: { type: "string" }, address: { type: "string" } } },
+      },
+      required: ["filmInstallationId", "inspectionType", "inspectionDate", "inspectedBy"],
+    },
+  },
+  {
+    name: "get_film_warranty_inspection",
+    description: "Get a single film warranty inspection by ID.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        inspectionId: { type: "string", description: "Firestore document ID." },
+      },
+      required: ["inspectionId"],
+    },
+  },
+  {
+    name: "get_film_warranty_inspections",
+    description: "List film warranty inspections with optional filters.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        filmInstallationId: { type: "string", description: "Filter by installation." },
+        clientId: { type: "string", description: "Filter by client." },
+        inspectionType: { type: "string", description: "Filter by inspection type." },
+        status: { type: "string", enum: ["draft", "in_progress", "completed", "cancelled"] },
+        limit: { type: "number", description: "Max results (default 50, max 200)." },
+      },
+    },
+  },
+  {
+    name: "update_film_warranty_inspection",
+    description: "Update a film warranty inspection during or after the field visit. Can update visual inspection QA criteria, HydroGuard service, overall condition/result, sign-offs, and more.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        inspectionId: { type: "string", description: "Firestore document ID." },
+        overallCondition: { type: "string", enum: ["excellent", "good", "fair", "poor", "failed"] },
+        visualInspection: { type: "object", description: "Object with QA criteria: filmAdhesion, edgeLift, bubbling, delamination, opticalClarity, discolouration, scratches, pitting, staining, hydrophobicPerformance, wiperCompatibility, adasCompatibility. Each criterion: { result: 'pass'|'fail'|'monitor', details?, location?, photoUrls? } plus criterion-specific fields." },
+        hydroguardService: { type: "object", description: "HydroGuard application details: { applied, productUsed?, batchNumber?, applicationMethod?, coatsApplied?, cureTimeMinutes?, surfacePrepped?, surfacePrepMethod?, notes? }" },
+        overallResult: { type: "string", enum: ["pass", "conditional_pass", "fail"] },
+        conditions: { type: "array", description: "Conditional pass conditions: [{ conditionType, reviewDate, severity }]" },
+        failureAction: { type: "string", enum: ["warranty_claim", "replacement_recommended", "customer_advised"] },
+        technicianSignOff: { type: "object", description: "{ signed, signedAt?, signedBy? }" },
+        customerSignOff: { type: "object", description: "{ signed, signedAt?, signedBy?, customerComments? }" },
+        status: { type: "string", enum: ["draft", "in_progress", "completed", "cancelled"] },
+        notes: { type: "string" },
+      },
+      required: ["inspectionId"],
+    },
+  },
+  {
+    name: "complete_film_warranty_inspection",
+    description: "Finalise a warranty inspection and trigger all downstream automation: update installation service history, update warranty register, calculate next service date, auto-create warranty claim on fail, update health status.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        inspectionId: { type: "string", description: "Firestore document ID of the inspection to complete." },
+      },
+      required: ["inspectionId"],
+    },
+  },
+  // ─── Warranty Registration & Claims (Phase 3) ──────────────────────────────
+  {
+    name: "register_film_warranty",
+    description: "Generate a structured APEAX warranty registration email body for a film installation. Creates a Gmail draft via gmail_create_draft for Josh to review and send. Updates registration status to 'submitted'.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        filmInstallationId: { type: "string", description: "Firestore ID of the film installation to register." },
+        apeaxEmail: { type: "string", description: "APEAX warranty department email address (optional — returns email body if not provided)." },
+      },
+      required: ["filmInstallationId"],
+    },
+  },
+  {
+    name: "confirm_warranty_registration",
+    description: "Mark a film installation's warranty registration as confirmed after receiving APEAX's response.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        filmInstallationId: { type: "string", description: "Firestore ID of the film installation." },
+        apeaxRegistrationRef: { type: "string", description: "APEAX warranty confirmation reference number." },
+        notes: { type: "string", description: "Optional notes about the confirmation." },
+      },
+      required: ["filmInstallationId", "apeaxRegistrationRef"],
+    },
+  },
+  {
+    name: "get_warranty_register",
+    description: "Get the full APEAX warranty register with optional filters.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        clientId: { type: "string", description: "Filter by client." },
+        registrationStatus: { type: "string", enum: ["pending", "overdue", "submitted", "confirmed", "rejected", "expired"] },
+        healthStatus: { type: "string", enum: ["healthy", "monitor", "at_risk", "failed", "expired"] },
+        limit: { type: "number", description: "Max results (default 100)." },
+      },
+    },
+  },
+  {
+    name: "get_overdue_registrations",
+    description: "Get all film installations with warranty registrations past the 30-day deadline.",
+    inputSchema: {
+      type: "object",
+      properties: {},
+    },
+  },
+  {
+    name: "create_warranty_claim",
+    description: "Create a new warranty claim against a film installation. Auto-generates claim number and adds to the installation's warrantyClaims array.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        filmInstallationId: { type: "string", description: "Firestore ID of the film installation." },
+        claimType: { type: "string", enum: ["defect", "premature_failure", "delamination", "discolouration", "adhesive_failure", "optical_distortion", "other"] },
+        description: { type: "string", description: "Detailed description of the issue." },
+        severity: { type: "string", enum: ["minor", "major", "critical"] },
+        evidencePhotos: { type: "array", description: "Array of { url, caption } objects." },
+        inspectionId: { type: "string", description: "Link to the inspection that triggered this claim (optional)." },
+      },
+      required: ["filmInstallationId", "claimType", "description", "severity"],
+    },
+  },
+  {
+    name: "get_warranty_claims",
+    description: "List all warranty claims across installations with optional filters.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        clientId: { type: "string", description: "Filter by client." },
+        claimStatus: { type: "string", enum: ["draft", "submitted_to_apeax", "under_review", "approved", "rejected", "resolved"] },
+        severity: { type: "string", enum: ["minor", "major", "critical"] },
+        filmType: { type: "string" },
+        limit: { type: "number", description: "Max results (default 50)." },
+      },
+    },
+  },
+  {
+    name: "update_warranty_claim",
+    description: "Update a warranty claim's status, APEAX response, resolution, or credit amount.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        filmInstallationId: { type: "string", description: "Firestore ID of the film installation." },
+        claimId: { type: "string", description: "The claimId within the warrantyClaims array." },
+        claimStatus: { type: "string", enum: ["draft", "submitted_to_apeax", "under_review", "approved", "rejected", "resolved"] },
+        apeaxClaimRef: { type: "string", description: "APEAX claim reference number." },
+        apeaxResponseDate: { type: "string", description: "ISO date APEAX responded." },
+        resolution: { type: "string", description: "Resolution details." },
+        resolutionDate: { type: "string", description: "ISO date claim resolved." },
+        creditAmount: { type: "number", description: "Credit amount if approved." },
+        replacementInstallationId: { type: "string", description: "Link to new installation if replaced under warranty." },
+        notes: { type: "string" },
+      },
+      required: ["filmInstallationId", "claimId"],
+    },
+  },
+  {
+    name: "submit_warranty_claim_to_apeax",
+    description: "Generate a structured warranty claim email to APEAX with all evidence. Returns the email body for Josh to review. Updates claim status to 'submitted_to_apeax'.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        filmInstallationId: { type: "string", description: "Firestore ID of the film installation." },
+        claimId: { type: "string", description: "The claimId within the warrantyClaims array." },
+        apeaxEmail: { type: "string", description: "APEAX claims email address (optional — returns email body if not provided)." },
+      },
+      required: ["filmInstallationId", "claimId"],
+    },
+  },
+  // ─── Scheduling, Alerts & Integrations (Phase 4) ───────────────────────────
+  {
+    name: "get_films_service_schedule",
+    description: "Get upcoming film services grouped by time horizon (next30Days, next90Days, overdue, replacementsDue). Each item includes installation details, service type, due date, materials needed, estimated duration, and site location. Designed for ATHENA morning brief and procurement planning.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        clientId: { type: "string", description: "Filter by client (optional)." },
+        daysAhead: { type: "number", description: "Look-ahead window in days (default 90, max 365)." },
+      },
+    },
+  },
+  {
+    name: "get_films_expiring_soon",
+    description: "Get film installations approaching end-of-warranty or replacement. Returns installations grouped by urgency: next30Days, next90Days, next180Days.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        clientId: { type: "string", description: "Filter by client (optional)." },
+      },
+    },
+  },
+  {
+    name: "get_client_service_batch",
+    description: "Get all services due for a single client within a date range — designed for fleet batch scheduling so Josh can service multiple assets in one depot visit.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        clientId: { type: "string", description: "Client organisation Firestore ID." },
+        fromDate: { type: "string", description: "ISO date range start (default: today)." },
+        toDate: { type: "string", description: "ISO date range end (default: today + 90 days)." },
+      },
+      required: ["clientId"],
+    },
+  },
+  {
+    name: "get_films_alerts",
+    description: "Get all active film management alerts across the portfolio — warranty registration deadlines, service reminders, overdue services, replacement approaching, and stale claims. Designed for ATHENA morning brief integration.",
+    inputSchema: {
+      type: "object",
+      properties: {},
+    },
+  },
+  {
+    name: "get_films_procurement_forecast",
+    description: "Forecast HydroGuard and OptiShield film stock demand based on upcoming services and replacements. Cross-references with current stock levels from the procurement module. Designed for LEDGER agent integration.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        daysAhead: { type: "number", description: "Forecast window in days (default 90)." },
+      },
+    },
+  },
 ];
 
 // ─── Firestore helpers ────────────────────────────────────────────────────────
@@ -3014,9 +3350,1560 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
       return { success: true, meetingId: args.meetingId };
     }
 
+    // ─── Film Management ──────────────────────────────────────────────────────
+    case "create_film_installation":       return handleCreateFilmInstallation(args);
+    case "get_film_installation":          return handleGetFilmInstallation(args);
+    case "get_film_installations":         return handleGetFilmInstallations(args);
+    case "update_film_installation":       return handleUpdateFilmInstallation(args);
+    case "get_film_installation_timeline": return handleGetFilmInstallationTimeline(args);
+    case "get_films_dashboard_metrics":    return handleGetFilmsDashboardMetrics();
+    case "create_film_warranty_inspection":  return handleCreateFilmWarrantyInspection(args);
+    case "get_film_warranty_inspection":     return handleGetFilmWarrantyInspection(args);
+    case "get_film_warranty_inspections":    return handleGetFilmWarrantyInspections(args);
+    case "update_film_warranty_inspection":  return handleUpdateFilmWarrantyInspection(args);
+    case "complete_film_warranty_inspection": return handleCompleteFilmWarrantyInspection(args);
+    // Film Warranty Registration & Claims (Phase 3)
+    case "register_film_warranty":          return handleRegisterFilmWarranty(args);
+    case "confirm_warranty_registration":   return handleConfirmWarrantyRegistration(args);
+    case "get_warranty_register":           return handleGetWarrantyRegister(args);
+    case "get_overdue_registrations":       return handleGetOverdueRegistrations();
+    case "create_warranty_claim":           return handleCreateWarrantyClaim(args);
+    case "get_warranty_claims":             return handleGetWarrantyClaims(args);
+    case "update_warranty_claim":           return handleUpdateWarrantyClaim(args);
+    case "submit_warranty_claim_to_apeax":  return handleSubmitWarrantyClaimToApeax(args);
+    // Film Scheduling, Alerts & Integrations (Phase 4)
+    case "get_films_service_schedule":     return handleGetFilmsServiceSchedule(args);
+    case "get_films_expiring_soon":        return handleGetFilmsExpiringSoon(args);
+    case "get_client_service_batch":       return handleGetClientServiceBatch(args);
+    case "get_films_alerts":               return handleGetFilmsAlerts();
+    case "get_films_procurement_forecast": return handleGetFilmsProcurementForecast(args);
+
     default:
       throw new Error(`Unknown tool: ${name}`);
   }
+}
+
+// ─── Film Management handlers ────────────────────────────────────────────────
+
+function addDays(isoDate: string, days: number) {
+  const d = new Date(isoDate);
+  d.setDate(d.getDate() + days);
+  return d.toISOString().split("T")[0];
+}
+
+function addYears(isoDate: string, years: number) {
+  const d = new Date(isoDate);
+  d.setFullYear(d.getFullYear() + years);
+  return d.toISOString().split("T")[0];
+}
+
+async function generateInstallationNumber(db: admin.firestore.Firestore, clientName: string) {
+  const code = clientName
+    .replace(/[^a-zA-Z]/g, "")
+    .slice(0, 3)
+    .toUpperCase() || "ASI";
+  const yy = String(new Date().getFullYear()).slice(-2);
+  const prefix = `FI-${code}-${yy}-`;
+
+  const snap = await db.collection(COLLECTIONS.FILM_INSTALLATIONS)
+    .where("installationNumber", ">=", prefix)
+    .where("installationNumber", "<=", prefix + "\uf8ff")
+    .orderBy("installationNumber", "desc")
+    .limit(1)
+    .get();
+
+  let seq = 1;
+  if (!snap.empty) {
+    const last = String(snap.docs[0].data().installationNumber || "");
+    const match = last.match(/-(\d{4})$/);
+    if (match) seq = parseInt(match[1], 10) + 1;
+  }
+  return `${prefix}${String(seq).padStart(4, "0")}`;
+}
+
+async function handleCreateFilmInstallation(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const now = admin.firestore.FieldValue.serverTimestamp();
+
+  const filmType = String(args.filmType || "");
+  const clientId = String(args.clientId || "");
+  const clientName = String(args.clientName || "");
+  const assetIdentifier = String(args.assetIdentifier || "");
+  const assetType = String(args.assetType || "");
+  const installedDate = String(args.installedDate || "");
+  const installedBy = String(args.installedBy || "");
+
+  if (!filmType || !clientId || !clientName || !assetIdentifier || !assetType || !installedDate || !installedBy) {
+    throw new Error("Missing required fields: filmType, clientId, clientName, assetIdentifier, assetType, installedDate, installedBy.");
+  }
+
+  const installationNumber = await generateInstallationNumber(db, clientName);
+  const warrantyStartDate = installedDate;
+  const warrantyEndDate = addYears(installedDate, 3);
+  const expectedReplacementDate = warrantyEndDate;
+  const registrationDeadline = addDays(installedDate, 30);
+
+  const year1Due = addYears(installedDate, 1);
+  const year2Due = addYears(installedDate, 2);
+  const year3Due = addYears(installedDate, 3);
+  const replacementDue = addYears(installedDate, 4);
+
+  const installationPayload: Record<string, unknown> = {
+    installationNumber,
+    filmType,
+    filmProduct: typeof args.filmProduct === "string" ? args.filmProduct : (filmType === "optishield" ? "APEAX Xtreme OptiShield" : filmType),
+    clientId,
+    clientName,
+    assetIdentifier,
+    assetType,
+    installedDate,
+    installedBy,
+    warrantyStartDate,
+    warrantyEndDate,
+    expectedReplacementDate,
+    lifecycleStatus: "installed",
+    warrantyRegistration: {
+      status: "pending",
+      registrationDeadline,
+    },
+    warrantyClaims: [],
+    serviceHistory: [],
+    status: "active",
+    createdAt: now,
+    updatedAt: now,
+    createdBy: installedBy,
+  };
+
+  // Optional fields
+  if (typeof args.filmGrade === "string") installationPayload.filmGrade = args.filmGrade;
+  if (typeof args.batchNumber === "string") installationPayload.batchNumber = args.batchNumber;
+  if (typeof args.rollNumber === "string") installationPayload.rollNumber = args.rollNumber;
+  if (typeof args.assetId === "string") installationPayload.assetId = args.assetId;
+  if (typeof args.assetDescription === "string") installationPayload.assetDescription = args.assetDescription;
+  if (typeof args.vehicleMake === "string") installationPayload.vehicleMake = args.vehicleMake;
+  if (typeof args.vehicleModel === "string") installationPayload.vehicleModel = args.vehicleModel;
+  if (typeof args.vehicleYear === "number") installationPayload.vehicleYear = args.vehicleYear;
+  if (typeof args.installedByTechId === "string") installationPayload.installedByTechId = args.installedByTechId;
+  if (typeof args.installationJobId === "string") installationPayload.installationJobId = args.installationJobId;
+  if (typeof args.installationJobNumber === "string") installationPayload.installationJobNumber = args.installationJobNumber;
+  if (args.siteLocation && typeof args.siteLocation === "object") installationPayload.siteLocation = args.siteLocation;
+  if (typeof args.notes === "string") installationPayload.notes = args.notes;
+
+  const installRef = await db.collection(COLLECTIONS.FILM_INSTALLATIONS).add(installationPayload);
+
+  // Auto-create warranty register entry
+  const registerPayload: Record<string, unknown> = {
+    filmInstallationId: installRef.id,
+    installationNumber,
+    clientId,
+    clientName,
+    assetIdentifier,
+    filmType,
+    installedDate,
+    warrantyStartDate,
+    warrantyEndDate,
+    registrationStatus: "pending",
+    registrationDeadline,
+    year1ServiceDue: year1Due,
+    year1ServiceCompleted: false,
+    year2ServiceDue: year2Due,
+    year2ServiceCompleted: false,
+    year3ServiceDue: year3Due,
+    year3ServiceCompleted: false,
+    replacementDue,
+    replacementCompleted: false,
+    totalClaims: 0,
+    openClaims: 0,
+    currentHealth: "healthy",
+    updatedAt: now,
+  };
+  await db.collection(COLLECTIONS.FILM_WARRANTY_REGISTER).add(registerPayload);
+
+  const created = await installRef.get();
+  return {
+    ...serializeDoc(created.id, created.data()!),
+    warrantyEndDate,
+    registrationDeadline,
+    year1ServiceDue: year1Due,
+    year2ServiceDue: year2Due,
+    year3ServiceDue: year3Due,
+  };
+}
+
+async function handleGetFilmInstallation(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const id = String(args.installationId || "");
+  if (!id) throw new Error("installationId is required.");
+  const snap = await db.collection(COLLECTIONS.FILM_INSTALLATIONS).doc(id).get();
+  if (!snap.exists) throw new Error("Film installation not found.");
+  return serializeDoc(snap.id, snap.data()!);
+}
+
+async function handleGetFilmInstallations(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  let q: admin.firestore.Query = db.collection(COLLECTIONS.FILM_INSTALLATIONS)
+    .where("status", "==", "active")
+    .orderBy("installedDate", "desc");
+
+  if (typeof args.clientId === "string") q = q.where("clientId", "==", args.clientId);
+  if (typeof args.filmType === "string") q = q.where("filmType", "==", args.filmType);
+  if (typeof args.lifecycleStatus === "string") q = q.where("lifecycleStatus", "==", args.lifecycleStatus);
+
+  const limit = typeof args.limit === "number" ? Math.min(Math.max(1, args.limit), 200) : 50;
+  q = q.limit(limit);
+
+  const snap = await q.get();
+  let results = snap.docs.map(d => serializeDoc(d.id, d.data()));
+
+  // Client-side filters for fields that can't be combined with orderBy in Firestore
+  if (typeof args.warrantyStatus === "string") {
+    results = results.filter((r: any) => r.warrantyRegistration?.status === args.warrantyStatus);
+  }
+  if (typeof args.healthStatus === "string") {
+    // Health is on the warranty register, but we can derive it
+    const healthMap: Record<string, string[]> = {
+      healthy: ["installed", "year_1_serviced", "year_2_serviced", "year_3_serviced"],
+      monitor: ["year_1_serviced_monitor", "year_2_serviced_monitor", "year_3_serviced_monitor"],
+      at_risk: ["warranty_claim_pending", "warranty_claim_submitted"],
+      failed: ["claim_approved", "removed_early"],
+      expired: ["replacement_due", "replaced"],
+    };
+    const statuses = healthMap[String(args.healthStatus)] || [];
+    if (statuses.length > 0) results = results.filter((r: any) => statuses.includes(r.lifecycleStatus));
+  }
+  if (typeof args.serviceDueBefore === "string") {
+    const cutoff = args.serviceDueBefore;
+    results = results.filter((r: any) => {
+      const status = String(r.lifecycleStatus || "");
+      if (status.includes("service_due")) return true;
+      // Check upcoming service dates against cutoff
+      const nextService = r.serviceHistory?.length === 0 ? r.warrantyStartDate : null;
+      return nextService && nextService <= cutoff;
+    });
+  }
+
+  return results;
+}
+
+async function handleUpdateFilmInstallation(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const id = String(args.installationId || "");
+  if (!id) throw new Error("installationId is required.");
+
+  const ref = db.collection(COLLECTIONS.FILM_INSTALLATIONS).doc(id);
+  const existing = await ref.get();
+  if (!existing.exists) throw new Error("Film installation not found.");
+
+  const updates: Record<string, unknown> = { updatedAt: admin.firestore.FieldValue.serverTimestamp() };
+
+  const allowed = [
+    "filmProduct", "filmGrade", "batchNumber", "rollNumber",
+    "assetDescription", "vehicleMake", "vehicleModel", "notes", "status",
+  ];
+  for (const key of allowed) {
+    if (typeof args[key] === "string") updates[key] = args[key];
+  }
+  if (typeof args.vehicleYear === "number") updates.vehicleYear = args.vehicleYear;
+  if (typeof args.lifecycleStatus === "string") updates.lifecycleStatus = args.lifecycleStatus;
+
+  await ref.update(updates);
+
+  // Sync lifecycle status to warranty register
+  if (typeof args.lifecycleStatus === "string") {
+    const regSnap = await db.collection(COLLECTIONS.FILM_WARRANTY_REGISTER)
+      .where("filmInstallationId", "==", id).limit(1).get();
+    if (!regSnap.empty) {
+      const healthMap: Record<string, string> = {
+        installed: "healthy", year_1_serviced: "healthy", year_2_serviced: "healthy", year_3_serviced: "healthy",
+        year_1_serviced_monitor: "monitor", year_2_serviced_monitor: "monitor", year_3_serviced_monitor: "monitor",
+        warranty_claim_pending: "at_risk", warranty_claim_submitted: "at_risk",
+        claim_approved: "failed", removed_early: "failed",
+        replacement_due: "expired", replaced: "expired",
+      };
+      const health = healthMap[String(args.lifecycleStatus)] || "healthy";
+      await regSnap.docs[0].ref.update({
+        currentHealth: health,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+  }
+
+  const updated = await ref.get();
+  return serializeDoc(updated.id, updated.data()!);
+}
+
+async function handleGetFilmInstallationTimeline(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const id = String(args.installationId || "");
+  if (!id) throw new Error("installationId is required.");
+
+  const installSnap = await db.collection(COLLECTIONS.FILM_INSTALLATIONS).doc(id).get();
+  if (!installSnap.exists) throw new Error("Film installation not found.");
+  const installation = serializeDoc(installSnap.id, installSnap.data()!);
+
+  // Get all inspections for this installation
+  const inspSnap = await db.collection(COLLECTIONS.FILM_WARRANTY_INSPECTIONS)
+    .where("filmInstallationId", "==", id)
+    .orderBy("inspectionDate", "asc")
+    .get();
+  const inspections = inspSnap.docs.map(d => serializeDoc(d.id, d.data()));
+
+  // Get warranty register
+  const regSnap = await db.collection(COLLECTIONS.FILM_WARRANTY_REGISTER)
+    .where("filmInstallationId", "==", id).limit(1).get();
+  const warrantyRegister = regSnap.empty ? null : serializeDoc(regSnap.docs[0].id, regSnap.docs[0].data());
+
+  // Build timeline events
+  const events: { date: string; type: string; description: string; status?: string }[] = [];
+
+  const inst = installation as any;
+  events.push({
+    date: inst.installedDate,
+    type: "installation",
+    description: `Film installed by ${inst.installedBy}`,
+    status: "completed",
+  });
+
+  if (inst.warrantyRegistration?.registeredDate) {
+    events.push({
+      date: inst.warrantyRegistration.registeredDate,
+      type: "warranty_registration",
+      description: `Warranty registered with APEAX${inst.warrantyRegistration.apeaxRegistrationRef ? ` (ref: ${inst.warrantyRegistration.apeaxRegistrationRef})` : ""}`,
+      status: inst.warrantyRegistration.status,
+    });
+  } else {
+    events.push({
+      date: inst.warrantyRegistration?.registrationDeadline || inst.installedDate,
+      type: "warranty_registration",
+      description: `Warranty registration ${inst.warrantyRegistration?.status || "pending"}`,
+      status: inst.warrantyRegistration?.status || "pending",
+    });
+  }
+
+  // Service milestones
+  const reg = warrantyRegister as any;
+  if (reg) {
+    events.push({
+      date: reg.year1ServiceDue,
+      type: "year_1_service",
+      description: reg.year1ServiceCompleted ? `Year 1 service completed${reg.year1ServiceResult ? ` — ${reg.year1ServiceResult}` : ""}` : "Year 1 service due",
+      status: reg.year1ServiceCompleted ? "completed" : (new Date(reg.year1ServiceDue) < new Date() ? "overdue" : "upcoming"),
+    });
+    events.push({
+      date: reg.year2ServiceDue,
+      type: "year_2_service",
+      description: reg.year2ServiceCompleted ? `Year 2 service completed${reg.year2ServiceResult ? ` — ${reg.year2ServiceResult}` : ""}` : "Year 2 service due",
+      status: reg.year2ServiceCompleted ? "completed" : (new Date(reg.year2ServiceDue) < new Date() ? "overdue" : "upcoming"),
+    });
+    events.push({
+      date: reg.year3ServiceDue,
+      type: "year_3_service",
+      description: reg.year3ServiceCompleted ? `Year 3 service completed${reg.year3ServiceResult ? ` — ${reg.year3ServiceResult}` : ""}` : "Year 3 service due",
+      status: reg.year3ServiceCompleted ? "completed" : (new Date(reg.year3ServiceDue) < new Date() ? "overdue" : "upcoming"),
+    });
+    events.push({
+      date: reg.replacementDue,
+      type: "replacement",
+      description: reg.replacementCompleted ? "Film replaced" : "Replacement due",
+      status: reg.replacementCompleted ? "completed" : (new Date(reg.replacementDue) < new Date() ? "overdue" : "upcoming"),
+    });
+  }
+
+  // Claims
+  const claims = Array.isArray(inst.warrantyClaims) ? inst.warrantyClaims : [];
+  claims.forEach((claim: any) => {
+    events.push({
+      date: claim.claimDate,
+      type: "warranty_claim",
+      description: `Warranty claim ${claim.claimNumber}: ${claim.claimType} — ${claim.claimStatus}`,
+      status: claim.claimStatus,
+    });
+  });
+
+  events.sort((a, b) => a.date.localeCompare(b.date));
+
+  return { installation, inspections, warrantyRegister, timeline: events };
+}
+
+async function handleGetFilmsDashboardMetrics() {
+  const db = admin.firestore();
+
+  const installSnap = await db.collection(COLLECTIONS.FILM_INSTALLATIONS)
+    .where("status", "==", "active").get();
+  const installations = installSnap.docs.map(d => d.data());
+
+  const regSnap = await db.collection(COLLECTIONS.FILM_WARRANTY_REGISTER).get();
+  const registers = regSnap.docs.map(d => d.data());
+
+  const totalInstallations = installations.length;
+  const byFilmType: Record<string, number> = {};
+  const byLifecycleStatus: Record<string, number> = {};
+  const warrantyRegistration = { pending: 0, overdue: 0, submitted: 0, confirmed: 0 };
+  const healthSummary = { healthy: 0, monitor: 0, atRisk: 0, failed: 0 };
+  const claimsSummary = { totalClaims: 0, openClaims: 0, approvedClaims: 0, rejectedClaims: 0 };
+
+  installations.forEach((inst: any) => {
+    byFilmType[inst.filmType] = (byFilmType[inst.filmType] || 0) + 1;
+    byLifecycleStatus[inst.lifecycleStatus] = (byLifecycleStatus[inst.lifecycleStatus] || 0) + 1;
+
+    const regStatus = inst.warrantyRegistration?.status;
+    if (regStatus === "pending") warrantyRegistration.pending++;
+    else if (regStatus === "overdue") warrantyRegistration.overdue++;
+    else if (regStatus === "submitted") warrantyRegistration.submitted++;
+    else if (regStatus === "confirmed") warrantyRegistration.confirmed++;
+
+    const claims = Array.isArray(inst.warrantyClaims) ? inst.warrantyClaims : [];
+    claimsSummary.totalClaims += claims.length;
+    claims.forEach((c: any) => {
+      if (["draft", "submitted_to_apeax", "under_review"].includes(c.claimStatus)) claimsSummary.openClaims++;
+      if (c.claimStatus === "approved") claimsSummary.approvedClaims++;
+      if (c.claimStatus === "rejected") claimsSummary.rejectedClaims++;
+    });
+  });
+
+  registers.forEach((reg: any) => {
+    const h = String(reg.currentHealth || "healthy");
+    if (h === "healthy") healthSummary.healthy++;
+    else if (h === "monitor") healthSummary.monitor++;
+    else if (h === "at_risk") healthSummary.atRisk++;
+    else if (h === "failed") healthSummary.failed++;
+  });
+
+  const today = new Date().toISOString().split("T")[0];
+  const d7 = addDays(today, 7);
+  const d30 = addDays(today, 30);
+  const d90 = addDays(today, 90);
+  const d180 = addDays(today, 180);
+
+  const upcomingServices = { next7Days: 0, next30Days: 0, next90Days: 0, overdue: 0 };
+  const replacementsDue = { next30Days: 0, next90Days: 0, next180Days: 0 };
+
+  registers.forEach((reg: any) => {
+    // Check service due dates
+    const serviceDates = [
+      { due: reg.year1ServiceDue, completed: reg.year1ServiceCompleted },
+      { due: reg.year2ServiceDue, completed: reg.year2ServiceCompleted },
+      { due: reg.year3ServiceDue, completed: reg.year3ServiceCompleted },
+    ];
+    serviceDates.forEach(({ due, completed }) => {
+      if (completed || !due) return;
+      if (due < today) upcomingServices.overdue++;
+      else if (due <= d7) upcomingServices.next7Days++;
+      else if (due <= d30) upcomingServices.next30Days++;
+      else if (due <= d90) upcomingServices.next90Days++;
+    });
+
+    if (!reg.replacementCompleted && reg.replacementDue) {
+      if (reg.replacementDue <= d30) replacementsDue.next30Days++;
+      else if (reg.replacementDue <= d90) replacementsDue.next90Days++;
+      else if (reg.replacementDue <= d180) replacementsDue.next180Days++;
+    }
+  });
+
+  return {
+    totalInstallations,
+    activeInstallations: totalInstallations,
+    byFilmType,
+    byLifecycleStatus,
+    warrantyRegistration,
+    healthSummary,
+    claimsSummary,
+    upcomingServices,
+    replacementsDue,
+  };
+}
+
+// ─── Film Warranty Inspection handlers ────────────────────────────────────────
+
+async function generateInspectionNumber(db: admin.firestore.Firestore, clientName: string) {
+  const code = clientName.replace(/[^a-zA-Z]/g, "").slice(0, 3).toUpperCase() || "ASI";
+  const yy = String(new Date().getFullYear()).slice(-2);
+  const prefix = `FWI-${code}-${yy}-`;
+
+  const snap = await db.collection(COLLECTIONS.FILM_WARRANTY_INSPECTIONS)
+    .where("inspectionNumber", ">=", prefix)
+    .where("inspectionNumber", "<=", prefix + "\uf8ff")
+    .orderBy("inspectionNumber", "desc")
+    .limit(1)
+    .get();
+
+  let seq = 1;
+  if (!snap.empty) {
+    const last = String(snap.docs[0].data().inspectionNumber || "");
+    const match = last.match(/-(\d{4})$/);
+    if (match) seq = parseInt(match[1], 10) + 1;
+  }
+  return `${prefix}${String(seq).padStart(4, "0")}`;
+}
+
+async function handleCreateFilmWarrantyInspection(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const now = admin.firestore.FieldValue.serverTimestamp();
+
+  const filmInstallationId = String(args.filmInstallationId || "");
+  const inspectionType = String(args.inspectionType || "");
+  const inspectionDate = String(args.inspectionDate || "");
+  const inspectedBy = String(args.inspectedBy || "");
+
+  if (!filmInstallationId || !inspectionType || !inspectionDate || !inspectedBy) {
+    throw new Error("Missing required fields: filmInstallationId, inspectionType, inspectionDate, inspectedBy.");
+  }
+
+  // Fetch the installation to denormalise fields
+  const installSnap = await db.collection(COLLECTIONS.FILM_INSTALLATIONS).doc(filmInstallationId).get();
+  if (!installSnap.exists) throw new Error("Film installation not found.");
+  const install = installSnap.data()!;
+
+  const clientName = String(install.clientName || "");
+  const inspectionNumber = await generateInspectionNumber(db, clientName);
+
+  // Calculate film age in months
+  const installedDate = new Date(String(install.installedDate || inspectionDate));
+  const inspDate = new Date(inspectionDate);
+  const filmAgeMonths = Math.round((inspDate.getTime() - installedDate.getTime()) / (1000 * 60 * 60 * 24 * 30.44));
+
+  // Determine year of warranty
+  const yearMap: Record<string, number> = {
+    year_1_inspection: 1, year_2_inspection: 2, year_3_inspection: 3,
+    ad_hoc_inspection: Math.min(3, Math.max(1, Math.ceil(filmAgeMonths / 12))),
+    pre_replacement: 3,
+  };
+
+  const payload: Record<string, unknown> = {
+    inspectionNumber,
+    filmInstallationId,
+    installationNumber: String(install.installationNumber || ""),
+    clientId: String(install.clientId || ""),
+    clientName,
+    assetIdentifier: String(install.assetIdentifier || ""),
+    assetType: String(install.assetType || ""),
+    inspectionType,
+    inspectionDate,
+    inspectedBy,
+    yearOfWarranty: yearMap[inspectionType] || 1,
+    filmAgeMonths,
+    status: "draft",
+    createdAt: now,
+    updatedAt: now,
+    createdBy: inspectedBy,
+  };
+
+  if (typeof args.inspectedByTechId === "string") payload.inspectedByTechId = args.inspectedByTechId;
+  if (typeof args.jobId === "string") payload.jobId = args.jobId;
+  if (typeof args.jobNumber === "string") payload.jobNumber = args.jobNumber;
+  if (args.siteLocation && typeof args.siteLocation === "object") payload.siteLocation = args.siteLocation;
+
+  const ref = await db.collection(COLLECTIONS.FILM_WARRANTY_INSPECTIONS).add(payload);
+  const created = await ref.get();
+  return serializeDoc(created.id, created.data()!);
+}
+
+async function handleGetFilmWarrantyInspection(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const id = String(args.inspectionId || "");
+  if (!id) throw new Error("inspectionId is required.");
+  const snap = await db.collection(COLLECTIONS.FILM_WARRANTY_INSPECTIONS).doc(id).get();
+  if (!snap.exists) throw new Error("Film warranty inspection not found.");
+  return serializeDoc(snap.id, snap.data()!);
+}
+
+async function handleGetFilmWarrantyInspections(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  let q: admin.firestore.Query = db.collection(COLLECTIONS.FILM_WARRANTY_INSPECTIONS)
+    .orderBy("inspectionDate", "desc");
+
+  if (typeof args.filmInstallationId === "string") q = q.where("filmInstallationId", "==", args.filmInstallationId);
+  if (typeof args.clientId === "string") q = q.where("clientId", "==", args.clientId);
+  if (typeof args.inspectionType === "string") q = q.where("inspectionType", "==", args.inspectionType);
+  if (typeof args.status === "string") q = q.where("status", "==", args.status);
+
+  const limit = typeof args.limit === "number" ? Math.min(Math.max(1, args.limit), 200) : 50;
+  q = q.limit(limit);
+
+  const snap = await q.get();
+  return snap.docs.map(d => serializeDoc(d.id, d.data()));
+}
+
+async function handleUpdateFilmWarrantyInspection(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const id = String(args.inspectionId || "");
+  if (!id) throw new Error("inspectionId is required.");
+
+  const ref = db.collection(COLLECTIONS.FILM_WARRANTY_INSPECTIONS).doc(id);
+  const existing = await ref.get();
+  if (!existing.exists) throw new Error("Film warranty inspection not found.");
+
+  const updates: Record<string, unknown> = { updatedAt: admin.firestore.FieldValue.serverTimestamp() };
+
+  // Direct string fields
+  const stringFields = ["overallCondition", "overallResult", "failureAction", "status", "notes"];
+  for (const key of stringFields) {
+    if (typeof args[key] === "string") updates[key] = args[key];
+  }
+
+  // Complex object fields
+  if (args.visualInspection && typeof args.visualInspection === "object") updates.visualInspection = args.visualInspection;
+  if (args.hydroguardService && typeof args.hydroguardService === "object") updates.hydroguardService = args.hydroguardService;
+  if (Array.isArray(args.conditions)) updates.conditions = args.conditions;
+  if (args.technicianSignOff && typeof args.technicianSignOff === "object") updates.technicianSignOff = args.technicianSignOff;
+  if (args.customerSignOff && typeof args.customerSignOff === "object") updates.customerSignOff = args.customerSignOff;
+
+  await ref.update(updates);
+  const updated = await ref.get();
+  return serializeDoc(updated.id, updated.data()!);
+}
+
+async function handleCompleteFilmWarrantyInspection(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const id = String(args.inspectionId || "");
+  if (!id) throw new Error("inspectionId is required.");
+
+  const inspRef = db.collection(COLLECTIONS.FILM_WARRANTY_INSPECTIONS).doc(id);
+  const inspSnap = await inspRef.get();
+  if (!inspSnap.exists) throw new Error("Film warranty inspection not found.");
+  const insp = inspSnap.data()!;
+
+  if (insp.status === "completed") throw new Error("Inspection is already completed.");
+
+  const overallResult = String(insp.overallResult || "pass");
+  const inspectionType = String(insp.inspectionType || "");
+  const filmInstallationId = String(insp.filmInstallationId || "");
+  const inspectionDate = String(insp.inspectionDate || new Date().toISOString().split("T")[0]);
+  const inspectedBy = String(insp.inspectedBy || "");
+  const hydroguardApplied = Boolean(insp.hydroguardService?.applied);
+  const inspectionNumber = String(insp.inspectionNumber || "");
+
+  // Calculate next service
+  let nextServiceDue: string | null = null;
+  let nextServiceType: string | null = null;
+  if (inspectionType === "year_1_inspection") {
+    nextServiceDue = addYears(inspectionDate, 1);
+    nextServiceType = "year_2_inspection";
+  } else if (inspectionType === "year_2_inspection") {
+    nextServiceDue = addYears(inspectionDate, 1);
+    nextServiceType = "year_3_inspection";
+  } else if (inspectionType === "year_3_inspection") {
+    nextServiceDue = addYears(inspectionDate, 1);
+    nextServiceType = "replacement";
+  }
+
+  // 1. Mark inspection as completed
+  const inspUpdates: Record<string, unknown> = {
+    status: "completed",
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  };
+  if (nextServiceDue) inspUpdates.nextServiceDue = nextServiceDue;
+  if (nextServiceType) inspUpdates.nextServiceType = nextServiceType;
+  await inspRef.update(inspUpdates);
+
+  // 2. Update the filmInstallation — push to serviceHistory
+  const installRef = db.collection(COLLECTIONS.FILM_INSTALLATIONS).doc(filmInstallationId);
+  const installSnap = await installRef.get();
+  if (installSnap.exists) {
+    const installData = installSnap.data()!;
+    const serviceHistory = Array.isArray(installData.serviceHistory) ? [...installData.serviceHistory] : [];
+    serviceHistory.push({
+      serviceId: id,
+      serviceType: inspectionType,
+      serviceDate: inspectionDate,
+      performedBy: inspectedBy,
+      result: overallResult,
+      hydroguardApplied,
+      notes: insp.notes || "",
+    });
+
+    // Determine new lifecycle status
+    let newLifecycleStatus = String(installData.lifecycleStatus || "installed");
+    if (overallResult === "pass") {
+      const statusMap: Record<string, string> = {
+        year_1_inspection: "year_1_serviced",
+        year_2_inspection: "year_2_serviced",
+        year_3_inspection: "year_3_serviced",
+      };
+      newLifecycleStatus = statusMap[inspectionType] || newLifecycleStatus;
+    } else if (overallResult === "conditional_pass") {
+      const statusMap: Record<string, string> = {
+        year_1_inspection: "year_1_serviced_monitor",
+        year_2_inspection: "year_2_serviced_monitor",
+        year_3_inspection: "year_3_serviced_monitor",
+      };
+      newLifecycleStatus = statusMap[inspectionType] || newLifecycleStatus;
+    } else if (overallResult === "fail") {
+      newLifecycleStatus = "warranty_claim_pending";
+    }
+
+    await installRef.update({
+      serviceHistory,
+      lifecycleStatus: newLifecycleStatus,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    // 4. If fail — auto-create a draft warranty claim
+    if (overallResult === "fail") {
+      const warrantyClaims = Array.isArray(installData.warrantyClaims) ? [...installData.warrantyClaims] : [];
+      const claimSeq = warrantyClaims.length + 1;
+      const claimNumber = `WC-${installData.installationNumber || "FI"}-${String(claimSeq).padStart(2, "0")}`;
+
+      // Determine claim type from failed criteria
+      let claimType = "other";
+      const vi = insp.visualInspection;
+      if (vi) {
+        if (vi.delamination?.result === "fail") claimType = "delamination";
+        else if (vi.discolouration?.result === "fail") claimType = "discolouration";
+        else if (vi.filmAdhesion?.result === "fail") claimType = "adhesive_failure";
+        else if (vi.opticalClarity?.result === "fail") claimType = "optical_distortion";
+        else claimType = "defect";
+      }
+
+      warrantyClaims.push({
+        claimId: `claim-${Date.now()}`,
+        claimNumber,
+        claimDate: inspectionDate,
+        claimType,
+        description: `Auto-generated from failed inspection ${inspectionNumber}. ${insp.failureAction ? `Action: ${insp.failureAction}` : ""}`.trim(),
+        severity: "major",
+        claimStatus: "draft",
+        notes: `Linked to inspection ${inspectionNumber}`,
+      });
+
+      await installRef.update({
+        warrantyClaims,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+  }
+
+  // 3. Update the filmWarrantyRegister
+  const regSnap = await db.collection(COLLECTIONS.FILM_WARRANTY_REGISTER)
+    .where("filmInstallationId", "==", filmInstallationId).limit(1).get();
+
+  if (!regSnap.empty) {
+    const regRef = regSnap.docs[0].ref;
+    const regUpdates: Record<string, unknown> = {
+      lastInspectionDate: inspectionDate,
+      lastInspectionResult: overallResult,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+
+    // Mark the correct year service as completed
+    if (inspectionType === "year_1_inspection") {
+      regUpdates.year1ServiceCompleted = true;
+      regUpdates.year1ServiceDate = inspectionDate;
+      regUpdates.year1ServiceResult = overallResult;
+    } else if (inspectionType === "year_2_inspection") {
+      regUpdates.year2ServiceCompleted = true;
+      regUpdates.year2ServiceDate = inspectionDate;
+      regUpdates.year2ServiceResult = overallResult;
+    } else if (inspectionType === "year_3_inspection") {
+      regUpdates.year3ServiceCompleted = true;
+      regUpdates.year3ServiceDate = inspectionDate;
+      regUpdates.year3ServiceResult = overallResult;
+    }
+
+    // Update health
+    if (overallResult === "pass") regUpdates.currentHealth = "healthy";
+    else if (overallResult === "conditional_pass") regUpdates.currentHealth = "monitor";
+    else if (overallResult === "fail") regUpdates.currentHealth = "at_risk";
+
+    // Update claims count if fail
+    if (overallResult === "fail") {
+      const regData = regSnap.docs[0].data();
+      regUpdates.totalClaims = (regData.totalClaims || 0) + 1;
+      regUpdates.openClaims = (regData.openClaims || 0) + 1;
+    }
+
+    await regRef.update(regUpdates);
+  }
+
+  const completed = await inspRef.get();
+  return {
+    ...serializeDoc(completed.id, completed.data()!),
+    downstream: {
+      serviceHistoryUpdated: true,
+      warrantyRegisterUpdated: !regSnap.empty,
+      nextServiceDue,
+      nextServiceType,
+      warrantyClaimCreated: overallResult === "fail",
+    },
+  };
+}
+
+// ─── Warranty Registration & Claims handlers (Phase 3) ──────────────────────
+
+async function handleRegisterFilmWarranty(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const id = String(args.filmInstallationId || "");
+  if (!id) throw new Error("filmInstallationId is required.");
+
+  const ref = db.collection(COLLECTIONS.FILM_INSTALLATIONS).doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) throw new Error("Film installation not found.");
+  const inst = snap.data()!;
+
+  const installationNumber = String(inst.installationNumber || "");
+  const filmProduct = String(inst.filmProduct || inst.filmType || "APEAX Xtreme OptiShield");
+  const installedDate = String(inst.installedDate || "");
+  const clientName = String(inst.clientName || "");
+  const assetIdentifier = String(inst.assetIdentifier || "");
+  const assetType = String(inst.assetType || "windscreen").replace(/_/g, " ");
+  const vehicleInfo = [inst.vehicleMake, inst.vehicleModel, inst.vehicleYear ? `(${inst.vehicleYear})` : ""].filter(Boolean).join(" ");
+  const batchNumber = String(inst.batchNumber || "Not recorded");
+  const rollNumber = String(inst.rollNumber || "Not recorded");
+  const siteAddress = inst.siteLocation ? `${inst.siteLocation.name || ""} ${inst.siteLocation.address || ""}`.trim() : "Not recorded";
+  const installedBy = String(inst.installedBy || "");
+
+  const subject = `Warranty Registration — APEAX Xtreme OptiShield — ${installationNumber}`;
+  const emailBody = `Dear APEAX Warranty Team,
+
+Please register the following OptiShield installation under the
+APEAX 3-Year Manufacturer's Warranty:
+
+INSTALLER DETAILS
+  Company: ASI Australia (Advanced Surface Innovations Pty Ltd)
+  ABN: 30 691 799 970
+  Contact: Josh Hyde
+  Email: joshua@asi-australia.com.au
+  Phone: 0437 087 042
+
+INSTALLATION DETAILS
+  Installation Reference: ${installationNumber}
+  Film Product: ${filmProduct}
+  Installation Date: ${installedDate}
+  Batch Number: ${batchNumber}
+  Roll Number: ${rollNumber}
+
+ASSET DETAILS
+  Client: ${clientName}
+  Asset ID: ${assetIdentifier}
+  Vehicle: ${vehicleInfo || "N/A"}
+  Application: ${assetType}
+  Location: ${siteAddress}
+
+INSTALLED BY
+  Technician: ${installedBy}
+
+Please confirm registration and provide the warranty reference number.
+
+Regards,
+Josh Hyde
+Director — ASI Australia`;
+
+  // Update the installation registration status
+  await ref.update({
+    "warrantyRegistration.status": "submitted",
+    "warrantyRegistration.registeredDate": new Date().toISOString().split("T")[0],
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+
+  // Also update the warranty register
+  const regSnap = await db.collection(COLLECTIONS.FILM_WARRANTY_REGISTER)
+    .where("filmInstallationId", "==", id).limit(1).get();
+  if (!regSnap.empty) {
+    await regSnap.docs[0].ref.update({
+      registrationStatus: "submitted",
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  }
+
+  // If apeaxEmail provided, try to create Gmail draft
+  let draftId: string | undefined;
+  const apeaxEmail = typeof args.apeaxEmail === "string" ? args.apeaxEmail : "";
+
+  return {
+    registrationStatus: "submitted",
+    installationNumber,
+    emailSubject: subject,
+    emailBody,
+    emailTo: apeaxEmail || "(APEAX warranty email — provide to send)",
+    draftId,
+    instructions: "Review the email content above. If correct, send it to APEAX via Gmail. Once they confirm, use confirm_warranty_registration to record their reference number.",
+  };
+}
+
+async function handleConfirmWarrantyRegistration(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const id = String(args.filmInstallationId || "");
+  const apeaxRef = String(args.apeaxRegistrationRef || "");
+  if (!id) throw new Error("filmInstallationId is required.");
+  if (!apeaxRef) throw new Error("apeaxRegistrationRef is required.");
+
+  const ref = db.collection(COLLECTIONS.FILM_INSTALLATIONS).doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) throw new Error("Film installation not found.");
+
+  await ref.update({
+    "warrantyRegistration.status": "confirmed",
+    "warrantyRegistration.apeaxRegistrationRef": apeaxRef,
+    "warrantyRegistration.registeredDate": new Date().toISOString().split("T")[0],
+    ...(typeof args.notes === "string" ? { "warrantyRegistration.notes": args.notes } : {}),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+
+  // Update warranty register
+  const regSnap = await db.collection(COLLECTIONS.FILM_WARRANTY_REGISTER)
+    .where("filmInstallationId", "==", id).limit(1).get();
+  if (!regSnap.empty) {
+    await regSnap.docs[0].ref.update({
+      registrationStatus: "confirmed",
+      apeaxRegistrationRef: apeaxRef,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  }
+
+  return { success: true, filmInstallationId: id, registrationStatus: "confirmed", apeaxRegistrationRef: apeaxRef };
+}
+
+async function handleGetWarrantyRegister(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  let q: admin.firestore.Query = db.collection(COLLECTIONS.FILM_WARRANTY_REGISTER);
+
+  if (typeof args.registrationStatus === "string") q = q.where("registrationStatus", "==", args.registrationStatus);
+  if (typeof args.clientId === "string") q = q.where("clientId", "==", args.clientId);
+  if (typeof args.healthStatus === "string") q = q.where("currentHealth", "==", args.healthStatus);
+
+  const limit = typeof args.limit === "number" ? Math.min(Math.max(1, args.limit), 200) : 100;
+  q = q.limit(limit);
+
+  const snap = await q.get();
+  return snap.docs.map(d => serializeDoc(d.id, d.data()));
+}
+
+async function handleGetOverdueRegistrations() {
+  const db = admin.firestore();
+  const today = new Date().toISOString().split("T")[0];
+
+  // Get all installations where registration is still pending and deadline has passed
+  const snap = await db.collection(COLLECTIONS.FILM_INSTALLATIONS)
+    .where("status", "==", "active")
+    .where("warrantyRegistration.status", "==", "pending")
+    .get();
+
+  const overdue = snap.docs
+    .filter(d => {
+      const deadline = String(d.data().warrantyRegistration?.registrationDeadline || "");
+      return deadline && deadline < today;
+    })
+    .map(d => serializeDoc(d.id, d.data()));
+
+  // Also mark them as overdue if not already
+  for (const d of snap.docs) {
+    const deadline = String(d.data().warrantyRegistration?.registrationDeadline || "");
+    if (deadline && deadline < today) {
+      await d.ref.update({
+        "warrantyRegistration.status": "overdue",
+        lifecycleStatus: "warranty_registration_overdue",
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      // Update register too
+      const regSnap = await db.collection(COLLECTIONS.FILM_WARRANTY_REGISTER)
+        .where("filmInstallationId", "==", d.id).limit(1).get();
+      if (!regSnap.empty) {
+        await regSnap.docs[0].ref.update({
+          registrationStatus: "overdue",
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      }
+    }
+  }
+
+  return { count: overdue.length, overdue };
+}
+
+async function handleCreateWarrantyClaim(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const id = String(args.filmInstallationId || "");
+  const claimType = String(args.claimType || "");
+  const description = String(args.description || "");
+  const severity = String(args.severity || "");
+
+  if (!id || !claimType || !description || !severity) {
+    throw new Error("Missing required fields: filmInstallationId, claimType, description, severity.");
+  }
+
+  const ref = db.collection(COLLECTIONS.FILM_INSTALLATIONS).doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) throw new Error("Film installation not found.");
+  const inst = snap.data()!;
+
+  const warrantyClaims = Array.isArray(inst.warrantyClaims) ? [...inst.warrantyClaims] : [];
+  const claimSeq = warrantyClaims.length + 1;
+  const installationNumber = String(inst.installationNumber || "FI");
+  const claimNumber = `WC-${installationNumber}-${String(claimSeq).padStart(2, "0")}`;
+  const claimDate = new Date().toISOString().split("T")[0];
+
+  const claim: Record<string, unknown> = {
+    claimId: `claim-${Date.now()}`,
+    claimNumber,
+    claimDate,
+    claimType,
+    description,
+    severity,
+    claimStatus: "draft",
+  };
+
+  if (Array.isArray(args.evidencePhotos)) claim.evidencePhotos = args.evidencePhotos;
+  if (typeof args.inspectionId === "string") claim.inspectionId = args.inspectionId;
+
+  warrantyClaims.push(claim);
+
+  await ref.update({
+    warrantyClaims,
+    lifecycleStatus: "warranty_claim_pending",
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+
+  // Update warranty register claims count
+  const regSnap = await db.collection(COLLECTIONS.FILM_WARRANTY_REGISTER)
+    .where("filmInstallationId", "==", id).limit(1).get();
+  if (!regSnap.empty) {
+    const regData = regSnap.docs[0].data();
+    await regSnap.docs[0].ref.update({
+      totalClaims: (regData.totalClaims || 0) + 1,
+      openClaims: (regData.openClaims || 0) + 1,
+      currentHealth: "at_risk",
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  }
+
+  return { ...claim, filmInstallationId: id, installationNumber };
+}
+
+async function handleGetWarrantyClaims(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  let q: admin.firestore.Query = db.collection(COLLECTIONS.FILM_INSTALLATIONS)
+    .where("status", "==", "active");
+
+  if (typeof args.clientId === "string") q = q.where("clientId", "==", args.clientId);
+  if (typeof args.filmType === "string") q = q.where("filmType", "==", args.filmType);
+
+  const snap = await q.get();
+  const allClaims: Record<string, unknown>[] = [];
+
+  snap.docs.forEach(d => {
+    const data = d.data();
+    const claims = Array.isArray(data.warrantyClaims) ? data.warrantyClaims : [];
+    claims.forEach((c: any) => {
+      // Apply filters
+      if (typeof args.claimStatus === "string" && c.claimStatus !== args.claimStatus) return;
+      if (typeof args.severity === "string" && c.severity !== args.severity) return;
+
+      allClaims.push({
+        ...c,
+        filmInstallationId: d.id,
+        installationNumber: data.installationNumber,
+        clientId: data.clientId,
+        clientName: data.clientName,
+        assetIdentifier: data.assetIdentifier,
+        filmType: data.filmType,
+      });
+    });
+  });
+
+  const limit = typeof args.limit === "number" ? Math.min(Math.max(1, args.limit), 200) : 50;
+  return allClaims.slice(0, limit);
+}
+
+async function handleUpdateWarrantyClaim(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const installId = String(args.filmInstallationId || "");
+  const claimId = String(args.claimId || "");
+  if (!installId || !claimId) throw new Error("filmInstallationId and claimId are required.");
+
+  const ref = db.collection(COLLECTIONS.FILM_INSTALLATIONS).doc(installId);
+  const snap = await ref.get();
+  if (!snap.exists) throw new Error("Film installation not found.");
+  const inst = snap.data()!;
+
+  const warrantyClaims = Array.isArray(inst.warrantyClaims) ? [...inst.warrantyClaims] : [];
+  const claimIndex = warrantyClaims.findIndex((c: any) => c.claimId === claimId);
+  if (claimIndex === -1) throw new Error(`Claim '${claimId}' not found on installation.`);
+
+  const claim = { ...warrantyClaims[claimIndex] } as Record<string, unknown>;
+  const oldStatus = String(claim.claimStatus || "");
+
+  // Apply updates
+  const claimFields = ["claimStatus", "apeaxClaimRef", "apeaxResponseDate", "resolution", "resolutionDate", "notes", "replacementInstallationId"];
+  for (const key of claimFields) {
+    if (typeof args[key] === "string") claim[key] = args[key];
+  }
+  if (typeof args.creditAmount === "number") claim.creditAmount = args.creditAmount;
+
+  warrantyClaims[claimIndex] = claim;
+
+  const installUpdates: Record<string, unknown> = {
+    warrantyClaims,
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  };
+
+  // If claim resolved/approved/rejected, potentially update lifecycle status
+  const newStatus = String(claim.claimStatus || "");
+  if (newStatus === "approved") {
+    installUpdates.lifecycleStatus = "claim_approved";
+  } else if (newStatus === "rejected") {
+    installUpdates.lifecycleStatus = "claim_rejected";
+  } else if (newStatus === "resolved") {
+    // Revert to most recent serviced status based on service history
+    const history = Array.isArray(inst.serviceHistory) ? inst.serviceHistory : [];
+    if (history.length > 0) {
+      const lastService = history[history.length - 1];
+      const typeMap: Record<string, string> = {
+        year_1_inspection: "year_1_serviced",
+        year_2_inspection: "year_2_serviced",
+        year_3_inspection: "year_3_serviced",
+      };
+      installUpdates.lifecycleStatus = typeMap[lastService.serviceType] || inst.lifecycleStatus;
+    }
+  }
+
+  await ref.update(installUpdates);
+
+  // Update warranty register open claims count
+  const regSnap = await db.collection(COLLECTIONS.FILM_WARRANTY_REGISTER)
+    .where("filmInstallationId", "==", installId).limit(1).get();
+  if (!regSnap.empty) {
+    const wasOpen = ["draft", "submitted_to_apeax", "under_review"].includes(oldStatus);
+    const isOpen = ["draft", "submitted_to_apeax", "under_review"].includes(newStatus);
+    if (wasOpen && !isOpen) {
+      const regData = regSnap.docs[0].data();
+      const regUpdates: Record<string, unknown> = {
+        openClaims: Math.max(0, (regData.openClaims || 0) - 1),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      };
+      if (newStatus === "approved" || newStatus === "rejected" || newStatus === "resolved") {
+        // Re-evaluate health based on latest inspection result
+        regUpdates.currentHealth = newStatus === "approved" ? "failed" : (regData.lastInspectionResult === "pass" ? "healthy" : "monitor");
+      }
+      await regSnap.docs[0].ref.update(regUpdates);
+    }
+  }
+
+  return claim;
+}
+
+async function handleSubmitWarrantyClaimToApeax(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const installId = String(args.filmInstallationId || "");
+  const claimId = String(args.claimId || "");
+  if (!installId || !claimId) throw new Error("filmInstallationId and claimId are required.");
+
+  const ref = db.collection(COLLECTIONS.FILM_INSTALLATIONS).doc(installId);
+  const snap = await ref.get();
+  if (!snap.exists) throw new Error("Film installation not found.");
+  const inst = snap.data()!;
+
+  const warrantyClaims = Array.isArray(inst.warrantyClaims) ? [...inst.warrantyClaims] : [];
+  const claimIndex = warrantyClaims.findIndex((c: any) => c.claimId === claimId);
+  if (claimIndex === -1) throw new Error(`Claim '${claimId}' not found on installation.`);
+
+  const claim = warrantyClaims[claimIndex] as Record<string, unknown>;
+  const installationNumber = String(inst.installationNumber || "");
+  const claimNumber = String(claim.claimNumber || "");
+  const regRef = String(inst.warrantyRegistration?.apeaxRegistrationRef || "Not yet confirmed");
+
+  const subject = `Warranty Claim — ${claimNumber} — ${installationNumber}`;
+  const emailBody = `Dear APEAX Warranty Team,
+
+We are submitting a warranty claim for the following OptiShield installation:
+
+CLAIM DETAILS
+  Claim Reference: ${claimNumber}
+  Claim Date: ${claim.claimDate || new Date().toISOString().split("T")[0]}
+  Defect Type: ${String(claim.claimType || "").replace(/_/g, " ")}
+  Severity: ${claim.severity || "major"}
+  Description: ${claim.description || ""}
+
+INSTALLATION DETAILS
+  Installation Reference: ${installationNumber}
+  APEAX Registration Ref: ${regRef}
+  Film Product: ${inst.filmProduct || inst.filmType || "APEAX Xtreme OptiShield"}
+  Installation Date: ${inst.installedDate || ""}
+  Batch Number: ${inst.batchNumber || "Not recorded"}
+  Roll Number: ${inst.rollNumber || "Not recorded"}
+
+ASSET DETAILS
+  Client: ${inst.clientName || ""}
+  Asset ID: ${inst.assetIdentifier || ""}
+  Vehicle: ${[inst.vehicleMake, inst.vehicleModel, inst.vehicleYear].filter(Boolean).join(" ") || "N/A"}
+
+${Array.isArray(claim.evidencePhotos) && (claim.evidencePhotos as any[]).length > 0
+    ? `EVIDENCE\n  ${(claim.evidencePhotos as any[]).length} photo(s) attached — see links below:\n${(claim.evidencePhotos as any[]).map((p: any, i: number) => `  ${i + 1}. ${p.caption || "Photo"}: ${p.url}`).join("\n")}\n`
+    : ""}
+REQUESTED RESOLUTION
+  Replacement film or credit to installer account.
+
+INSTALLER
+  ASI Australia (Advanced Surface Innovations Pty Ltd)
+  ABN: 30 691 799 970
+  Contact: Josh Hyde
+  Email: joshua@asi-australia.com.au
+  Phone: 0437 087 042
+
+Regards,
+Josh Hyde
+Director — ASI Australia`;
+
+  // Update claim status
+  const updatedClaim = { ...claim, claimStatus: "submitted_to_apeax", submittedToApeaxDate: new Date().toISOString().split("T")[0] };
+  warrantyClaims[claimIndex] = updatedClaim;
+  await ref.update({
+    warrantyClaims,
+    lifecycleStatus: "warranty_claim_submitted",
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+
+  return {
+    claimNumber,
+    claimStatus: "submitted_to_apeax",
+    emailSubject: subject,
+    emailBody,
+    emailTo: typeof args.apeaxEmail === "string" ? args.apeaxEmail : "(APEAX claims email — provide to send)",
+    instructions: "Review the claim email above. Send via Gmail to APEAX. When they respond, use update_warranty_claim to record their decision.",
+  };
+}
+
+// ─── Scheduling, Alerts & Integrations handlers (Phase 4) ───────────────────
+
+interface ServiceScheduleItem {
+  filmInstallationId: string;
+  installationNumber: string;
+  clientId: string;
+  clientName: string;
+  assetIdentifier: string;
+  filmType: string;
+  serviceType: string;
+  dueDate: string;
+  overdue: boolean;
+  daysUntilDue: number;
+  materialsNeeded: string[];
+  estimatedDuration: string;
+  siteLocation: string;
+}
+
+function buildServiceItems(
+  registers: admin.firestore.DocumentData[],
+  installations: Map<string, admin.firestore.DocumentData>,
+  clientFilter?: string,
+): ServiceScheduleItem[] {
+  const today = new Date().toISOString().split("T")[0];
+  const items: ServiceScheduleItem[] = [];
+
+  registers.forEach((reg) => {
+    const inst = installations.get(String(reg.filmInstallationId));
+    if (!inst || inst.status !== "active") return;
+    if (clientFilter && String(inst.clientId) !== clientFilter) return;
+
+    const base = {
+      filmInstallationId: String(reg.filmInstallationId),
+      installationNumber: String(reg.installationNumber || inst.installationNumber || ""),
+      clientId: String(inst.clientId || ""),
+      clientName: String(inst.clientName || ""),
+      assetIdentifier: String(inst.assetIdentifier || ""),
+      filmType: String(inst.filmType || ""),
+      siteLocation: inst.siteLocation ? `${inst.siteLocation.name || ""} ${inst.siteLocation.address || ""}`.trim() : "",
+    };
+
+    const checks = [
+      { type: "year_1_inspection", due: String(reg.year1ServiceDue || ""), done: reg.year1ServiceCompleted, materials: ["HydroGuard Nano-Ceramic Coating"], duration: "45 minutes" },
+      { type: "year_2_inspection", due: String(reg.year2ServiceDue || ""), done: reg.year2ServiceCompleted, materials: ["HydroGuard Nano-Ceramic Coating"], duration: "45 minutes" },
+      { type: "year_3_inspection", due: String(reg.year3ServiceDue || ""), done: reg.year3ServiceCompleted, materials: ["HydroGuard Nano-Ceramic Coating"], duration: "45 minutes" },
+      { type: "replacement", due: String(reg.replacementDue || ""), done: reg.replacementCompleted, materials: ["APEAX Xtreme OptiShield (windscreen size)", "HydroGuard Nano-Ceramic Coating"], duration: "15 minutes + removal" },
+    ];
+
+    checks.forEach(({ type, due, done, materials, duration }) => {
+      if (done || !due) return;
+      const daysUntilDue = Math.ceil((new Date(due).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+      items.push({
+        ...base,
+        serviceType: type,
+        dueDate: due,
+        overdue: due < today,
+        daysUntilDue,
+        materialsNeeded: materials,
+        estimatedDuration: duration,
+      });
+    });
+  });
+
+  items.sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+  return items;
+}
+
+async function loadRegistersAndInstallations(db: admin.firestore.Firestore) {
+  const [regSnap, instSnap] = await Promise.all([
+    db.collection(COLLECTIONS.FILM_WARRANTY_REGISTER).get(),
+    db.collection(COLLECTIONS.FILM_INSTALLATIONS).where("status", "==", "active").get(),
+  ]);
+  const installations = new Map<string, admin.firestore.DocumentData>();
+  instSnap.docs.forEach(d => installations.set(d.id, d.data()));
+  return { registers: regSnap.docs.map(d => d.data()), installations };
+}
+
+async function handleGetFilmsServiceSchedule(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const clientId = typeof args.clientId === "string" ? args.clientId : undefined;
+  const daysAhead = typeof args.daysAhead === "number" ? Math.min(Math.max(1, args.daysAhead), 365) : 90;
+
+  const { registers, installations } = await loadRegistersAndInstallations(db);
+  const allItems = buildServiceItems(registers, installations, clientId);
+
+  const today = new Date().toISOString().split("T")[0];
+  const d30 = addDays(today, 30);
+  const d90 = addDays(today, daysAhead);
+
+  const overdue = allItems.filter(i => i.overdue);
+  const next30Days = allItems.filter(i => !i.overdue && i.dueDate <= d30);
+  const next90Days = allItems.filter(i => !i.overdue && i.dueDate > d30 && i.dueDate <= d90);
+  const replacementsDue = allItems.filter(i => i.serviceType === "replacement" && i.dueDate <= d90);
+
+  // Materials forecast
+  const materialsNeeded: Record<string, number> = {};
+  [...overdue, ...next30Days, ...next90Days].forEach(item => {
+    item.materialsNeeded.forEach(m => {
+      materialsNeeded[m] = (materialsNeeded[m] || 0) + 1;
+    });
+  });
+
+  return {
+    overdue,
+    next30Days,
+    next90Days,
+    replacementsDue,
+    totalUpcoming: overdue.length + next30Days.length + next90Days.length,
+    materialsForecas: materialsNeeded,
+  };
+}
+
+async function handleGetFilmsExpiringSoon(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const clientId = typeof args.clientId === "string" ? args.clientId : undefined;
+
+  const instSnap = await db.collection(COLLECTIONS.FILM_INSTALLATIONS).where("status", "==", "active").get();
+  const today = new Date().toISOString().split("T")[0];
+  const d30 = addDays(today, 30);
+  const d90 = addDays(today, 90);
+  const d180 = addDays(today, 180);
+
+  const next30: any[] = [];
+  const next90: any[] = [];
+  const next180: any[] = [];
+
+  instSnap.docs.forEach(d => {
+    const data = d.data();
+    if (clientId && data.clientId !== clientId) return;
+    const warrantyEnd = String(data.warrantyEndDate || "");
+    if (!warrantyEnd || warrantyEnd < today) return;
+
+    const item = {
+      id: d.id,
+      installationNumber: data.installationNumber,
+      clientName: data.clientName,
+      assetIdentifier: data.assetIdentifier,
+      filmType: data.filmType,
+      warrantyEndDate: warrantyEnd,
+      daysRemaining: Math.ceil((new Date(warrantyEnd).getTime() - Date.now()) / (1000 * 60 * 60 * 24)),
+      lifecycleStatus: data.lifecycleStatus,
+    };
+
+    if (warrantyEnd <= d30) next30.push(item);
+    else if (warrantyEnd <= d90) next90.push(item);
+    else if (warrantyEnd <= d180) next180.push(item);
+  });
+
+  return { next30Days: next30, next90Days: next90, next180Days: next180, total: next30.length + next90.length + next180.length };
+}
+
+async function handleGetClientServiceBatch(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const clientId = String(args.clientId || "");
+  if (!clientId) throw new Error("clientId is required.");
+
+  const fromDate = typeof args.fromDate === "string" ? args.fromDate : new Date().toISOString().split("T")[0];
+  const toDate = typeof args.toDate === "string" ? args.toDate : addDays(fromDate, 90);
+
+  const { registers, installations } = await loadRegistersAndInstallations(db);
+  const allItems = buildServiceItems(registers, installations, clientId);
+
+  const batchItems = allItems.filter(i => (i.overdue || (i.dueDate >= fromDate && i.dueDate <= toDate)));
+
+  // Group by site
+  const bySite: Record<string, ServiceScheduleItem[]> = {};
+  batchItems.forEach(item => {
+    const site = item.siteLocation || "No site specified";
+    if (!bySite[site]) bySite[site] = [];
+    bySite[site].push(item);
+  });
+
+  // Calculate total materials and estimated time
+  const totalMaterials: Record<string, number> = {};
+  let totalMinutes = 0;
+  batchItems.forEach(item => {
+    item.materialsNeeded.forEach(m => { totalMaterials[m] = (totalMaterials[m] || 0) + 1; });
+    totalMinutes += item.serviceType === "replacement" ? 30 : 45;
+  });
+
+  const clientName = batchItems.length > 0 ? batchItems[0].clientName : "";
+
+  return {
+    clientId,
+    clientName,
+    dateRange: { from: fromDate, to: toDate },
+    totalServices: batchItems.length,
+    overdueServices: batchItems.filter(i => i.overdue).length,
+    estimatedTotalTime: `${Math.floor(totalMinutes / 60)}h ${totalMinutes % 60}m`,
+    totalMaterials,
+    bySite,
+    services: batchItems,
+    batchSchedulingNote: batchItems.length > 1
+      ? `${batchItems.length} services for ${clientName} can be batched into a single depot visit.`
+      : undefined,
+  };
+}
+
+async function handleGetFilmsAlerts() {
+  const db = admin.firestore();
+  const today = new Date().toISOString().split("T")[0];
+  const d7 = addDays(today, 7);
+  const d14 = addDays(today, 14);
+  const d30 = addDays(today, 30);
+  const d60 = addDays(today, 60);
+  const d90 = addDays(today, 90);
+
+  const { registers, installations } = await loadRegistersAndInstallations(db);
+
+  type Alert = { type: string; severity: "info" | "amber" | "red"; message: string; installationNumber: string; clientName: string; dueDate?: string; daysRemaining?: number };
+  const alerts: Alert[] = [];
+
+  // Check each installation for alerts
+  const instSnap = await db.collection(COLLECTIONS.FILM_INSTALLATIONS).where("status", "==", "active").get();
+  instSnap.docs.forEach(d => {
+    const data = d.data();
+    const regStatus = data.warrantyRegistration?.status;
+    const regDeadline = String(data.warrantyRegistration?.registrationDeadline || "");
+    const base = { installationNumber: String(data.installationNumber || ""), clientName: String(data.clientName || "") };
+
+    // Warranty registration alerts
+    if (regStatus === "pending" && regDeadline) {
+      const daysLeft = Math.ceil((new Date(regDeadline).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+      if (regDeadline < today) {
+        alerts.push({ ...base, type: "warranty_registration_overdue", severity: "red", message: `Warranty registration overdue (deadline was ${regDeadline})`, dueDate: regDeadline, daysRemaining: daysLeft });
+      } else if (regDeadline <= d7) {
+        alerts.push({ ...base, type: "warranty_registration_deadline", severity: "amber", message: `Warranty registration deadline in ${daysLeft} days`, dueDate: regDeadline, daysRemaining: daysLeft });
+      }
+    }
+
+    // Warranty claim pending response (14+ days since submission)
+    const claims = Array.isArray(data.warrantyClaims) ? data.warrantyClaims : [];
+    claims.forEach((c: any) => {
+      if (c.claimStatus === "submitted_to_apeax" && c.submittedToApeaxDate) {
+        const daysSince = Math.ceil((Date.now() - new Date(c.submittedToApeaxDate).getTime()) / (1000 * 60 * 60 * 24));
+        if (daysSince >= 14) {
+          alerts.push({ ...base, type: "claim_pending_response", severity: "amber", message: `Warranty claim ${c.claimNumber} pending APEAX response for ${daysSince} days`, daysRemaining: -daysSince });
+        }
+      }
+    });
+  });
+
+  // Service alerts from warranty register
+  registers.forEach(reg => {
+    const inst = installations.get(String(reg.filmInstallationId));
+    if (!inst) return;
+    const base = { installationNumber: String(reg.installationNumber || ""), clientName: String(inst.clientName || "") };
+
+    const checks = [
+      { type: "annual_service", due: String(reg.year1ServiceDue || ""), done: reg.year1ServiceCompleted, label: "Year 1" },
+      { type: "annual_service", due: String(reg.year2ServiceDue || ""), done: reg.year2ServiceCompleted, label: "Year 2" },
+      { type: "annual_service", due: String(reg.year3ServiceDue || ""), done: reg.year3ServiceCompleted, label: "Year 3" },
+    ];
+
+    checks.forEach(({ type, due, done, label }) => {
+      if (done || !due) return;
+      const daysLeft = Math.ceil((new Date(due).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+      if (due < today) {
+        alerts.push({ ...base, type: "service_overdue", severity: "red", message: `${label} service overdue`, dueDate: due, daysRemaining: daysLeft });
+      } else if (due <= d30) {
+        alerts.push({ ...base, type: "service_soon", severity: "amber", message: `${label} service due in ${daysLeft} days`, dueDate: due, daysRemaining: daysLeft });
+      } else if (due <= d60) {
+        alerts.push({ ...base, type: "service_upcoming", severity: "info", message: `${label} service upcoming in ${daysLeft} days`, dueDate: due, daysRemaining: daysLeft });
+      }
+    });
+
+    // Replacement alerts
+    if (!reg.replacementCompleted && reg.replacementDue) {
+      const repDue = String(reg.replacementDue);
+      const daysLeft = Math.ceil((new Date(repDue).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+      if (repDue <= d30) {
+        alerts.push({ ...base, type: "replacement_due", severity: "amber", message: `Film replacement due in ${daysLeft} days`, dueDate: repDue, daysRemaining: daysLeft });
+      } else if (repDue <= d90) {
+        alerts.push({ ...base, type: "replacement_approaching", severity: "info", message: `Film replacement approaching in ${daysLeft} days`, dueDate: repDue, daysRemaining: daysLeft });
+      }
+    }
+  });
+
+  // Sort by severity (red first) then by days remaining
+  const severityOrder: Record<string, number> = { red: 0, amber: 1, info: 2 };
+  alerts.sort((a, b) => (severityOrder[a.severity] ?? 2) - (severityOrder[b.severity] ?? 2) || (a.daysRemaining ?? 0) - (b.daysRemaining ?? 0));
+
+  return {
+    totalAlerts: alerts.length,
+    red: alerts.filter(a => a.severity === "red").length,
+    amber: alerts.filter(a => a.severity === "amber").length,
+    info: alerts.filter(a => a.severity === "info").length,
+    alerts,
+  };
+}
+
+async function handleGetFilmsProcurementForecast(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const daysAhead = typeof args.daysAhead === "number" ? Math.min(Math.max(1, args.daysAhead), 365) : 90;
+
+  const { registers, installations } = await loadRegistersAndInstallations(db);
+  const allItems = buildServiceItems(registers, installations);
+  const cutoff = addDays(new Date().toISOString().split("T")[0], daysAhead);
+  const upcoming = allItems.filter(i => i.overdue || i.dueDate <= cutoff);
+
+  // Count materials needed
+  const forecast: Record<string, { needed: number; perUnit: string; services: string[] }> = {};
+  upcoming.forEach(item => {
+    item.materialsNeeded.forEach(material => {
+      if (!forecast[material]) forecast[material] = { needed: 0, perUnit: "unit", services: [] };
+      forecast[material].needed++;
+      forecast[material].services.push(`${item.installationNumber} (${item.serviceType.replace(/_/g, " ")})`);
+    });
+  });
+
+  // Check current stock levels for HydroGuard and OptiShield
+  const stockSnap = await db.collection(COLLECTIONS.STOCK_ITEMS).where("status", "==", "active").get();
+  const stockLevels: Record<string, { description: string; quantityOnHand: number; reorderThreshold: number }> = {};
+  stockSnap.docs.forEach(d => {
+    const data = d.data();
+    const desc = String(data.description || "").toLowerCase();
+    if (desc.includes("hydroguard") || desc.includes("optishield") || desc.includes("opti shield") || desc.includes("nano-ceramic") || desc.includes("film")) {
+      stockLevels[String(data.description)] = {
+        description: String(data.description),
+        quantityOnHand: Number(data.quantityOnHand) || 0,
+        reorderThreshold: Number(data.reorderThreshold) || 0,
+      };
+    }
+  });
+
+  return {
+    forecastWindow: `${daysAhead} days`,
+    totalServicesInWindow: upcoming.length,
+    inspections: upcoming.filter(i => i.serviceType !== "replacement").length,
+    replacements: upcoming.filter(i => i.serviceType === "replacement").length,
+    materialsForecast: forecast,
+    currentStockLevels: stockLevels,
+    recommendations: Object.entries(forecast).map(([material, data]) => {
+      const matchingStock = Object.values(stockLevels).find(s => s.description.toLowerCase().includes(material.toLowerCase().split(" ")[0]));
+      if (matchingStock && matchingStock.quantityOnHand < data.needed) {
+        return `⚠️ ${material}: ${data.needed} needed, only ${matchingStock.quantityOnHand} in stock — reorder recommended`;
+      }
+      if (matchingStock) {
+        return `✅ ${material}: ${data.needed} needed, ${matchingStock.quantityOnHand} in stock — sufficient`;
+      }
+      return `ℹ️ ${material}: ${data.needed} needed — no matching stock item found in inventory`;
+    }),
+  };
 }
 
 // ─── JSON-RPC helpers ─────────────────────────────────────────────────────────
