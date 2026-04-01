@@ -280,13 +280,8 @@ const issueImsReview = async (payload: Record<string, unknown>) => {
     })
   );
   if (emails.length > 0) {
-    await admin.firestore().collection(COLLECTIONS.MAIL).add({
-      to: emails,
-      message: {
-        subject: `IMS Document Review: ${docNumber}`,
-        text: `${docNumber} - ${docData?.title || "Document"} is ready for review in ASI Portal.`,
-      },
-    });
+    // DISABLED: External email notifications disabled — all notifications stay in-app only
+    console.log(`[EMAIL DISABLED] Would have sent IMS review notification for ${docNumber} to ${emails.join(", ")}`);
   }
 
   return { docNumber, revisionId: targetRevisionId, status: "review" };

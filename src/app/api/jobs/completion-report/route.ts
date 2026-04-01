@@ -148,8 +148,8 @@ function resolveRepairTypeLabel(value: unknown) {
 
 function resolveVehicleLabel(vehicle: Record<string, unknown>, index: number) {
   return (
-    safeString(vehicle.registration) ||
     safeString(vehicle.fleetAssetNumber) ||
+    safeString(vehicle.registration) ||
     safeString(vehicle.vin) ||
     `Vehicle ${index + 1}`
   );
@@ -511,7 +511,10 @@ async function generateCompletionPdf(job: Record<string, any>, generatedBy: stri
       if (item.vehicleLabel !== lastVehicle) {
         lastVehicle = item.vehicleLabel;
         ensureSpace(36);
-        page.drawText(`Vehicle: ${item.vehicleLabel}`, {
+        const vehicleHeading = item.fleetAssetNumber
+          ? `Fleet/Asset: ${item.fleetAssetNumber}`
+          : `Vehicle: ${item.vehicleLabel}`;
+        page.drawText(vehicleHeading, {
           x: MARGIN,
           y: cursorY,
           size: 11,
@@ -520,7 +523,9 @@ async function generateCompletionPdf(job: Record<string, any>, generatedBy: stri
         });
         cursorY -= 14;
         const vehicleMeta = [
-          item.fleetAssetNumber ? `Fleet/Asset: ${item.fleetAssetNumber}` : "",
+          item.fleetAssetNumber && item.vehicleLabel !== item.fleetAssetNumber
+            ? `Rego: ${item.vehicleLabel}`
+            : "",
           item.poWorksOrderNumber ? `PO/WO: ${item.poWorksOrderNumber}` : "",
         ]
           .filter(Boolean)

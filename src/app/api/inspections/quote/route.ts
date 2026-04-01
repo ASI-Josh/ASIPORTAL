@@ -166,8 +166,8 @@ function resolveRepairTypeLabel(value: unknown) {
 function resolveVehicleLabel(report: any, index: number) {
   const vehicle = report?.vehicle || {};
   return (
-    safeString(vehicle.registration) ||
     safeString(vehicle.fleetAssetNumber) ||
+    safeString(vehicle.registration) ||
     safeString(vehicle.vin) ||
     `Vehicle ${index + 1}`
   );
@@ -236,31 +236,42 @@ function extractQuoteData(inspectionData: Record<string, any>) {
 
 async function generateQuotePdfBytes(params: {
   inspection: Record<string, any>;
-  logoBytes: Buffer;
+  logoBytes: Buffer | null;
 }): Promise<Buffer> {
   const { inspection, logoBytes } = params;
   const pdfDoc = await PDFDocument.create();
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const bold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
-  const logoImage = await pdfDoc.embedPng(logoBytes);
+
+  let logoImage: any = null;
+  if (logoBytes) {
+    try {
+      logoImage = await pdfDoc.embedPng(logoBytes);
+    } catch {
+      logoImage = null;
+    }
+  }
 
   const pageSize: [number, number] = [595.28, 841.89]; // A4
   const page = pdfDoc.addPage(pageSize);
   const { width, height } = page.getSize();
   const margin = 36;
 
-  const logoDims = logoImage.scale(0.18);
+  const logoDims = logoImage ? logoImage.scale(0.18) : null;
   const headerY = height - margin;
 
-  page.drawImage(logoImage, {
-    x: margin,
-    y: headerY - logoDims.height,
-    width: logoDims.width,
-    height: logoDims.height,
-  });
+  const titleX = logoDims ? margin + logoDims.width + 12 : margin;
+  if (logoImage && logoDims) {
+    page.drawImage(logoImage, {
+      x: margin,
+      y: headerY - logoDims.height,
+      width: logoDims.width,
+      height: logoDims.height,
+    });
+  }
 
   page.drawText("Inspection Quote", {
-    x: margin + logoDims.width + 12,
+    x: titleX,
     y: headerY - 18,
     size: 16,
     font: bold,
@@ -273,7 +284,7 @@ async function generateQuotePdfBytes(params: {
     ? `Quote ref: ${inspectionNumber} - Generated: ${quoteDate}`
     : `Generated: ${quoteDate}`;
   page.drawText(metaText, {
-    x: margin + logoDims.width + 12,
+    x: titleX,
     y: headerY - 36,
     size: 9,
     font,
@@ -302,7 +313,7 @@ async function generateQuotePdfBytes(params: {
 
   const leftColX = margin;
   const rightColX = Math.round(width * 0.52);
-  let cursorY = headerY - Math.max(logoDims.height, 52) - 12;
+  let cursorY = headerY - Math.max(logoDims?.height ?? 0, 52) - 12;
 
   const drawKeyValue = (label: string, value: string, x: number, y: number) => {
     page.drawText(label, { x, y, size: 8.5, font, color: rgb(0.45, 0.45, 0.45) });
@@ -352,13 +363,13 @@ async function generateQuotePdfBytes(params: {
   const tableTop = cursorY;
   const tableLeft = margin;
   const tableWidth = width - margin * 2;
-  const rowHeight = 18;
+  const rowHeight = 28;
   const headerHeight = 20;
-  const colVehicle = 76;
-  const colRepair = 76;
-  const colLocation = 72;
-  const colDuration = 60;
-  const colCost = 70;
+  const colVehicle = 90;
+  const colRepair = 90;
+  const colLocation = 80;
+  const colDuration = 50;
+  const colCost = 62;
   const colDesc = tableWidth - colVehicle - colRepair - colLocation - colDuration - colCost;
 
   page.drawRectangle({
@@ -411,41 +422,40 @@ async function generateQuotePdfBytes(params: {
       borderWidth: 1,
     });
 
-    const vehicleLabel = truncate(safeString(item.vehicleLabel) || "-", 14);
-    const repairType = truncate(safeString(item.repairType) || "-", 16);
-    const location = truncate(safeString(item.location) || "-", 14);
+    const vehicleLabel = safeString(item.vehicleLabel) || "-";
+    const repairType = safeString(item.repairType) || "-";
+    const location = safeString(item.location) || "-";
     const downtimeHours = safeNumber(item.downtimeHours);
     const downtimeText =
       downtimeHours > 0
         ? `${(Math.round(downtimeHours * 10) / 10).toString().replace(/\\.0$/, "")}h`
         : "-";
-    const description = truncate(safeString(item.description) || "-", 32);
+    const description = safeString(item.description) || "-";
     const total = safeNumber(item.total);
+    const cellFontSize = 8;
+    const cellTopY = rowY + rowHeight - 8;
 
-    page.drawText(vehicleLabel, { x: tableLeft + 6, y: rowY + 5, size: 8.5, font });
-    page.drawText(repairType, { x: tableLeft + colVehicle + 6, y: rowY + 5, size: 8.5, font });
-    page.drawText(location, {
-      x: tableLeft + colVehicle + colRepair + 6,
-      y: rowY + 5,
-      size: 8.5,
-      font,
-    });
+    const drawWrappedCell = (text: string, x: number, maxW: number) => {
+      const lines = wrapText(text, maxW - 8, font, cellFontSize).slice(0, 2);
+      lines.forEach((line, idx) => {
+        page.drawText(line, { x: x + 4, y: cellTopY - idx * 9, size: cellFontSize, font });
+      });
+    };
+
+    drawWrappedCell(vehicleLabel, tableLeft, colVehicle);
+    drawWrappedCell(repairType, tableLeft + colVehicle, colRepair);
+    drawWrappedCell(location, tableLeft + colVehicle + colRepair, colLocation);
     page.drawText(downtimeText, {
-      x: tableLeft + colVehicle + colRepair + colLocation + 6,
-      y: rowY + 5,
-      size: 8.5,
+      x: tableLeft + colVehicle + colRepair + colLocation + 4,
+      y: cellTopY,
+      size: cellFontSize,
       font,
     });
-    page.drawText(description, {
-      x: tableLeft + colVehicle + colRepair + colLocation + colDuration + 6,
-      y: rowY + 5,
-      size: 8.5,
-      font,
-    });
+    drawWrappedCell(description, tableLeft + colVehicle + colRepair + colLocation + colDuration, colDesc);
     page.drawText(formatCurrency(total), {
-      x: tableLeft + tableWidth - colCost + 6,
-      y: rowY + 5,
-      size: 8.5,
+      x: tableLeft + tableWidth - colCost + 4,
+      y: cellTopY,
+      size: cellFontSize,
       font,
     });
   });
@@ -622,7 +632,12 @@ async function generateAndStoreQuote(params: {
   }
   const bucket = admin.storage().bucket(bucketName);
 
-  const logoBytes = await readAsiLogoBytes();
+  let logoBytes: Buffer | null = null;
+  try {
+    logoBytes = await readAsiLogoBytes();
+  } catch {
+    console.warn("ASI logo not found — generating quote PDF without logo.");
+  }
   const pdfBuffer = await generateQuotePdfBytes({ inspection: params.inspection, logoBytes });
 
   const safeInspectionNumber = safeString(params.inspection.inspectionNumber || params.inspectionId);
@@ -671,14 +686,8 @@ async function generateAndStoreQuote(params: {
 }
 
 async function queueEmail(params: { to: string; subject: string; text: string; html?: string }) {
-  await admin.firestore().collection(COLLECTIONS.MAIL).add({
-    to: [params.to],
-    message: {
-      subject: params.subject,
-      text: params.text,
-      ...(params.html ? { html: params.html } : {}),
-    },
-  });
+  // DISABLED: External email notifications disabled — all notifications stay in-app only
+  console.log(`[EMAIL DISABLED] Would have sent "${params.subject}" to ${params.to}`);
 }
 
 export async function POST(req: NextRequest) {
@@ -749,7 +758,7 @@ export async function POST(req: NextRequest) {
         const vehicle = report?.vehicle || {};
         const fleetAssetNumber = safeString(vehicle.fleetAssetNumber) || "-";
         const regoNumber = safeString(vehicle.registration) || "-";
-        return `Vehicle ${reportIndex + 1}: Fleet/Asset Number ${fleetAssetNumber} | Rego Number ${regoNumber}`;
+        return `Vehicle ${reportIndex + 1}: Fleet/Asset ${fleetAssetNumber} | Rego ${regoNumber}`;
       });
       const vehicleSummaryText =
         vehicleSummaryLines.length > 0

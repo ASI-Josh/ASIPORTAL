@@ -53,8 +53,8 @@ function formatHours(hours: number) {
 
 function getVehicleLabel(report: VehicleReport, index: number) {
   return (
-    report.vehicle?.registration ||
     report.vehicle?.fleetAssetNumber ||
+    report.vehicle?.registration ||
     report.vehicle?.vin ||
     `Vehicle ${index + 1}`
   );

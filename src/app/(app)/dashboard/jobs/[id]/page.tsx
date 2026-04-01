@@ -1103,13 +1103,8 @@ export default function JobCardPage() {
   };
 
   const queueEmail = async (recipientEmail: string, subject: string, text: string) => {
-    await addDoc(collection(db, COLLECTIONS.MAIL), {
-      to: [recipientEmail],
-      message: {
-        subject,
-        text,
-      },
-    });
+    // DISABLED: External email notifications disabled — all notifications stay in-app only
+    console.log(`[EMAIL DISABLED] Would have sent "${subject}" to ${recipientEmail}`);
   };
 
   const notifyClients = async (

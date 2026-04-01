@@ -60,7 +60,7 @@ export default function ClientJobDetailPage() {
             <Card key={vehicle.id} className="bg-card/50 backdrop-blur-lg border-border/20">
               <CardHeader className="pb-2">
                 <CardTitle className="text-base">
-                  {vehicle.registration || vehicle.fleetAssetNumber || vehicle.vin || "Vehicle"}
+                  {vehicle.fleetAssetNumber || vehicle.registration || vehicle.vin || "Vehicle"}
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3 text-sm">

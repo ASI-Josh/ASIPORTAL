@@ -47,20 +47,8 @@ export async function POST(req: NextRequest) {
     const firstName = displayName.split(" ")[0] || "User";
     const appUrl = normalizeAppUrl(process.env.NEXT_PUBLIC_APP_URL || DEFAULT_APP_URL);
 
-    await admin.firestore().collection(COLLECTIONS.MAIL).add({
-      to: [invite.email],
-      message: {
-        subject: "ASI Portal access invitation",
-        text:
-          `Hi ${firstName},\n\n` +
-          `Your ASI Portal access is ready. Please sign in to access your portal:\n` +
-          `${appUrl}\n\n` +
-          `Use your email address (${invite.email}) and continue with Google to activate your access.\n` +
-          `If you need an email/password login instead, contact support.\n` +
-          `If you need help, email support@asi-australia.com.au.\n\n` +
-          `Cheers,\nASI Team`,
-      },
-    });
+    // DISABLED: External email notifications disabled — all notifications stay in-app only
+    console.log(`[EMAIL DISABLED] Would have sent invite to ${invite.email}`);
 
     await inviteRef.set(
       {
