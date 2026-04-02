@@ -873,7 +873,7 @@ const TOOLS: McpTool[] = [
               description: { type: "string" },
               quantity: { type: "number" },
               unitAmount: { type: "number", description: "Cost per unit, ex-GST." },
-              accountCode: { type: "string", description: "Xero account code (default '300' = Purchases)." },
+              accountCode: { type: "string", description: "Xero account code (default '310' = Cost of Goods Sold)." },
               taxType: { type: "string", description: "Xero tax type (default 'INPUT' = GST on Expenses)." },
               itemCode: { type: "string", description: "Xero catalogue item code (optional)." },
             },

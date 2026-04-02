@@ -520,7 +520,7 @@ export async function xeroCreateBill(bill: {
     description: string;
     quantity: number;
     unitAmount: number;       // ex-GST
-    accountCode?: string;     // Default '300' (Purchases)
+    accountCode?: string;     // Default '310' (Cost of Goods Sold)
     taxType?: string;         // Default 'INPUT' (GST on Expenses)
     itemCode?: string;
   }>;
@@ -559,7 +559,7 @@ export async function xeroCreateBill(bill: {
         Description: li.description,
         Quantity: li.quantity,
         UnitAmount: li.unitAmount,
-        AccountCode: li.accountCode || "300",
+        AccountCode: li.accountCode || "310",
         TaxType: li.taxType || "INPUT",
         ...(li.itemCode ? { ItemCode: li.itemCode } : {}),
       })),
