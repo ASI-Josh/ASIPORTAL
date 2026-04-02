@@ -72,6 +72,90 @@
         { "fieldPath": "createdAt", "order": "DESCENDING" }
       ]
     }
+    ,
+    {
+      "collectionGroup": "filmInstallations",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "installedDate", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "filmInstallations",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "clientId", "order": "ASCENDING" },
+        { "fieldPath": "installedDate", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "filmInstallations",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "filmType", "order": "ASCENDING" },
+        { "fieldPath": "installedDate", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "filmInstallations",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "lifecycleStatus", "order": "ASCENDING" },
+        { "fieldPath": "installedDate", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "filmInstallations",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "warrantyRegistration.status", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "filmWarrantyInspections",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "filmInstallationId", "order": "ASCENDING" },
+        { "fieldPath": "inspectionDate", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "filmWarrantyInspections",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "clientId", "order": "ASCENDING" },
+        { "fieldPath": "inspectionDate", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "filmWarrantyInspections",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "inspectionType", "order": "ASCENDING" },
+        { "fieldPath": "inspectionDate", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "filmWarrantyInspections",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "inspectionDate", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "filmWarrantyRegister",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "registrationStatus", "order": "ASCENDING" },
+        { "fieldPath": "clientId", "order": "ASCENDING" }
+      ]
+    }
   ],
   "fieldOverrides": []
 }
