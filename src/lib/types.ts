@@ -1319,7 +1319,7 @@ export type FilmLifecycleStatus =
   | "replacement_under_warranty"
   | "removed_early";
 
-export type FilmWarrantyRegistrationStatus = "pending" | "overdue" | "submitted" | "confirmed" | "rejected" | "expired";
+export type FilmWarrantyRegistrationStatus = "pending" | "overdue" | "submitted" | "confirmed" | "rejected" | "expired" | "not_applicable";
 
 export type FilmClaimType = "defect" | "premature_failure" | "delamination" | "discolouration" | "adhesive_failure" | "optical_distortion" | "other";
 

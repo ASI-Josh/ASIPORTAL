@@ -682,6 +682,23 @@ const TOOLS: McpTool[] = [
       },
     },
   },
+  // ─── CRM Organisation tools ─────────────────────────────────────────────────
+  {
+    name: "update_organization",
+    description:
+      "Update fields on a CRM organisation (contactOrganizations collection). Use to set accountsEmail, ABN, phone, email, status, marketStream, or other org-level fields.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        organizationId: { type: "string", description: "Firestore document ID of the organisation." },
+        updates: {
+          type: "object",
+          description: "Fields to update. Supported: name, email, accountsEmail, phone, abn, status, marketStream, jobCode, industry, website.",
+        },
+      },
+      required: ["organizationId", "updates"],
+    },
+  },
   // ─── Xero Accounting tools ──────────────────────────────────────────────────
   {
     name: "xero_status",
@@ -1393,13 +1410,30 @@ const TOOLS: McpTool[] = [
     },
   },
   {
+    name: "mark_warranty_not_applicable",
+    description:
+      "Mark one or more film installations as not requiring APEAX warranty registration. Use for non-warranty-tracked products like GrafShield and RadShield/tint. Clears them from the pending registration queue.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        installationIds: {
+          type: "array",
+          items: { type: "string" },
+          description: "Array of film installation Firestore IDs to mark as warranty N/A.",
+        },
+        reason: { type: "string", description: "Reason warranty is not applicable (e.g. 'GrafShield — no APEAX warranty registration required')." },
+      },
+      required: ["installationIds"],
+    },
+  },
+  {
     name: "get_warranty_register",
     description: "Get the full APEAX warranty register with optional filters.",
     inputSchema: {
       type: "object",
       properties: {
         clientId: { type: "string", description: "Filter by client." },
-        registrationStatus: { type: "string", enum: ["pending", "overdue", "submitted", "confirmed", "rejected", "expired"] },
+        registrationStatus: { type: "string", enum: ["pending", "overdue", "submitted", "confirmed", "rejected", "expired", "not_applicable"] },
         healthStatus: { type: "string", enum: ["healthy", "monitor", "at_risk", "failed", "expired"] },
         limit: { type: "number", description: "Max results (default 100)." },
       },
@@ -2164,6 +2198,32 @@ async function handleGetVanguardReports(args: Record<string, unknown>) {
     .limit(limit)
     .get();
   return snap.docs.map((d) => serializeDoc(d.id, d.data()));
+}
+
+// ─── CRM Organisation handlers ───────────────────────────────────────────────
+
+async function handleUpdateOrganization(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const orgId = String(args.organizationId || "");
+  if (!orgId) throw new Error("organizationId is required.");
+
+  const ref = db.collection(COLLECTIONS.CONTACT_ORGANIZATIONS).doc(orgId);
+  const snap = await ref.get();
+  if (!snap.exists) throw new Error(`Organisation '${orgId}' not found.`);
+
+  const rawUpdates = (args.updates || {}) as Record<string, unknown>;
+  const allowed = ["name", "email", "accountsEmail", "phone", "abn", "status", "marketStream", "jobCode", "industry", "website"];
+  const updates: Record<string, unknown> = { updatedAt: admin.firestore.FieldValue.serverTimestamp() };
+
+  for (const key of allowed) {
+    if (key in rawUpdates) updates[key] = rawUpdates[key];
+  }
+
+  if (Object.keys(updates).length <= 1) throw new Error("No valid fields to update. Supported: " + allowed.join(", "));
+
+  await ref.update(updates);
+  const updated = await ref.get();
+  return serializeDoc(updated.id, updated.data()!);
 }
 
 // ─── IMS Audit / CAPA / Risk handlers ─────────────────────────────────────────
@@ -3291,6 +3351,8 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
     case "push_vanguard_report": return handlePushVanguardReport(args);
     case "get_vanguard_report":  return handleGetVanguardReport(args);
     case "get_vanguard_reports": return handleGetVanguardReports(args);
+    // CRM Organisations
+    case "update_organization":  return handleUpdateOrganization(args);
     // Xero accounting
     case "xero_status":          return handleXeroStatus();
     case "xero_create_invoice":  return handleXeroCreateInvoice(args);
@@ -3462,6 +3524,7 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
     // Film Warranty Registration & Claims (Phase 3)
     case "register_film_warranty":          return handleRegisterFilmWarranty(args);
     case "confirm_warranty_registration":   return handleConfirmWarrantyRegistration(args);
+    case "mark_warranty_not_applicable":   return handleMarkWarrantyNotApplicable(args);
     case "get_warranty_register":           return handleGetWarrantyRegister(args);
     case "get_overdue_registrations":       return handleGetOverdueRegistrations();
     case "create_warranty_claim":           return handleCreateWarrantyClaim(args);
@@ -4348,6 +4411,40 @@ async function handleConfirmWarrantyRegistration(args: Record<string, unknown>) 
   }
 
   return { success: true, filmInstallationId: id, registrationStatus: "confirmed", apeaxRegistrationRef: apeaxRef };
+}
+
+async function handleMarkWarrantyNotApplicable(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const ids = (args.installationIds as string[]) || [];
+  if (ids.length === 0) throw new Error("installationIds array is required.");
+  const reason = typeof args.reason === "string" ? args.reason : "Product does not require APEAX warranty registration";
+
+  const results: Array<{ id: string; status: string }> = [];
+  for (const id of ids) {
+    const ref = db.collection(COLLECTIONS.FILM_INSTALLATIONS).doc(id);
+    const snap = await ref.get();
+    if (!snap.exists) {
+      results.push({ id, status: "not_found" });
+      continue;
+    }
+    await ref.update({
+      "warrantyRegistration.status": "not_applicable",
+      "warrantyRegistration.notes": reason,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    // Update warranty register if it exists
+    const regSnap = await db.collection(COLLECTIONS.FILM_WARRANTY_REGISTER)
+      .where("filmInstallationId", "==", id).limit(1).get();
+    if (!regSnap.empty) {
+      await regSnap.docs[0].ref.update({
+        registrationStatus: "not_applicable",
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+    results.push({ id, status: "marked_not_applicable" });
+  }
+
+  return { success: true, updated: results.filter(r => r.status === "marked_not_applicable").length, results };
 }
 
 async function handleGetWarrantyRegister(args: Record<string, unknown>) {
