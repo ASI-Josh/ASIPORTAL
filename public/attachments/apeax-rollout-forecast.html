@@ -1,0 +1,844 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ASI Australia — APEAX Rollout & Procurement Forecast</title>
+<style>
+  :root {
+    --bg: #1a1a2e;
+    --bg-card: #262633;
+    --bg-hover: #2f2f42;
+    --primary: #8000FF;
+    --accent: #0080FF;
+    --green: #00C853;
+    --amber: #FFAB00;
+    --red: #FF5252;
+    --text: #e0e0e0;
+    --text-muted: #9e9eb3;
+    --border: #3a3a52;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+  .header {
+    background: linear-gradient(135deg, var(--bg-card) 0%, #1e1e30 100%);
+    border-bottom: 2px solid var(--primary);
+    padding: 24px 40px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+  .header-left h1 {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 1.6rem;
+    font-weight: 700;
+    color: #fff;
+  }
+  .header-left p {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    margin-top: 2px;
+  }
+  .header-badge {
+    background: rgba(128,0,255,0.15);
+    border: 1px solid var(--primary);
+    color: var(--primary);
+    padding: 6px 16px;
+    border-radius: 20px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+  .tabs {
+    display: flex;
+    gap: 0;
+    background: var(--bg-card);
+    border-bottom: 1px solid var(--border);
+    overflow-x: auto;
+    padding: 0 20px;
+  }
+  .tab {
+    padding: 14px 22px;
+    cursor: pointer;
+    font-size: 0.82rem;
+    font-weight: 500;
+    color: var(--text-muted);
+    border-bottom: 3px solid transparent;
+    white-space: nowrap;
+    transition: all 0.2s;
+    user-select: none;
+  }
+  .tab:hover { color: #fff; background: rgba(128,0,255,0.05); }
+  .tab.active { color: #fff; border-bottom-color: var(--primary); }
+  .content { max-width: 1280px; margin: 0 auto; padding: 28px 24px 60px; }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 20px;
+  }
+  .card h2 {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 1.15rem;
+    font-weight: 600;
+    color: #fff;
+    margin-bottom: 12px;
+  }
+  .card h3 {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--accent);
+    margin: 16px 0 8px;
+  }
+  .card p, .card li {
+    font-size: 0.88rem;
+    color: var(--text);
+    margin-bottom: 6px;
+  }
+  .card ul { padding-left: 20px; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.82rem;
+    margin-top: 8px;
+  }
+  thead th {
+    background: rgba(128,0,255,0.12);
+    color: #fff;
+    font-weight: 600;
+    padding: 10px 14px;
+    text-align: left;
+    border-bottom: 2px solid var(--primary);
+    white-space: nowrap;
+  }
+  tbody td {
+    padding: 9px 14px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+    white-space: normal;
+    word-wrap: break-word;
+  }
+  tbody tr:hover { background: var(--bg-hover); }
+  .num { text-align: right; font-variant-numeric: tabular-nums; font-family: 'Source Code Pro', 'SF Mono', monospace; }
+  .total-row { background: rgba(128,0,255,0.08); font-weight: 700; }
+  .total-row td { border-top: 2px solid var(--primary); }
+  .highlight-green { color: var(--green); }
+  .highlight-amber { color: var(--amber); }
+  .highlight-red { color: var(--red); }
+  .highlight-primary { color: var(--primary); }
+  .kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+    margin-bottom: 20px;
+  }
+  .kpi {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px 20px;
+    text-align: center;
+  }
+  .kpi-value {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #fff;
+    margin-bottom: 4px;
+  }
+  .kpi-label {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+  }
+  .callout {
+    border-left: 4px solid var(--accent);
+    background: rgba(0,128,255,0.06);
+    padding: 14px 18px;
+    border-radius: 0 8px 8px 0;
+    margin: 14px 0;
+    font-size: 0.88rem;
+  }
+  .callout.warn {
+    border-left-color: var(--amber);
+    background: rgba(255,171,0,0.06);
+  }
+  .callout.success {
+    border-left-color: var(--green);
+    background: rgba(0,200,83,0.06);
+  }
+  .section-label {
+    display: inline-block;
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--primary);
+    margin-bottom: 10px;
+  }
+  .margin-bar-container {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .margin-bar {
+    height: 20px;
+    border-radius: 4px;
+    min-width: 2px;
+  }
+  .margin-bar.green { background: linear-gradient(90deg, #00C853, #00E676); }
+  .margin-bar.amber { background: linear-gradient(90deg, #FFAB00, #FFD600); }
+  .margin-bar.red { background: linear-gradient(90deg, #FF5252, #FF8A80); }
+  .footer {
+    text-align: center;
+    padding: 20px;
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    border-top: 1px solid var(--border);
+    margin-top: 40px;
+  }
+  @media (max-width: 768px) {
+    .header { padding: 16px 20px; }
+    .header-left h1 { font-size: 1.2rem; }
+    .content { padding: 16px 12px 40px; }
+    .card { padding: 16px; }
+    .tab { padding: 10px 14px; font-size: 0.76rem; }
+    table { font-size: 0.74rem; }
+    thead th, tbody td { padding: 7px 8px; }
+    .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-left">
+    <h1>APEAX Rollout & Procurement Forecast</h1>
+    <p>ASI Australia &mdash; Prepared for APEAX Distribution Meeting, 2 April 2026</p>
+  </div>
+  <span class="header-badge">Confidential &mdash; ASI + APEAX Only</span>
+</div>
+
+<div class="tabs" id="tabBar">
+  <div class="tab active" data-tab="overview">Overview</div>
+  <div class="tab" data-tab="products">Product Range</div>
+  <div class="tab" data-tab="modelA">Model A &mdash; McKenzie's</div>
+  <div class="tab" data-tab="modelB">Model B &mdash; Dineen Group</div>
+  <div class="tab" data-tab="costAnalysis">Cost & Margin Analysis</div>
+  <div class="tab" data-tab="grafshield">GrafShield Discussion</div>
+  <div class="tab" data-tab="combined">Combined Forecast</div>
+</div>
+
+<div class="content">
+
+<!-- ==================== OVERVIEW ==================== -->
+<div class="tab-panel active" id="overview">
+  <div class="kpi-grid">
+    <div class="kpi"><div class="kpi-value">857</div><div class="kpi-label">Total Rolls Year 1</div></div>
+    <div class="kpi"><div class="kpi-value">$461K</div><div class="kpi-label">APEAX Revenue (USD T1)</div></div>
+    <div class="kpi"><div class="kpi-value">$746K</div><div class="kpi-label">AUD Value (@ 1.62)</div></div>
+    <div class="kpi"><div class="kpi-value">353</div><div class="kpi-label">Buses Year 1</div></div>
+    <div class="kpi"><div class="kpi-value">$730K+</div><div class="kpi-label">3-Year APEAX Revenue (USD)</div></div>
+  </div>
+
+  <div class="card">
+    <span class="section-label">Document Purpose</span>
+    <h2>12-Month Procurement Forecast for APEAX Planning</h2>
+    <p>This document provides APEAX with ASI Australia's 12-month procurement forecast across two confirmed pipeline opportunities in the Australian mass-transit (bus & coach) sector. It covers all APEAX product lines ASI distributes, a transparent cost and margin analysis, and a commercial discussion on GrafShield (anti-graffiti) pricing.</p>
+
+    <h3>What's Inside</h3>
+    <table>
+      <thead><tr><th>Tab</th><th>Contents</th></tr></thead>
+      <tbody>
+        <tr><td>Product Range</td><td>Full catalogue of APEAX products ASI uses in bus/coach applications + VLT expansion request</td></tr>
+        <tr><td>Model A &mdash; McKenzie's</td><td>Single fleet rollout: 60-bus fleet, 48 Year 1, monthly roll requirements + order values</td></tr>
+        <tr><td>Model B &mdash; Dineen Group</td><td>Group MSA rollout: 700+ fleet, 305 Year 1, subsidiary schedule, PO timing</td></tr>
+        <tr><td>Cost & Margin Analysis</td><td>Transparent cost vs sale price breakdown with margin % for each product</td></tr>
+        <tr><td>GrafShield Discussion</td><td>Commercial case for APEAX to help close the cost gap on anti-graffiti film</td></tr>
+        <tr><td>Combined Forecast</td><td>Year 1 combined totals + 3-year revenue projection for APEAX</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <span class="section-label">Key Contact</span>
+    <p><strong>Josh Hyde</strong> &mdash; Director, ASI Australia</p>
+    <p>joshua@asi-australia.com.au &nbsp;|&nbsp; ABN 30 691 799 970</p>
+  </div>
+</div>
+
+<!-- ==================== PRODUCT RANGE ==================== -->
+<div class="tab-panel" id="products">
+  <div class="card">
+    <span class="section-label">Paint Protection Films (PPF)</span>
+    <h2>APEAX PPF Range &mdash; Bus & Coach Applications</h2>
+    <table>
+      <thead>
+        <tr><th>Product</th><th>SKU</th><th>Roll Spec</th><th>Application</th><th class="num">RRP USD</th><th class="num">T1 USD</th><th>Warranty</th><th>Notes</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>OptiShield WPF 60</td><td style="font-size:0.72rem">APX-WPF-WPF60X15</td><td>1.52m &times; 15.24m</td>
+          <td>Windscreen protection</td><td class="num">$1,199.00</td><td class="num">$719.40</td>
+          <td>5 yr (APEAX) / 3 yr (ASI commercial cycle)</td><td>1 roll per bus windscreen</td>
+        </tr>
+        <tr>
+          <td>Xtreme Gloss 60</td><td style="font-size:0.72rem">APX-PPF-G60X15-001</td><td>1.52m &times; 15.24m</td>
+          <td>PaintShield &mdash; front fascia body protection</td><td class="num">$949.00</td><td class="num">$569.40</td>
+          <td>10 yr</td><td>1 roll per ~15 buses (front fascia only)</td>
+        </tr>
+        <tr>
+          <td>Xtreme Gloss 60</td><td style="font-size:0.72rem">APX-PPF-G60X15-001</td><td>1.52m &times; 15.24m</td>
+          <td>GrafShield &mdash; internal anti-graffiti (sideglass)</td><td class="num">$949.00</td><td class="num">$569.40</td>
+          <td>10 yr</td><td style="color:var(--amber)">See GrafShield Discussion tab &mdash; COST ISSUE</td>
+        </tr>
+        <tr>
+          <td>Defender Gloss 60</td><td style="font-size:0.72rem">APX-PPF-D60X15-001</td><td>1.52m &times; 15.24m</td>
+          <td>Potential GrafShield alternative (lower cost)</td><td class="num">$749.00</td><td class="num">$449.40</td>
+          <td>5 yr</td><td>Compromise option &mdash; discuss with APEAX</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <span class="section-label">Ceramic Window Tint Films (RadShield Range)</span>
+    <h2>APEAX Nano Ceramic Tint &mdash; RadShield Applications</h2>
+    <div class="callout">
+      <strong>Pricing note:</strong> All VLT shades within the same roll width are the same cost. 70% VLT is ASI's current primary for passenger bus sideglass &mdash; this is the industry standard for public transport, not a regulatory requirement.
+    </div>
+    <table>
+      <thead>
+        <tr><th>Product</th><th>SKU</th><th>Roll Spec</th><th>VLT</th><th class="num">RRP USD</th><th class="num">T1 USD</th><th>Warranty</th><th>Application</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Nano Ceramic</td><td style="font-size:0.72rem">APX-CT-70S20-001</td><td>20" &times; 100ft</td><td>All VLTs</td>
+          <td class="num">$299.00</td><td class="num">$164.45</td><td>Lifetime</td><td>Narrow panes, quarter lights</td>
+        </tr>
+        <tr>
+          <td>Nano Ceramic</td><td style="font-size:0.72rem">APX-CT-70S40-001</td><td>40" &times; 100ft (30.97 m&sup2;)</td><td>All VLTs</td>
+          <td class="num">$399.00</td><td class="num">$219.45</td><td>Lifetime</td><td>PRIMARY &mdash; saloon sideglass (standard)</td>
+        </tr>
+        <tr>
+          <td>Nano Ceramic</td><td style="font-size:0.72rem">APX-CT-70S60-001</td><td>60" &times; 100ft</td><td>All VLTs</td>
+          <td class="num">$599.00</td><td class="num">$329.45</td><td>Lifetime</td><td>Large panes, rear glass, non-standard</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <span class="section-label">VLT Expansion Request</span>
+    <h2>Additional VLT Availability</h2>
+    <p>ASI currently uses 70% VLT exclusively for passenger bus sideglass (industry standard for public transport). However, we anticipate demand for additional VLTs as we expand into adjacent sectors:</p>
+    <table>
+      <thead><tr><th>VLT Range</th><th>Application</th></tr></thead>
+      <tbody>
+        <tr><td>5% / 15% / 20%</td><td>Driver compartment privacy, rear sections on charter/tour coaches</td></tr>
+        <tr><td>35% / 50%</td><td>Fleet vehicles, manufacturing facility glazing, marine wheelhouse</td></tr>
+        <tr><td>70%</td><td>Current primary &mdash; passenger bus sideglass (confirmed)</td></tr>
+      </tbody>
+    </table>
+    <div class="callout">
+      <strong>ACTION:</strong> Please provide T1 pricing for all available Nano Ceramic VLTs in 20", 40", and 60" roll widths. Cost per roll width remains the same regardless of VLT shade, which simplifies our procurement and inventory management.
+    </div>
+  </div>
+</div>
+
+<!-- ==================== MODEL A ==================== -->
+<div class="tab-panel" id="modelA">
+  <div class="card">
+    <span class="section-label">Model A</span>
+    <h2>McKenzie's Tourist Services &mdash; Single Fleet Rollout</h2>
+    <p>60-bus fleet, 48 buses Year 1 (80%). Brad Sanders (GM, McKenzie's). Typical mid-size single-client model.</p>
+
+    <h3>Assumptions</h3>
+    <table>
+      <tbody>
+        <tr><td>Fleet size</td><td class="num">60 buses</td></tr>
+        <tr><td>Year 1 target</td><td class="num">48 buses (80%)</td></tr>
+        <tr><td>FX rate (AUD/USD)</td><td class="num">1.62 (budgeted conservative)</td></tr>
+        <tr><td>Pricing tier</td><td class="num">T1 (40% off RRP)</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>12-Month Rollout &mdash; Roll Requirements by Product</h2>
+    <div style="overflow-x:auto">
+    <table>
+      <thead>
+        <tr><th>Month</th><th class="num">Buses</th><th class="num">OptiShield WPF 60</th><th class="num">Gloss 60 (PaintShield)</th><th class="num">Gloss 60 (GrafShield)</th><th class="num">RadShield 40"</th><th class="num">RadShield 20"</th><th class="num">Total Rolls</th><th>Order Method</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>M1</td><td class="num">4</td><td class="num">4</td><td class="num">1</td><td class="num">3</td><td class="num">2</td><td class="num">1</td><td class="num">11</td><td>Landed stock</td></tr>
+        <tr><td>M2</td><td class="num">4</td><td class="num">4</td><td class="num">1</td><td class="num">3</td><td class="num">2</td><td class="num">1</td><td class="num">11</td><td>Landed stock</td></tr>
+        <tr><td>M3</td><td class="num">4</td><td class="num">4</td><td class="num">1</td><td class="num">3</td><td class="num">2</td><td class="num">1</td><td class="num">11</td><td>Air freight</td></tr>
+        <tr><td>M4</td><td class="num">4</td><td class="num">4</td><td class="num">1</td><td class="num">3</td><td class="num">2</td><td class="num">1</td><td class="num">11</td><td>Air freight</td></tr>
+        <tr><td>M5</td><td class="num">4</td><td class="num">4</td><td class="num">1</td><td class="num">3</td><td class="num">2</td><td class="num">1</td><td class="num">11</td><td>Sea freight</td></tr>
+        <tr><td>M6</td><td class="num">4</td><td class="num">4</td><td class="num">1</td><td class="num">3</td><td class="num">2</td><td class="num">1</td><td class="num">11</td><td>Sea freight</td></tr>
+        <tr><td>M7</td><td class="num">4</td><td class="num">4</td><td class="num">1</td><td class="num">3</td><td class="num">2</td><td class="num">1</td><td class="num">11</td><td>Sea freight</td></tr>
+        <tr><td>M8</td><td class="num">4</td><td class="num">4</td><td class="num">1</td><td class="num">3</td><td class="num">2</td><td class="num">1</td><td class="num">11</td><td>Sea freight</td></tr>
+        <tr><td>M9</td><td class="num">4</td><td class="num">4</td><td class="num">1</td><td class="num">3</td><td class="num">2</td><td class="num">1</td><td class="num">11</td><td>Sea freight</td></tr>
+        <tr><td>M10</td><td class="num">4</td><td class="num">4</td><td class="num">1</td><td class="num">3</td><td class="num">2</td><td class="num">1</td><td class="num">11</td><td>Sea freight</td></tr>
+        <tr><td>M11</td><td class="num">4</td><td class="num">4</td><td class="num">1</td><td class="num">3</td><td class="num">2</td><td class="num">1</td><td class="num">11</td><td>Sea freight</td></tr>
+        <tr><td>M12</td><td class="num">4</td><td class="num">4</td><td class="num">1</td><td class="num">3</td><td class="num">2</td><td class="num">1</td><td class="num">11</td><td>Sea freight</td></tr>
+        <tr class="total-row">
+          <td>YEAR 1 TOTAL</td><td class="num">48</td><td class="num">48</td><td class="num">12</td><td class="num">36</td><td class="num">24</td><td class="num">12</td><td class="num">132</td><td></td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>APEAX Order Value (USD, T1 Pricing)</h2>
+    <table>
+      <thead>
+        <tr><th>Product</th><th>SKU</th><th class="num">T1 USD/Roll</th><th class="num">Total Rolls</th><th class="num">Total USD</th><th class="num">AUD (@ 1.62)</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>OptiShield WPF 60</td><td style="font-size:0.72rem">APX-WPF-WPF60X15</td><td class="num">$719.40</td><td class="num">48</td><td class="num">$34,531</td><td class="num">$55,941</td></tr>
+        <tr><td>Xtreme Gloss 60 (PaintShield)</td><td style="font-size:0.72rem">APX-PPF-G60X15-001</td><td class="num">$569.40</td><td class="num">12</td><td class="num">$6,833</td><td class="num">$11,069</td></tr>
+        <tr><td>Xtreme Gloss 60 (GrafShield)</td><td style="font-size:0.72rem">APX-PPF-G60X15-001</td><td class="num">$569.40</td><td class="num">36</td><td class="num">$20,498</td><td class="num">$33,207</td></tr>
+        <tr><td>Nano Ceramic 40" (RadShield)</td><td style="font-size:0.72rem">APX-CT-70S40-001</td><td class="num">$219.45</td><td class="num">24</td><td class="num">$5,267</td><td class="num">$8,532</td></tr>
+        <tr><td>Nano Ceramic 20" (RadShield)</td><td style="font-size:0.72rem">APX-CT-70S20-001</td><td class="num">$164.45</td><td class="num">12</td><td class="num">$1,973</td><td class="num">$3,197</td></tr>
+        <tr class="total-row">
+          <td colspan="3">TOTAL ORDER VALUE</td><td class="num">132</td><td class="num">$69,103</td><td class="num">$111,946</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ==================== MODEL B ==================== -->
+<div class="tab-panel" id="modelB">
+  <div class="card">
+    <span class="section-label">Model B</span>
+    <h2>Dineen Group MSA &mdash; 700+ Fleet, 305 Buses Year 1</h2>
+    <p>16+ subsidiaries across VIC & NSW. Entry via McKenzie's pilot (Brad Sanders, McKenzie's GM). Contract pending.</p>
+
+    <h3>Assumptions</h3>
+    <table>
+      <tbody>
+        <tr><td>Total group fleet</td><td class="num">700+ buses across 16+ subsidiaries</td></tr>
+        <tr><td>Year 1 target</td><td class="num">305 buses</td></tr>
+        <tr><td>FX rate (AUD/USD)</td><td class="num">1.62 (budgeted conservative)</td></tr>
+        <tr><td>Pricing tier</td><td class="num">T1 (40% off RRP)</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>12-Month Rollout &mdash; Roll Requirements by Product</h2>
+    <div style="overflow-x:auto">
+    <table>
+      <thead>
+        <tr><th>Month</th><th class="num">Buses</th><th class="num">OptiShield WPF 60</th><th class="num">Gloss 60 (PaintShield)</th><th class="num">Gloss 60 (GrafShield)</th><th class="num">RadShield 40"</th><th class="num">RadShield 20"</th><th class="num">Total Rolls</th><th>Order Method</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>M1</td><td class="num">8</td><td class="num">8</td><td class="num">1</td><td class="num">6</td><td class="num">4</td><td class="num">1</td><td class="num">20</td><td>Landed stock (pilot)</td></tr>
+        <tr><td>M2</td><td class="num">12</td><td class="num">12</td><td class="num">1</td><td class="num">8</td><td class="num">6</td><td class="num">1</td><td class="num">28</td><td>Landed + Air</td></tr>
+        <tr><td>M3</td><td class="num">15</td><td class="num">15</td><td class="num">1</td><td class="num">10</td><td class="num">8</td><td class="num">2</td><td class="num">36</td><td>Air freight</td></tr>
+        <tr><td>M4</td><td class="num">20</td><td class="num">20</td><td class="num">2</td><td class="num">14</td><td class="num">10</td><td class="num">2</td><td class="num">48</td><td>Sea freight</td></tr>
+        <tr><td>M5</td><td class="num">25</td><td class="num">25</td><td class="num">2</td><td class="num">17</td><td class="num">13</td><td class="num">3</td><td class="num">60</td><td>Sea freight</td></tr>
+        <tr><td>M6</td><td class="num">25</td><td class="num">25</td><td class="num">2</td><td class="num">17</td><td class="num">13</td><td class="num">3</td><td class="num">60</td><td>Sea freight</td></tr>
+        <tr><td>M7</td><td class="num">35</td><td class="num">35</td><td class="num">3</td><td class="num">24</td><td class="num">18</td><td class="num">3</td><td class="num">83</td><td>Sea freight</td></tr>
+        <tr><td>M8</td><td class="num">45</td><td class="num">45</td><td class="num">3</td><td class="num">30</td><td class="num">23</td><td class="num">4</td><td class="num">105</td><td>Sea freight</td></tr>
+        <tr><td>M9</td><td class="num">50</td><td class="num">50</td><td class="num">4</td><td class="num">34</td><td class="num">25</td><td class="num">5</td><td class="num">118</td><td>Sea freight (peak)</td></tr>
+        <tr><td>M10</td><td class="num">35</td><td class="num">35</td><td class="num">3</td><td class="num">24</td><td class="num">18</td><td class="num">3</td><td class="num">83</td><td>Sea freight</td></tr>
+        <tr><td>M11</td><td class="num">25</td><td class="num">25</td><td class="num">2</td><td class="num">17</td><td class="num">13</td><td class="num">3</td><td class="num">60</td><td>Sea freight</td></tr>
+        <tr><td>M12</td><td class="num">10</td><td class="num">10</td><td class="num">1</td><td class="num">7</td><td class="num">5</td><td class="num">1</td><td class="num">24</td><td>Sea freight</td></tr>
+        <tr class="total-row">
+          <td>YEAR 1 TOTAL</td><td class="num">305</td><td class="num">305</td><td class="num">25</td><td class="num">208</td><td class="num">156</td><td class="num">31</td><td class="num">725</td><td></td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Subsidiary Deployment Schedule</h2>
+    <table>
+      <thead><tr><th>Subsidiary</th><th class="num">Est. Fleet</th><th class="num">Year 1 Buses</th><th>Phase</th><th>Location</th></tr></thead>
+      <tbody>
+        <tr><td>McKenzie's Tourist Services</td><td class="num">60</td><td class="num">48</td><td>M1 Pilot</td><td>Melbourne</td></tr>
+        <tr><td>Latrobe Valley Bus Lines</td><td class="num">80+</td><td class="num">60</td><td>M2&ndash;4</td><td>Latrobe Valley</td></tr>
+        <tr><td>Berwick Bus Lines</td><td class="num">60+</td><td class="num">50</td><td>M3&ndash;6</td><td>Berwick</td></tr>
+        <tr><td>Warragul / Westernport</td><td class="num">50+</td><td class="num">40</td><td>M5&ndash;8</td><td>Gippsland</td></tr>
+        <tr><td>Panorama / Martyrs / Others</td><td class="num">150+</td><td class="num">107</td><td>M6&ndash;12</td><td>Various VIC</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>APEAX Order Value (USD, T1 Pricing)</h2>
+    <table>
+      <thead>
+        <tr><th>Product</th><th>SKU</th><th class="num">T1 USD/Roll</th><th class="num">Total Rolls</th><th class="num">Total USD</th><th class="num">AUD (@ 1.62)</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>OptiShield WPF 60</td><td style="font-size:0.72rem">APX-WPF-WPF60X15</td><td class="num">$719.40</td><td class="num">305</td><td class="num">$219,417</td><td class="num">$355,456</td></tr>
+        <tr><td>Xtreme Gloss 60 (PaintShield)</td><td style="font-size:0.72rem">APX-PPF-G60X15-001</td><td class="num">$569.40</td><td class="num">25</td><td class="num">$14,235</td><td class="num">$23,061</td></tr>
+        <tr><td>Xtreme Gloss 60 (GrafShield)</td><td style="font-size:0.72rem">APX-PPF-G60X15-001</td><td class="num">$569.40</td><td class="num">208</td><td class="num">$118,435</td><td class="num">$191,865</td></tr>
+        <tr><td>Nano Ceramic 40" (RadShield)</td><td style="font-size:0.72rem">APX-CT-70S40-001</td><td class="num">$219.45</td><td class="num">156</td><td class="num">$34,234</td><td class="num">$55,459</td></tr>
+        <tr><td>Nano Ceramic 20" (RadShield)</td><td style="font-size:0.72rem">APX-CT-70S20-001</td><td class="num">$164.45</td><td class="num">31</td><td class="num">$5,098</td><td class="num">$8,259</td></tr>
+        <tr class="total-row">
+          <td colspan="3">TOTAL ORDER VALUE</td><td class="num">725</td><td class="num">$391,419</td><td class="num">$634,100</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Suggested Purchase Order Schedule</h2>
+    <table>
+      <thead><tr><th>PO #</th><th>Covers</th><th class="num">Buses</th><th>Method</th><th>Lead Time</th><th class="num">Est. USD Value</th></tr></thead>
+      <tbody>
+        <tr><td>Landed Stock</td><td>M1 + partial M2</td><td class="num">~15</td><td>Already in AU</td><td>&mdash;</td><td class="num">Paid</td></tr>
+        <tr><td>PO#1</td><td>M2&ndash;3 (remaining)</td><td class="num">~20</td><td>Air freight</td><td>2&ndash;3 weeks</td><td class="num">~$30,000</td></tr>
+        <tr><td>PO#2</td><td>M4&ndash;6</td><td class="num">70</td><td>Sea freight</td><td>8&ndash;10 weeks</td><td class="num">~$80,000</td></tr>
+        <tr><td>PO#3</td><td>M7&ndash;9</td><td class="num">130</td><td>Sea freight</td><td>8&ndash;10 weeks</td><td class="num">~$130,000</td></tr>
+        <tr><td>PO#4</td><td>M10&ndash;12</td><td class="num">70</td><td>Sea freight</td><td>8&ndash;10 weeks</td><td class="num">~$65,000</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ==================== COST & MARGIN ANALYSIS ==================== -->
+<div class="tab-panel" id="costAnalysis">
+  <div class="card">
+    <span class="section-label">Transparent Cost Analysis</span>
+    <h2>ASI Cost vs Sale Price &mdash; Per Bus (Dineen Group MSA Pricing)</h2>
+    <p>This section provides APEAX with transparent visibility into ASI's cost structure and margin position for each product line. Our objective is to demonstrate that competitive material pricing from APEAX is critical to ASI's commercial viability and ability to scale volume.</p>
+  </div>
+
+  <div class="kpi-grid">
+    <div class="kpi"><div class="kpi-value">$5,591</div><div class="kpi-label">Revenue Per Bus (ex-GST)</div></div>
+    <div class="kpi"><div class="kpi-value">$3,004</div><div class="kpi-label">Total Cost Per Bus</div></div>
+    <div class="kpi"><div class="kpi-value">$2,587</div><div class="kpi-label">Gross Profit Per Bus</div></div>
+    <div class="kpi"><div class="kpi-value">46.3%</div><div class="kpi-label">Blended Margin</div></div>
+  </div>
+
+  <div class="card">
+    <h2>Product-Level Cost & Margin Breakdown (Per Bus, Ex-GST)</h2>
+    <div class="callout warn">
+      <strong>Note to APEAX:</strong> These are ASI's actual economics. Material cost is the single largest variable in our P&L. Competitive APEAX pricing directly enables ASI to scale volume &mdash; which in turn drives APEAX order volume. We're sharing this transparently because we see this as a long-term partnership.
+    </div>
+    <div style="overflow-x:auto">
+    <table>
+      <thead>
+        <tr>
+          <th>Product</th>
+          <th class="num">ASI Sale Price</th>
+          <th class="num">Material Cost</th>
+          <th class="num">Labour Cost</th>
+          <th class="num">Total Cost</th>
+          <th class="num">Gross Profit</th>
+          <th class="num">Margin %</th>
+          <th>Margin</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>OptiShield</strong> (windscreen)</td>
+          <td class="num">$1,870</td>
+          <td class="num">$1,080</td>
+          <td class="num">$210</td>
+          <td class="num">$1,290</td>
+          <td class="num highlight-green">$580</td>
+          <td class="num highlight-green">31.0%</td>
+          <td><div class="margin-bar-container"><div class="margin-bar amber" style="width:93px"></div></div></td>
+        </tr>
+        <tr>
+          <td><strong>PaintShield</strong> (front fascia)</td>
+          <td class="num">$449</td>
+          <td class="num">$72</td>
+          <td class="num">$120</td>
+          <td class="num">$192</td>
+          <td class="num highlight-green">$257</td>
+          <td class="num highlight-green">57.2%</td>
+          <td><div class="margin-bar-container"><div class="margin-bar green" style="width:171px"></div></div></td>
+        </tr>
+        <tr>
+          <td><strong>GrafShield</strong> (6 panes, anti-graffiti)</td>
+          <td class="num">$1,227</td>
+          <td class="num">$720</td>
+          <td class="num">$180</td>
+          <td class="num">$900</td>
+          <td class="num highlight-amber">$327</td>
+          <td class="num highlight-amber">26.7%</td>
+          <td><div class="margin-bar-container"><div class="margin-bar amber" style="width:80px"></div></div></td>
+        </tr>
+        <tr>
+          <td><strong>RadShield</strong> (tint, all panes)</td>
+          <td class="num">$2,045</td>
+          <td class="num">$422</td>
+          <td class="num">$200</td>
+          <td class="num">$622</td>
+          <td class="num highlight-green">$1,423</td>
+          <td class="num highlight-green">69.6%</td>
+          <td><div class="margin-bar-container"><div class="margin-bar green" style="width:209px"></div></div></td>
+        </tr>
+        <tr class="total-row">
+          <td><strong>TOTAL PER BUS</strong></td>
+          <td class="num">$5,591</td>
+          <td class="num">$2,294</td>
+          <td class="num">$710</td>
+          <td class="num">$3,004</td>
+          <td class="num">$2,587</td>
+          <td class="num">46.3%</td>
+          <td></td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>GrafShield &mdash; Material Cost Comparison (Per Pane)</h2>
+    <p>GrafShield is where APEAX pricing has the biggest impact on ASI's viability. Here's the per-pane breakdown:</p>
+    <div style="overflow-x:auto">
+    <table>
+      <thead>
+        <tr>
+          <th>Factor</th>
+          <th class="num">Local Supplier (Current)</th>
+          <th class="num">APEAX Gloss 60 (T1 Sea)</th>
+          <th class="num">APEAX Defender 60 (T1 Sea)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>Material cost per pane (AUD)</td><td class="num highlight-green">$50</td><td class="num highlight-red">$120</td><td class="num highlight-amber">$95</td></tr>
+        <tr><td>Premium vs local material</td><td class="num">&mdash;</td><td class="num highlight-red">+140%</td><td class="num highlight-amber">+90%</td></tr>
+        <tr><td>ASI sell price per pane (inc GST)</td><td class="num">$250</td><td class="num">$250</td><td class="num">$250</td></tr>
+        <tr><td>ASI sell price per pane (ex-GST)</td><td class="num">$227</td><td class="num">$227</td><td class="num">$227</td></tr>
+        <tr><td>Labour per pane</td><td class="num">$30</td><td class="num">$30</td><td class="num">$30</td></tr>
+        <tr><td>Total cost per pane</td><td class="num">$80</td><td class="num">$150</td><td class="num">$125</td></tr>
+        <tr><td>Margin per pane</td><td class="num highlight-green">$147 (64.8%)</td><td class="num highlight-red">$77 (33.9%)</td><td class="num highlight-amber">$102 (44.9%)</td></tr>
+        <tr><td>Margin per bus (6 panes)</td><td class="num highlight-green">$882</td><td class="num highlight-red">$462</td><td class="num highlight-amber">$612</td></tr>
+        <tr><td>Annual margin (305 buses)</td><td class="num highlight-green">$269,010</td><td class="num highlight-red">$140,910</td><td class="num highlight-amber">$186,660</td></tr>
+        <tr><td>Product quality / clarity</td><td class="num" style="color:var(--red)">Poor opacity</td><td class="num highlight-green">Excellent</td><td class="num highlight-green">Excellent</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <div class="callout warn">
+      <strong>The bottom line:</strong> ASI WANTS APEAX quality &mdash; the local product has noticeably inferior optical clarity. But at $120/pane vs $50/pane material cost, the 140% premium makes it difficult to justify commercially. We need APEAX to help close this gap. Even getting to $90/pane material would be workable.
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Material Cost as % of Revenue &mdash; APEAX Impact</h2>
+    <p>This shows how APEAX material cost affects ASI's per-bus economics across all products:</p>
+    <table>
+      <thead>
+        <tr><th>Product</th><th class="num">Material Cost</th><th class="num">Revenue</th><th class="num">Material as % of Revenue</th><th>Impact</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>OptiShield</td><td class="num">$1,080</td><td class="num">$1,870</td><td class="num highlight-amber">57.8%</td><td>APEAX film is the majority of cost</td></tr>
+        <tr><td>PaintShield</td><td class="num">$72</td><td class="num">$449</td><td class="num highlight-green">16.0%</td><td>Low material intensity &mdash; healthy</td></tr>
+        <tr><td>GrafShield (APEAX)</td><td class="num">$720</td><td class="num">$1,227</td><td class="num highlight-red">58.7%</td><td>Highest material burden &mdash; needs relief</td></tr>
+        <tr><td>GrafShield (Local)</td><td class="num">$300</td><td class="num">$1,227</td><td class="num highlight-green">24.4%</td><td>Benchmark target for APEAX</td></tr>
+        <tr><td>RadShield</td><td class="num">$422</td><td class="num">$2,045</td><td class="num highlight-green">20.6%</td><td>Strong margin &mdash; APEAX tint well-priced</td></tr>
+      </tbody>
+    </table>
+    <div class="callout success">
+      <strong>Where APEAX wins:</strong> RadShield and PaintShield are commercially strong. OptiShield is viable. GrafShield is the outlier &mdash; if APEAX can bring material cost closer to the local benchmark, ASI consolidates 100% of film procurement through APEAX. That's 857+ rolls Year 1.
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Annual Revenue to APEAX &mdash; Current T1 Pricing</h2>
+    <p>What APEAX earns from ASI at current T1 pricing across the Dineen Group MSA alone (305 buses):</p>
+    <table>
+      <thead><tr><th>Product</th><th class="num">Rolls/Year</th><th class="num">T1 USD/Roll</th><th class="num">APEAX Revenue (USD)</th></tr></thead>
+      <tbody>
+        <tr><td>OptiShield WPF 60</td><td class="num">305</td><td class="num">$719.40</td><td class="num">$219,417</td></tr>
+        <tr><td>Xtreme Gloss 60 (PaintShield)</td><td class="num">25</td><td class="num">$569.40</td><td class="num">$14,235</td></tr>
+        <tr><td>Xtreme Gloss 60 (GrafShield)</td><td class="num">208</td><td class="num">$569.40</td><td class="num">$118,435</td></tr>
+        <tr><td>Nano Ceramic 40" (RadShield)</td><td class="num">156</td><td class="num">$219.45</td><td class="num">$34,234</td></tr>
+        <tr><td>Nano Ceramic 20" (RadShield)</td><td class="num">31</td><td class="num">$164.45</td><td class="num">$5,098</td></tr>
+        <tr class="total-row"><td colspan="3">TOTAL APEAX REVENUE (Dineen Only)</td><td class="num">$391,419</td></tr>
+      </tbody>
+    </table>
+    <div class="callout">
+      <strong>Message:</strong> ASI is APEAX's largest single-customer opportunity in Australian mass-transit. Competitive GrafShield pricing unlocks the full $460K+ Year 1 combined order (McKenzie's + Dineen). The alternative is ASI sourcing GrafShield locally &mdash; which means APEAX misses ~$118K USD of that annual order.
+    </div>
+  </div>
+</div>
+
+<!-- ==================== GRAFSHIELD DISCUSSION ==================== -->
+<div class="tab-panel" id="grafshield">
+  <div class="card">
+    <span class="section-label">Commercial Discussion</span>
+    <h2>GrafShield (Anti-Graffiti Film) &mdash; ASI Wants APEAX Quality</h2>
+    <p>APEAX meeting &mdash; 2 April 2026. ASI wants to use APEAX film for GrafShield. The only barrier is material cost.</p>
+  </div>
+
+  <div class="card">
+    <h2>The Situation</h2>
+    <p>ASI's GrafShield product is anti-graffiti sacrificial film applied to bus sideglass interiors &mdash; 6 panes per bus. Our installation team has used APEAX Gloss 60 on-site and the product is excellent. The clarity and optical quality of APEAX film is noticeably superior to our current local supplier's product. We WANT to use APEAX for GrafShield. The only barrier is material cost.</p>
+  </div>
+
+  <div class="card">
+    <h2>The Problem: Material Cost Gap</h2>
+    <div style="overflow-x:auto">
+    <table>
+      <thead>
+        <tr><th>Factor</th><th>APEAX Xtreme Gloss 60</th><th>Current Local Supplier</th><th>Gap</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Product quality / clarity</td><td class="highlight-green">Excellent &mdash; clearly superior optics</td><td style="color:var(--red)">Poor opacity in comparison</td><td class="highlight-green">APEAX wins</td></tr>
+        <tr><td>Material cost per pane (AUD)</td><td class="num">$120 (T1 landed, sea)</td><td class="num highlight-green">$50</td><td class="highlight-red">APEAX +140% premium</td></tr>
+        <tr><td>Subcontractor all-in delivery</td><td>N/A &mdash; ASI installs direct</td><td>$100/pane ex-GST (Don, subcontract, inc. labour)</td><td></td></tr>
+        <tr><td>ASI sell price per pane (ex-GST)</td><td class="num">$227</td><td class="num">$227</td><td>Same client price</td></tr>
+        <tr><td>Margin per pane (ASI install)</td><td class="num highlight-amber">$77 (33.9%)</td><td class="num highlight-green">$147 (64.8%)</td><td class="highlight-red">$70/pane gap</td></tr>
+        <tr><td>Margin per bus (6 panes)</td><td class="num highlight-amber">$462</td><td class="num highlight-green">$882</td><td class="highlight-red">$420/bus gap</td></tr>
+        <tr><td>Annual margin gap (305 buses)</td><td colspan="2"></td><td class="num highlight-red">$128,100/year</td></tr>
+        <tr><td>Film protection spec</td><td>10-year warranty, premium PPF</td><td>Standard sacrificial, shorter life</td><td class="highlight-green">APEAX wins</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>What ASI Needs from APEAX</h2>
+    <p>We want APEAX-grade clarity and protection performance at a price point that makes GrafShield commercially competitive against local sourcing. The local product has inferior optical quality &mdash; if APEAX can close the cost gap, we switch immediately.</p>
+
+    <h3>Option 1 (Preferred): Volume Discount on Gloss 60 for Anti-Graffiti</h3>
+    <p>ASI needs material cost at or below <strong>$90/pane landed</strong> to achieve workable margin economics. At 305 buses &times; 6 panes = 1,830 panes/year, that's significant volume. A GrafShield-specific T1 discount or volume rebate would close the gap.</p>
+
+    <h3>Option 2: Defender Gloss 60 at T1 ($449.40 USD/roll)</h3>
+    <p>Lower-cost film that still delivers APEAX optical clarity. At $449.40 T1 vs $569.40 for Xtreme, material cost drops to ~$95/pane landed (sea). Close to target. 5-year warranty vs 10-year &mdash; acceptable for a sacrificial anti-graffiti application that gets replaced on damage anyway.</p>
+
+    <h3>Option 3: Dedicated Anti-Graffiti SKU</h3>
+    <p>If APEAX has or can develop a sacrificial-grade film optimised for anti-graffiti (doesn't need 10-year PPF durability, does need optical clarity), this could be the ideal solution. ASI would be the anchor customer for the Australian bus market.</p>
+  </div>
+
+  <div class="card">
+    <h2>The Opportunity APEAX Captures</h2>
+    <table>
+      <thead>
+        <tr><th>Metric</th><th class="num">Year 1 (305 buses)</th><th class="num">Year 2 (250+ buses)</th><th class="num">Year 3+ (ongoing)</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Panes</td><td class="num">1,830</td><td class="num">1,500+</td><td class="num">1,000+ (replacement cycle)</td></tr>
+        <tr><td>Rolls (@ ~9 panes/roll)</td><td class="num">~204</td><td class="num">~167</td><td class="num">~112</td></tr>
+        <tr><td>APEAX revenue (USD T1, Gloss 60)</td><td class="num">~$116K</td><td class="num">~$95K</td><td class="num">~$64K</td></tr>
+        <tr><td>APEAX revenue (USD T1, Defender 60)</td><td class="num">~$92K</td><td class="num">~$75K</td><td class="num">~$50K</td></tr>
+      </tbody>
+    </table>
+    <div class="callout success">
+      <strong>Bottom line:</strong> ASI wants to consolidate ALL film procurement through APEAX. GrafShield is the last piece. The local supplier's product is optically inferior &mdash; APEAX quality is better. Help us close the cost gap and this volume is yours.
+    </div>
+  </div>
+</div>
+
+<!-- ==================== COMBINED FORECAST ==================== -->
+<div class="tab-panel" id="combined">
+  <div class="card">
+    <span class="section-label">Combined Forecast</span>
+    <h2>Combined APEAX Order Forecast &mdash; Year 1 (All Products)</h2>
+    <p>McKenzie's + Dineen Group. Includes GrafShield (subject to APEAX pricing resolution).</p>
+  </div>
+
+  <div class="kpi-grid">
+    <div class="kpi"><div class="kpi-value">857</div><div class="kpi-label">Combined Rolls Year 1</div></div>
+    <div class="kpi"><div class="kpi-value">$461K</div><div class="kpi-label">USD Order Value (T1)</div></div>
+    <div class="kpi"><div class="kpi-value">$746K</div><div class="kpi-label">AUD Equivalent</div></div>
+    <div class="kpi"><div class="kpi-value">$730K+</div><div class="kpi-label">3-Year APEAX Revenue (USD)</div></div>
+  </div>
+
+  <div class="card">
+    <h2>Annual Order Summary by Product</h2>
+    <div style="overflow-x:auto">
+    <table>
+      <thead>
+        <tr><th>Product</th><th>SKU</th><th class="num">T1 USD/Roll</th><th class="num">McKenzie's Rolls</th><th class="num">Dineen Rolls</th><th class="num">Combined Rolls</th><th class="num">Total USD (T1)</th><th class="num">Total AUD (@ 1.62)</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>OptiShield WPF 60</td><td style="font-size:0.72rem">APX-WPF-WPF60X15</td>
+          <td class="num">$719.40</td><td class="num">48</td><td class="num">305</td><td class="num">353</td>
+          <td class="num">$253,948</td><td class="num">$411,396</td>
+        </tr>
+        <tr>
+          <td>Xtreme Gloss 60 (PaintShield)</td><td style="font-size:0.72rem">APX-PPF-G60X15-001</td>
+          <td class="num">$569.40</td><td class="num">12</td><td class="num">25</td><td class="num">37</td>
+          <td class="num">$21,068</td><td class="num">$34,130</td>
+        </tr>
+        <tr>
+          <td>Xtreme Gloss 60 (GrafShield)</td><td style="font-size:0.72rem">APX-PPF-G60X15-001</td>
+          <td class="num">$569.40</td><td class="num">36</td><td class="num">208</td><td class="num">244</td>
+          <td class="num">$138,934</td><td class="num">$225,072</td>
+        </tr>
+        <tr>
+          <td>Nano Ceramic 40" (RadShield)</td><td style="font-size:0.72rem">APX-CT-70S40-001</td>
+          <td class="num">$219.45</td><td class="num">24</td><td class="num">156</td><td class="num">180</td>
+          <td class="num">$39,501</td><td class="num">$63,992</td>
+        </tr>
+        <tr>
+          <td>Nano Ceramic 20" (RadShield)</td><td style="font-size:0.72rem">APX-CT-70S20-001</td>
+          <td class="num">$164.45</td><td class="num">12</td><td class="num">31</td><td class="num">43</td>
+          <td class="num">$7,071</td><td class="num">$11,456</td>
+        </tr>
+        <tr class="total-row">
+          <td colspan="3">TOTAL</td><td class="num">132</td><td class="num">725</td><td class="num">857</td>
+          <td class="num">$460,522</td><td class="num">$746,046</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Multi-Year APEAX Revenue Projection</h2>
+    <table>
+      <thead><tr><th>Year</th><th>Buses</th><th class="num">Est. APEAX Order (USD)</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td>Year 1</td><td>353 (48 + 305)</td><td class="num">$460,522</td><td>McKenzie's + Dineen Year 1 rollout</td></tr>
+        <tr><td>Year 2</td><td>~250 (remaining Dineen fleet)</td><td class="num">~$250,000</td><td>Continued Dineen rollout + replacement cycle begins</td></tr>
+        <tr><td>Year 3</td><td>~150+ (NSW expansion + replacements)</td><td class="num">~$180,000</td><td>Dineen NSW operations + 3-year OptiShield replacement</td></tr>
+        <tr class="total-row"><td>3-Year Total</td><td>750+</td><td class="num">~$730,000+</td><td>Anchor distributor volume for AU mass-transit</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card" style="text-align:center; border-color: var(--primary);">
+    <p style="font-size:1.05rem; color:#fff; font-weight:600;">ASI Australia &mdash; APEAX's anchor distributor for the Australian mass-transit sector.</p>
+    <p style="color:var(--text-muted); margin-top:6px;">857 rolls Year 1 &nbsp;|&nbsp; $460K+ USD &nbsp;|&nbsp; $730K+ 3-year pipeline</p>
+  </div>
+</div>
+
+</div><!-- /content -->
+
+<div class="footer">
+  ASI Australia &mdash; Advanced Surface Innovations &nbsp;|&nbsp; ABN 30 691 799 970 &nbsp;|&nbsp; Confidential &mdash; ASI + APEAX Only &nbsp;|&nbsp; Generated 2 April 2026
+</div>
+
+<script>
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById(tab.dataset.tab).classList.add('active');
+  });
+});
+</script>
+</body>
+</html>
