@@ -22,7 +22,7 @@ import { COLLECTIONS } from "@/lib/collections";
 import {
   xeroCreateInvoice, xeroSendInvoice, xeroGetInvoice,
   xeroListContacts, xeroListInvoices, xeroGetConnectionStatus,
-  xeroAttachFileToInvoice,
+  xeroAttachFileToInvoice, xeroSetInvoiceRecipients,
   xeroCreatePurchaseOrder, xeroSendPurchaseOrder, xeroGetPurchaseOrder,
   xeroListItems, xeroGetItem,
 } from "@/lib/xero";
@@ -768,7 +768,7 @@ const TOOLS: McpTool[] = [
   {
     name: "close_out_job",
     description:
-      "Full turnkey job close-out: creates a Xero invoice from job data, attaches the Completed Job Report PDF, optionally sends the invoice, then closes the job in the portal. This is the single-call workflow for LEDGER agents.",
+      "Full turnkey job close-out: creates a Xero invoice from job data, attaches the Completed Job Report PDF, optionally sends the invoice, then closes the job in the portal. Invoice emails are targeted to the job's contact email PLUS the organisation's accounts department email (if set via accountsEmail on the org, or a billing-role contact). This is the single-call workflow for LEDGER agents.",
     inputSchema: {
       type: "object",
       properties: {
@@ -2902,7 +2902,43 @@ async function handleCloseOutJob(args: Record<string, unknown>) {
   // Get PO number from first vehicle if available
   const poNumber = vehicles.length > 0 ? String(vehicles[0].poWorksOrderNumber || "") : "";
 
-  // 4. Create invoice in Xero
+  // 4. Resolve invoice recipients: job contact + org accounts email (if exists)
+  //    For multi-contact clients (e.g. Melbourne's Cheapest Cars), we ensure
+  //    the invoice goes ONLY to the contact for this specific job, plus
+  //    the organisation's accounts department email if one is set.
+  const invoiceRecipients: string[] = [clientEmail];
+  let accountsEmail: string | undefined;
+
+  if (job.organizationId) {
+    const orgSnap = await db.collection(COLLECTIONS.CONTACT_ORGANIZATIONS).doc(job.organizationId).get();
+    if (orgSnap.exists) {
+      const org = orgSnap.data()!;
+      // Check for dedicated accounts department email on the org
+      if (org.accountsEmail && String(org.accountsEmail) !== clientEmail) {
+        accountsEmail = String(org.accountsEmail);
+        invoiceRecipients.push(accountsEmail);
+      }
+      // Fallback: check for a billing-role contact in the org
+      if (!accountsEmail) {
+        const billingSnap = await db
+          .collection(COLLECTIONS.ORGANIZATION_CONTACTS)
+          .where("organizationId", "==", job.organizationId)
+          .where("role", "==", "billing")
+          .where("status", "==", "active")
+          .limit(1)
+          .get();
+        if (!billingSnap.empty) {
+          const billingContact = billingSnap.docs[0].data();
+          if (billingContact.email && String(billingContact.email) !== clientEmail) {
+            accountsEmail = String(billingContact.email);
+            invoiceRecipients.push(accountsEmail);
+          }
+        }
+      }
+    }
+  }
+
+  // 4b. Create invoice in Xero
   const invoice = await xeroCreateInvoice({
     contactName: clientName,
     contactEmail: clientEmail,
@@ -2912,8 +2948,14 @@ async function handleCloseOutJob(args: Record<string, unknown>) {
     poNumber: poNumber || undefined,
   });
 
-  // 5. Send if not skipped
+  // 5. Set invoice recipients on the Xero contact, then send
+  //    This ensures Xero emails the job contact (primary) + accounts dept (CC via IncludeInEmails)
   if (!skipSend) {
+    await xeroSetInvoiceRecipients(
+      invoice.contactId,
+      clientEmail,
+      accountsEmail ? [accountsEmail] : []
+    );
     await xeroSendInvoice(invoice.invoiceId);
   }
 
@@ -2963,6 +3005,8 @@ async function handleCloseOutJob(args: Record<string, unknown>) {
     lineItemCount: lineItems.length,
     clientName,
     clientEmail,
+    accountsEmail: accountsEmail || null,
+    invoiceRecipients,
     dueDate,
   };
 }

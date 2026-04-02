@@ -1263,6 +1263,7 @@ export interface ContactOrganization {
   sites: SiteLocation[];
   phone?: string;
   email?: string;
+  accountsEmail?: string; // Accounts department email — included on all invoices alongside the job contact
   website?: string;
   createdAt: Timestamp;
   updatedAt: Timestamp;

@@ -83,6 +83,7 @@ type OrganizationFormData = {
   name: string;
   category: ContactCategory;
   abn: string;
+  accountsEmail: string;
   marketStream: MarketStream | "";
   status: OrganizationStatus;
   portalRole: "client" | "contractor" | "";
@@ -109,6 +110,7 @@ const initialOrgForm: OrganizationFormData = {
   name: "",
   category: "trade_client",
   abn: "",
+  accountsEmail: "",
   marketStream: "",
   status: "active",
   portalRole: "",
@@ -454,6 +456,7 @@ export default function ContactsPage() {
         name: org.name,
         category: org.category,
         abn: org.abn || "",
+        accountsEmail: org.accountsEmail || "",
         marketStream: org.marketStream || "",
         status: org.status,
         portalRole:
@@ -522,6 +525,7 @@ export default function ContactsPage() {
         name: orgForm.name,
         category: orgForm.category,
         abn: orgForm.abn.trim(),
+        accountsEmail: orgForm.accountsEmail.trim(),
         marketStream: orgForm.marketStream || "",
         status: orgForm.status,
         portalRole: orgForm.portalRole || "",
@@ -538,6 +542,7 @@ export default function ContactsPage() {
         type: getOrganizationTypeForCategory(orgForm.category),
         status: orgForm.status,
         abn: orgForm.abn.trim(),
+        accountsEmail: orgForm.accountsEmail.trim(),
         marketStream: orgForm.marketStream || "",
         portalRole: orgForm.portalRole || "",
         jobCode: orgForm.jobCode.trim(),
@@ -1250,6 +1255,19 @@ export default function ContactsPage() {
                   onChange={(e) => setOrgForm({ ...orgForm, abn: e.target.value })}
                   placeholder="XX XXX XXX XXX"
                 />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="org-accounts-email">Accounts Dept. Email</Label>
+                <Input
+                  id="org-accounts-email"
+                  type="email"
+                  value={orgForm.accountsEmail}
+                  onChange={(e) => setOrgForm({ ...orgForm, accountsEmail: e.target.value })}
+                  placeholder="accounts@example.com"
+                />
+                <p className="text-xs text-muted-foreground">
+                  If set, invoices will also be sent to this email alongside the job contact.
+                </p>
               </div>
               <div className="grid gap-2">
                 <Label htmlFor="org-market">Market Stream</Label>

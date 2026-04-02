@@ -259,7 +259,7 @@ export async function xeroCreateInvoice(invoice: {
     taxType?: string;       // default "OUTPUT" (GST on Income)
   }>;
   poNumber?: string;        // Client PO/works order number
-}): Promise<{ invoiceId: string; invoiceNumber: string; status: string }> {
+}): Promise<{ invoiceId: string; invoiceNumber: string; status: string; contactId: string }> {
   // Find or create contact
   const contactResult = await xeroApi("GET",
     `/Contacts?where=Name=="${encodeURIComponent(invoice.contactName)}"`
@@ -307,6 +307,7 @@ export async function xeroCreateInvoice(invoice: {
     invoiceId: created.InvoiceID,
     invoiceNumber: created.InvoiceNumber,
     status: created.Status,
+    contactId,
   };
 }
 
@@ -322,6 +323,67 @@ export async function xeroSendInvoice(invoiceId: string): Promise<{ sent: boolea
   // Then send via email
   await xeroApi("POST", `/Invoices/${invoiceId}/Email`, {});
   return { sent: true };
+}
+
+/**
+ * Set the primary email on a Xero contact so the next invoice email
+ * goes to the right person. Call BEFORE xeroSendInvoice.
+ *
+ * - `primaryEmail` becomes the contact's main EmailAddress (Xero sends invoices here).
+ * - `additionalEmails` are added as ContactPersons with IncludeInEmails=true.
+ *   Existing contact persons with IncludeInEmails=false are preserved.
+ */
+export async function xeroSetInvoiceRecipients(
+  contactId: string,
+  primaryEmail: string,
+  additionalEmails: string[] = []
+): Promise<void> {
+  // Get existing contact persons so we don't blow them away
+  const existing = await xeroApi("GET", `/Contacts/${contactId}`) as {
+    Contacts?: Array<{
+      ContactPersons?: Array<{
+        FirstName: string;
+        LastName: string;
+        EmailAddress: string;
+        IncludeInEmails: boolean;
+      }>;
+    }>;
+  };
+
+  const existingPersons = existing.Contacts?.[0]?.ContactPersons || [];
+
+  // Keep existing persons but set all IncludeInEmails to false first
+  const updatedPersons = existingPersons.map((p) => ({
+    ...p,
+    IncludeInEmails: false,
+  }));
+
+  // Add/update our target additional emails with IncludeInEmails=true
+  for (const email of additionalEmails) {
+    const normalised = email.toLowerCase().trim();
+    if (normalised === primaryEmail.toLowerCase().trim()) continue; // skip if same as primary
+    const idx = updatedPersons.findIndex(
+      (p) => p.EmailAddress?.toLowerCase().trim() === normalised
+    );
+    if (idx >= 0) {
+      updatedPersons[idx].IncludeInEmails = true;
+    } else {
+      updatedPersons.push({
+        FirstName: "",
+        LastName: "",
+        EmailAddress: email,
+        IncludeInEmails: true,
+      });
+    }
+  }
+
+  await xeroApi("POST", "/Contacts", {
+    Contacts: [{
+      ContactID: contactId,
+      EmailAddress: primaryEmail,
+      ...(updatedPersons.length > 0 ? { ContactPersons: updatedPersons } : {}),
+    }],
+  });
 }
 
 export async function xeroGetInvoice(invoiceId: string): Promise<unknown> {
