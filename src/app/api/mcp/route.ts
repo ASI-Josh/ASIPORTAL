@@ -22,7 +22,7 @@ import { COLLECTIONS } from "@/lib/collections";
 import {
   xeroCreateInvoice, xeroSendInvoice, xeroGetInvoice,
   xeroListContacts, xeroListInvoices, xeroGetConnectionStatus,
-  xeroAttachFileToInvoice, xeroSetInvoiceRecipients,
+  xeroAttachFileToInvoice, xeroSetInvoiceRecipients, xeroCreateBill,
   xeroCreatePurchaseOrder, xeroSendPurchaseOrder, xeroGetPurchaseOrder,
   xeroListItems, xeroGetItem,
 } from "@/lib/xero";
@@ -850,6 +850,41 @@ const TOOLS: McpTool[] = [
         identifier: { type: "string", description: "Xero item code or ItemID." },
       },
       required: ["identifier"],
+    },
+  },
+  {
+    name: "xero_create_bill",
+    description:
+      "Create a supplier bill (accounts payable) in Xero. This is the AP counterpart to xero_create_invoice (AR). Optionally authorise and record payment in one call. Use for recording supplier invoices, goods received costs, and expense tracking.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        contactName: { type: "string", description: "Supplier name (must match Xero contact or will be created)." },
+        contactEmail: { type: "string", description: "Supplier email (optional, used if creating a new contact)." },
+        reference: { type: "string", description: "Supplier invoice number (e.g. 'H1126356')." },
+        date: { type: "string", description: "Bill date (ISO date, e.g. '2026-04-01')." },
+        dueDate: { type: "string", description: "Due date (ISO date)." },
+        lineItems: {
+          type: "array",
+          description: "Bill line items.",
+          items: {
+            type: "object",
+            properties: {
+              description: { type: "string" },
+              quantity: { type: "number" },
+              unitAmount: { type: "number", description: "Cost per unit, ex-GST." },
+              accountCode: { type: "string", description: "Xero account code (default '300' = Purchases)." },
+              taxType: { type: "string", description: "Xero tax type (default 'INPUT' = GST on Expenses)." },
+              itemCode: { type: "string", description: "Xero catalogue item code (optional)." },
+            },
+            required: ["description", "quantity", "unitAmount"],
+          },
+        },
+        status: { type: "string", enum: ["DRAFT", "AUTHORISED"], description: "Bill status (default 'DRAFT'). Set to 'AUTHORISED' to approve immediately." },
+        paidDate: { type: "string", description: "If provided, records a payment on this date (marks bill as PAID). Requires status 'AUTHORISED'." },
+        paidAccount: { type: "string", description: "Payment account name in Xero (e.g. 'Mastercard', 'ANZ Business Account'). Required if paidDate is set." },
+      },
+      required: ["contactName", "reference", "date", "dueDate", "lineItems"],
     },
   },
   // ─── Portal Stock & Procurement tools ───────────────────────────────────────
@@ -2435,6 +2470,23 @@ async function handleXeroGetItem(args: Record<string, unknown>) {
   return xeroGetItem(String(args.identifier));
 }
 
+async function handleXeroCreateBill(args: Record<string, unknown>) {
+  return xeroCreateBill({
+    contactName: String(args.contactName),
+    contactEmail: typeof args.contactEmail === "string" ? args.contactEmail : undefined,
+    reference: String(args.reference),
+    date: String(args.date),
+    dueDate: String(args.dueDate),
+    lineItems: (args.lineItems as Array<{
+      description: string; quantity: number; unitAmount: number;
+      accountCode?: string; taxType?: string; itemCode?: string;
+    }>) || [],
+    status: args.status === "AUTHORISED" ? "AUTHORISED" : "DRAFT",
+    paidDate: typeof args.paidDate === "string" ? args.paidDate : undefined,
+    paidAccount: typeof args.paidAccount === "string" ? args.paidAccount : undefined,
+  });
+}
+
 // ─── Portal Stock & Procurement handlers ──────────────────────────────────────
 
 async function handleGetStockItems(args: Record<string, unknown>) {
@@ -3253,6 +3305,7 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
     case "xero_get_purchase_order":    return handleXeroGetPO(args);
     case "xero_list_items":            return handleXeroListItems(args);
     case "xero_get_item":              return handleXeroGetItem(args);
+    case "xero_create_bill":           return handleXeroCreateBill(args);
     // Portal Stock & Procurement
     case "get_stock_items":            return handleGetStockItems(args);
     case "update_stock_item":          return handleUpdateStockItem(args);

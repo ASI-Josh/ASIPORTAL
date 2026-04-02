@@ -508,6 +508,109 @@ export async function xeroGetPurchaseOrder(purchaseOrderId: string): Promise<unk
   return xeroApi("GET", `/PurchaseOrders/${purchaseOrderId}`);
 }
 
+// ─── Bills (Accounts Payable) ────────────────────────────────────────────────
+
+export async function xeroCreateBill(bill: {
+  contactName: string;
+  contactEmail?: string;
+  reference: string;        // Supplier invoice number
+  date: string;             // Bill date ISO
+  dueDate: string;          // Due date ISO
+  lineItems: Array<{
+    description: string;
+    quantity: number;
+    unitAmount: number;       // ex-GST
+    accountCode?: string;     // Default '300' (Purchases)
+    taxType?: string;         // Default 'INPUT' (GST on Expenses)
+    itemCode?: string;
+  }>;
+  status?: "DRAFT" | "AUTHORISED";
+  paidDate?: string;
+  paidAccount?: string;       // Account name e.g. 'Mastercard'
+}): Promise<{ billId: string; billNumber: string; status: string; total: number }> {
+  // Find or create supplier contact
+  const contactResult = await xeroApi("GET",
+    `/Contacts?where=Name=="${encodeURIComponent(bill.contactName)}"`
+  ) as { Contacts?: Array<{ ContactID: string }> };
+
+  let contactId: string;
+  if (contactResult.Contacts && contactResult.Contacts.length > 0) {
+    contactId = contactResult.Contacts[0].ContactID;
+  } else {
+    const newContact = await xeroApi("POST", "/Contacts", {
+      Contacts: [{
+        Name: bill.contactName,
+        ...(bill.contactEmail ? { EmailAddress: bill.contactEmail } : {}),
+      }],
+    }) as { Contacts: Array<{ ContactID: string }> };
+    contactId = newContact.Contacts[0].ContactID;
+  }
+
+  const payload = {
+    Invoices: [{
+      Type: "ACCPAY", // Accounts Payable (supplier bill)
+      Contact: { ContactID: contactId },
+      Reference: bill.reference,
+      Date: bill.date,
+      DueDate: bill.dueDate,
+      LineAmountTypes: "Exclusive",
+      Status: bill.status || "DRAFT",
+      LineItems: bill.lineItems.map((li) => ({
+        Description: li.description,
+        Quantity: li.quantity,
+        UnitAmount: li.unitAmount,
+        AccountCode: li.accountCode || "300",
+        TaxType: li.taxType || "INPUT",
+        ...(li.itemCode ? { ItemCode: li.itemCode } : {}),
+      })),
+    }],
+  };
+
+  const result = await xeroApi("POST", "/Invoices", payload) as {
+    Invoices: Array<{
+      InvoiceID: string;
+      InvoiceNumber: string;
+      Status: string;
+      Total: number;
+    }>;
+  };
+
+  const created = result.Invoices[0];
+  let finalStatus = created.Status;
+
+  // Record payment if requested
+  if (bill.paidDate && (finalStatus === "AUTHORISED")) {
+    // Look up the payment account by name
+    let accountId: string | undefined;
+    if (bill.paidAccount) {
+      const accountsResult = await xeroApi("GET",
+        `/Accounts?where=Name=="${encodeURIComponent(bill.paidAccount)}"`
+      ) as { Accounts?: Array<{ AccountID: string }> };
+      accountId = accountsResult.Accounts?.[0]?.AccountID;
+      if (!accountId) {
+        throw new Error(`Payment account '${bill.paidAccount}' not found in Xero. Check the account name matches exactly.`);
+      }
+    }
+
+    await xeroApi("PUT", "/Payments", {
+      Payments: [{
+        Invoice: { InvoiceID: created.InvoiceID },
+        Account: { AccountID: accountId },
+        Date: bill.paidDate,
+        Amount: created.Total,
+      }],
+    });
+    finalStatus = "PAID";
+  }
+
+  return {
+    billId: created.InvoiceID,
+    billNumber: created.InvoiceNumber,
+    status: finalStatus,
+    total: created.Total,
+  };
+}
+
 // ─── Items / Inventory ────────────────────────────────────────────────────────
 
 export async function xeroListItems(searchTerm?: string): Promise<unknown> {
