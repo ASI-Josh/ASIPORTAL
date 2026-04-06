@@ -28,6 +28,7 @@ import {
   AlertTriangle,
   Radar,
   PackageCheck,
+  BarChart3,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import {
@@ -65,6 +66,7 @@ const adminMenuItems = [
   { href: "/dashboard/meetings", label: "Meetings", icon: Users },
   { href: "/dashboard/contacts", label: "Contacts", icon: Building2 },
   { href: "/dashboard/films", label: "Film Management", icon: FileText },
+  { href: "/dashboard/kpi", label: "KPI Traceability", icon: BarChart3 },
   { href: "/dashboard/works-register", label: "Works Register", icon: ClipboardList },
   { href: "/dashboard/ims", label: "ASI IMS", icon: Layers },
   { href: "/dashboard/agent-hub", label: "Agent Hub", icon: Bot },

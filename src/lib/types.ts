@@ -377,6 +377,7 @@ export interface Job {
   totalMaterialsCost?: number;
   completionAudit?: JobCompletionAudit;
   riskAssessment?: JobRiskAssessment;
+  replacementCostAvoided?: number;
 }
 
 export type RiskAssessmentRiskLevel = "low" | "medium" | "high" | "critical";
@@ -1265,6 +1266,8 @@ export interface ContactOrganization {
   email?: string;
   accountsEmail?: string; // Accounts department email — included on all invoices alongside the job contact
   website?: string;
+  parentOrganizationId?: string;
+  subsidiaryType?: "parent" | "subsidiary";
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
@@ -1480,6 +1483,13 @@ export interface FilmWarrantyInspection {
   reportUrl?: string;
   reportSentToClient?: boolean;
   reportSentDate?: string;
+  uvTransmission?: {
+    reading: number;
+    meter: string;
+    location: string;
+    passThreshold?: number;
+    result?: "pass" | "fail";
+  };
   status: "draft" | "in_progress" | "completed" | "cancelled";
   createdAt: Timestamp;
   updatedAt: Timestamp;
@@ -1926,6 +1936,196 @@ export interface ExecutiveReport {
     nextWeekPriorities: Array<string | { title: string; description: string }>;
     kpis: ExecutiveReportKpi[] | Record<string, unknown>;
   };
+}
+
+// ============================================
+// KPI TRACEABILITY MODULE
+// ============================================
+
+export const DIESEL_CO2_FACTOR_KG_PER_LITRE = 2.68; // Australian NGA factor
+
+export type FuelType = "diesel" | "petrol" | "lpg" | "cng" | "electric";
+
+export interface FuelRecord {
+  id: string;
+  organizationId: string;
+  organizationName: string;
+  vehicleId?: string;
+  vehicleRegistration: string;
+  vehicleDescription?: string;
+  fuelType: FuelType;
+  baselineConsumptionLPer100km: number;
+  baselinePeriodStart: string;
+  baselinePeriodEnd: string;
+  baselineSource?: "manual" | "telematics" | "fleet_report";
+  postInstallConsumptionLPer100km?: number;
+  postInstallPeriodStart?: string;
+  postInstallPeriodEnd?: string;
+  postInstallSource?: "manual" | "telematics" | "fleet_report";
+  fuelDeltaLPer100km?: number;
+  fuelDeltaPercent?: number;
+  hvacLoadReductionKw?: number;
+  estimatedKwhSaved?: number;
+  fuelCostPerLitre?: number;
+  estimatedCostSavingsPerYear?: number;
+  annualDistanceKm?: number;
+  filmInstallationId?: string;
+  radshieldInstalled: boolean;
+  installDate?: string;
+  notes?: string;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+  createdBy: string;
+}
+
+export type ReportingPeriod = "monthly" | "quarterly" | "annual";
+
+export interface EmissionsReport {
+  id: string;
+  organizationId: string;
+  organizationName: string;
+  subsidiaryIds?: string[];
+  reportingPeriod: ReportingPeriod;
+  periodStart: string;
+  periodEnd: string;
+  scope1: {
+    dieselSavedLitres: number;
+    co2AvoidedKg: number;
+    co2AvoidedTonnes: number;
+    calculationMethod: string;
+  };
+  waste: {
+    glassAvoidedKg: number;
+    filmDisposalsAvoidedKg: number;
+    totalWasteAvoidedKg: number;
+  };
+  priorPeriodCo2Tonnes?: number;
+  yoyChangePercent?: number;
+  asrsExported?: boolean;
+  asrsExportedAt?: string;
+  asrsExportedBy?: string;
+  status: "draft" | "reviewed" | "submitted";
+  notes?: string;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+  createdBy: string;
+}
+
+export interface TelemetryReading {
+  id: string;
+  organizationId: string;
+  organizationName?: string;
+  vehicleId?: string;
+  vehicleRegistration: string;
+  readingDate: string;
+  readingSource: "manual" | "telematics" | "obd2" | "canbus";
+  compressor?: {
+    dutyCyclePercent: number;
+    runHoursTotal: number;
+    runHoursThisPeriod?: number;
+    tempDeltaCabin: number;
+    refrigerantPressure?: number;
+  };
+  electrical?: {
+    totalSystemLoadKw: number;
+    alternatorReductionKw?: number;
+    auxiliaryLoadKw?: number;
+  };
+  temperature?: {
+    ambientTempC: number;
+    cabinTempPreC: number;
+    cabinTempPostC: number;
+    deltaTempC: number;
+    measurementMethod?: "thermocouple" | "infrared" | "obd2" | "manual";
+  };
+  componentLifecycle?: {
+    compressorHoursTotal: number;
+    estimatedLifeHours: number;
+    remainingLifePercent: number;
+    alertLevel?: "ok" | "warning" | "critical";
+    nextServiceDue?: string;
+  };
+  notes?: string;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+  createdBy: string;
+}
+
+export type MaintenanceEventType = "respray" | "major_repair" | "panel_replacement" | "film_replacement" | "glass_replacement" | "other";
+
+export interface MaintenanceEvent {
+  id: string;
+  organizationId: string;
+  organizationName: string;
+  vehicleId?: string;
+  vehicleRegistration: string;
+  eventDate: string;
+  eventType: MaintenanceEventType;
+  description: string;
+  actualCost: number;
+  replacementCostAvoided?: number;
+  costSavings?: number;
+  jobId?: string;
+  jobNumber?: string;
+  filmInstallationId?: string;
+  performedBy?: string;
+  notes?: string;
+  attachments?: { name: string; url: string }[];
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+  createdBy: string;
+}
+
+export interface ZebEnergyRecord {
+  id: string;
+  organizationId: string;
+  organizationName: string;
+  vehicleId?: string;
+  vehicleRegistration: string;
+  recordDate: string;
+  batteryCapacityKwh: number;
+  energyConsumedKwh: number;
+  rangeAchievedKm: number;
+  rangeRatedKm: number;
+  rangeExtensionKm?: number;
+  rangeExtensionPercent?: number;
+  hvacEnergyKwh?: number;
+  hvacReductionKwh?: number;
+  ambientTempC?: number;
+  solarLoadWm2?: number;
+  routeType?: "urban" | "suburban" | "highway" | "mixed";
+  notes?: string;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+  createdBy: string;
+}
+
+export type KpiSnapshotLevel = "vehicle" | "fleet" | "subsidiary" | "group";
+
+export interface KpiSnapshot {
+  id: string;
+  level: KpiSnapshotLevel;
+  organizationId: string;
+  organizationName: string;
+  periodStart: string;
+  periodEnd: string;
+  totalFuelSavedLitres: number;
+  totalKwhSaved: number;
+  totalCostSavingsAud: number;
+  costPerBusPerYear?: number;
+  costPerFleetPerYear?: number;
+  co2AvoidedTonnes: number;
+  wasteAvoidedKg: number;
+  avgDutyCycleReductionPercent?: number;
+  avgTempDeltaC?: number;
+  totalReplacementCostAvoided?: number;
+  maintenanceEventsCount?: number;
+  avgRangeExtensionPercent?: number;
+  totalHvacEnergySavedKwh?: number;
+  vehicleCount: number;
+  vehicleIds?: string[];
+  generatedAt: Timestamp;
+  generatedBy: string;
 }
 
 // ============================================

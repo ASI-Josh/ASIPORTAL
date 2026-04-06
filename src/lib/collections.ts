@@ -52,4 +52,11 @@ export const COLLECTIONS = {
   MEETINGS: "meetings",
   MEETING_TEMPLATES: "meetingTemplates",
   MEETING_ACTIONS: "meetingActions",
+  // KPI Traceability Module
+  FUEL_RECORDS: "fuelRecords",
+  EMISSIONS_REPORTS: "emissionsReports",
+  TELEMETRY_READINGS: "telemetryReadings",
+  MAINTENANCE_EVENTS: "maintenanceEvents",
+  ZEB_ENERGY_RECORDS: "zebEnergyRecords",
+  KPI_SNAPSHOTS: "kpiSnapshots",
 } as const;

@@ -4163,7 +4163,7 @@ export default function JobCardPage() {
                   {/* Grand Total */}
                   <Card className="bg-primary/10 border-primary/30">
                     <CardContent className="p-6">
-                      <div className="grid grid-cols-3 gap-6 text-center">
+                      <div className="grid grid-cols-4 gap-6 text-center">
                         <div>
                           <Label className="text-xs text-muted-foreground">Total Labour</Label>
                           <p className="text-2xl font-bold text-blue-400">
@@ -4180,6 +4180,12 @@ export default function JobCardPage() {
                           <Label className="text-xs text-muted-foreground">Grand Total</Label>
                           <p className="text-2xl font-bold text-primary">
                             ${jobTotals.totalCost.toFixed(2)}
+                          </p>
+                        </div>
+                        <div>
+                          <Label className="text-xs text-muted-foreground">Replacement Cost Avoided</Label>
+                          <p className="text-2xl font-bold text-green-400">
+                            ${(job.replacementCostAvoided || 0).toFixed(2)}
                           </p>
                         </div>
                       </div>
