@@ -92,9 +92,11 @@ export function AppSidebar() {
         ],
         client: [
           { href: "/client", label: "Dashboard", icon: LayoutDashboard },
+          { href: "/client/kpi", label: "Performance & Sustainability", icon: BarChart3 },
           { href: "/client/bookings", label: "Bookings", icon: Briefcase },
           { href: "/client/inspections", label: "Inspections", icon: ClipboardCheck },
           { href: "/client/works-register", label: "Works Register", icon: ClipboardList },
+          { href: "/client/athena", label: "Ask Athena", icon: Bot },
           { href: "/client/contacts", label: "ASI Contacts", icon: Users },
         ],
         contractor: [

@@ -2129,6 +2129,33 @@ export interface KpiSnapshot {
 }
 
 // ============================================
+// CLIENT SATISFACTION (ISO 9001)
+// ============================================
+
+export interface SatisfactionSurvey {
+  id: string;
+  organizationId: string;
+  organizationName: string;
+  jobId?: string;
+  jobNumber?: string;
+  submittedBy: string;
+  submittedByName: string;
+  submittedAt: Timestamp;
+  overallSatisfaction: number; // 1-5
+  serviceQuality: number; // 1-5
+  communication: number; // 1-5
+  timeliness: number; // 1-5
+  valueForMoney: number; // 1-5
+  wouldRecommend: boolean;
+  comments?: string;
+  risks?: string[];
+  opportunities?: string[];
+  athenaGenerated?: boolean; // true if Athena captured this dynamically
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
+// ============================================
 // HELPER TYPES
 // ============================================
 

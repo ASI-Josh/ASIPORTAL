@@ -10,7 +10,7 @@ import {
   type ChartConfig,
 } from "@/components/ui/chart";
 import { Bar, BarChart, XAxis, YAxis, Line, LineChart, CartesianGrid } from "recharts";
-import { Fuel, Leaf, Thermometer, Wrench, Zap, AlertTriangle } from "lucide-react";
+import { Fuel, Leaf, Thermometer, Wrench, Zap, AlertTriangle, Star } from "lucide-react";
 import { DIESEL_CO2_FACTOR_KG_PER_LITRE } from "@/lib/types";
 import type {
   FuelRecord,
@@ -19,6 +19,7 @@ import type {
   MaintenanceEvent,
   KpiSnapshot,
   ContactOrganization,
+  SatisfactionSurvey,
 } from "@/lib/types";
 
 interface KpiOverviewProps {
@@ -28,6 +29,7 @@ interface KpiOverviewProps {
   maintenanceEvents: MaintenanceEvent[];
   snapshots: KpiSnapshot[];
   organizations: ContactOrganization[];
+  surveys?: SatisfactionSurvey[];
 }
 
 const fuelChartConfig: ChartConfig = {
@@ -42,6 +44,7 @@ export function KpiOverview({
   emissionsReports,
   telemetryReadings,
   maintenanceEvents,
+  surveys = [],
 }: KpiOverviewProps) {
   const totalFuelSaved = useMemo(() => {
     return fuelRecords.reduce((sum, r) => {
@@ -85,6 +88,18 @@ export function KpiOverview({
     return temps.reduce((sum, r) => sum + (r.temperature?.deltaTempC || 0), 0) / temps.length;
   }, [telemetryReadings]);
 
+  // Client satisfaction (ISO 9001)
+  const avgSatisfaction = useMemo(() => {
+    if (surveys.length === 0) return null;
+    return surveys.reduce((s, r) => s + r.overallSatisfaction, 0) / surveys.length;
+  }, [surveys]);
+
+  const recommendRate = useMemo(() => {
+    if (surveys.length === 0) return null;
+    const recommenders = surveys.filter((s) => s.wouldRecommend).length;
+    return (recommenders / surveys.length) * 100;
+  }, [surveys]);
+
   // ASRS deadline countdown
   const asrsDeadline = new Date("2026-07-01");
   const today = new Date();
@@ -123,6 +138,7 @@ export function KpiOverview({
     { label: "Emissions / ESG", status: emissionsReports.length > 0 ? "active" : "awaiting data", priority: "P0" },
     { label: "HVAC / Telemetry", status: telemetryReadings.length > 0 ? "active" : "awaiting data", priority: "P1" },
     { label: "Maintenance", status: maintenanceEvents.length > 0 ? "active" : "awaiting data", priority: "P1" },
+    { label: "Client Satisfaction", status: surveys.length > 0 ? "active" : "awaiting data", priority: "ISO" },
   ];
 
   return (
@@ -146,7 +162,7 @@ export function KpiOverview({
       </Card>
 
       {/* KPI Summary Cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium">Fuel Saved</CardTitle>
@@ -210,6 +226,28 @@ export function KpiOverview({
           <CardContent>
             <div className="text-2xl font-bold">${totalReplacementCostAvoided.toLocaleString(undefined, { maximumFractionDigits: 0 })}</div>
             <p className="text-xs text-muted-foreground">Replacement cost avoided</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium">Satisfaction</CardTitle>
+            <Star className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{avgSatisfaction !== null ? `${avgSatisfaction.toFixed(1)}/5` : "—"}</div>
+            <p className="text-xs text-muted-foreground">Avg client rating (ISO 9001)</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium">Recommend</CardTitle>
+            <Star className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{recommendRate !== null ? `${recommendRate.toFixed(0)}%` : "—"}</div>
+            <p className="text-xs text-muted-foreground">{surveys.length} survey{surveys.length !== 1 ? "s" : ""} received</p>
           </CardContent>
         </Card>
       </div>

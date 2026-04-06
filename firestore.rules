@@ -308,30 +308,30 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
-    // KPI Traceability Module
+    // KPI Traceability Module (staff full access, clients can read own org data)
     match /fuelRecords/{docId} {
-      allow read: if isStaff();
+      allow read: if isStaff() || (signedIn() && resource.data.organizationId == userOrgId());
       allow create: if isStaff();
       allow update: if isStaff();
       allow delete: if isAdmin();
     }
 
     match /emissionsReports/{docId} {
-      allow read: if isStaff();
+      allow read: if isStaff() || (signedIn() && resource.data.organizationId == userOrgId());
       allow create: if isStaff();
       allow update: if isStaff();
       allow delete: if isAdmin();
     }
 
     match /telemetryReadings/{docId} {
-      allow read: if isStaff();
+      allow read: if isStaff() || (signedIn() && resource.data.organizationId == userOrgId());
       allow create: if isStaff();
       allow update: if isStaff();
       allow delete: if isAdmin();
     }
 
     match /maintenanceEvents/{docId} {
-      allow read: if isStaff();
+      allow read: if isStaff() || (signedIn() && resource.data.organizationId == userOrgId());
       allow create: if isStaff();
       allow update: if isStaff();
       allow delete: if isAdmin();
@@ -347,6 +347,13 @@ service cloud.firestore {
     match /kpiSnapshots/{docId} {
       allow read: if isStaff();
       allow create: if isStaff();
+      allow update: if isStaff();
+      allow delete: if isAdmin();
+    }
+
+    match /satisfactionSurveys/{docId} {
+      allow read: if isStaff() || (signedIn() && resource.data.organizationId == userOrgId());
+      allow create: if signedIn();
       allow update: if isStaff();
       allow delete: if isAdmin();
     }

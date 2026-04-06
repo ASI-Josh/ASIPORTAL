@@ -59,4 +59,5 @@ export const COLLECTIONS = {
   MAINTENANCE_EVENTS: "maintenanceEvents",
   ZEB_ENERGY_RECORDS: "zebEnergyRecords",
   KPI_SNAPSHOTS: "kpiSnapshots",
+  SATISFACTION_SURVEYS: "satisfactionSurveys",
 } as const;
