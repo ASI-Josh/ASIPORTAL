@@ -26,6 +26,12 @@ import {
   xeroCreatePurchaseOrder, xeroSendPurchaseOrder, xeroGetPurchaseOrder,
   xeroListItems, xeroGetItem,
 } from "@/lib/xero";
+import {
+  buildGmailAuthUrl, getGmailAccessToken, gmailGetProfile,
+  gmailListMessages, gmailGetMessage, gmailGetThread,
+  gmailSendMessage, gmailCreateDraft, gmailListDrafts, gmailSendDraft,
+  gmailListLabels, gmailModifyLabels, gmailTrashMessage,
+} from "@/lib/server/gmail";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -1561,6 +1567,141 @@ const TOOLS: McpTool[] = [
       properties: {
         daysAhead: { type: "number", description: "Forecast window in days (default 90)." },
       },
+    },
+  },
+
+  // ─── Gmail tools ───────────────────────────────────────────────────────────
+  {
+    name: "gmail_connect",
+    description: "Get the Gmail OAuth authorization URL. The user must open this URL in a browser to grant access. Only needed once.",
+    inputSchema: { type: "object", properties: {}, required: [] },
+  },
+  {
+    name: "gmail_status",
+    description: "Check Gmail connection status — shows connected email address and token health.",
+    inputSchema: { type: "object", properties: {}, required: [] },
+  },
+  {
+    name: "gmail_get_profile",
+    description: "Get the connected Gmail account profile (email address, total messages, threads).",
+    inputSchema: { type: "object", properties: {}, required: [] },
+  },
+  {
+    name: "gmail_search",
+    description: "Search Gmail inbox using Gmail search syntax. Returns message IDs and snippets. Examples: 'is:unread', 'from:josh', 'subject:invoice after:2026/04/01', 'has:attachment'.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Gmail search query (same syntax as Gmail search bar)" },
+        max_results: { type: "number", description: "Max messages to return (default 20, max 100)" },
+        page_token: { type: "string", description: "Pagination token from previous search" },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "gmail_read_message",
+    description: "Read a specific email message by ID. Returns full headers, body text, and metadata.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        message_id: { type: "string", description: "Gmail message ID (from gmail_search results)" },
+      },
+      required: ["message_id"],
+    },
+  },
+  {
+    name: "gmail_read_thread",
+    description: "Read an email thread/conversation by thread ID. Returns all messages in the thread.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        thread_id: { type: "string", description: "Gmail thread ID" },
+      },
+      required: ["thread_id"],
+    },
+  },
+  {
+    name: "gmail_send",
+    description: "Send an email directly from the connected Gmail account. Use for operational emails, client communications, follow-ups.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        to: { type: "string", description: "Recipient email address(es), comma-separated for multiple" },
+        subject: { type: "string", description: "Email subject line" },
+        body: { type: "string", description: "Plain text email body" },
+        cc: { type: "string", description: "CC recipients (comma-separated)" },
+        bcc: { type: "string", description: "BCC recipients (comma-separated)" },
+        reply_to: { type: "string", description: "Reply-to address if different from sender" },
+        in_reply_to: { type: "string", description: "Message-ID to reply to (for threading)" },
+        thread_id: { type: "string", description: "Thread ID to add this message to (for replies)" },
+      },
+      required: ["to", "subject", "body"],
+    },
+  },
+  {
+    name: "gmail_create_draft",
+    description: "Create an email draft for review before sending. Drafts can be reviewed and sent via gmail_send_draft.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        to: { type: "string", description: "Recipient email address(es)" },
+        subject: { type: "string", description: "Email subject line" },
+        body: { type: "string", description: "Plain text email body" },
+        cc: { type: "string", description: "CC recipients" },
+        bcc: { type: "string", description: "BCC recipients" },
+      },
+      required: ["to", "subject", "body"],
+    },
+  },
+  {
+    name: "gmail_list_drafts",
+    description: "List email drafts in the connected Gmail account.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        max_results: { type: "number", description: "Max drafts to return (default 10)" },
+      },
+    },
+  },
+  {
+    name: "gmail_send_draft",
+    description: "Send a previously created draft.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        draft_id: { type: "string", description: "Draft ID to send" },
+      },
+      required: ["draft_id"],
+    },
+  },
+  {
+    name: "gmail_list_labels",
+    description: "List all Gmail labels (folders) in the connected account.",
+    inputSchema: { type: "object", properties: {}, required: [] },
+  },
+  {
+    name: "gmail_modify_labels",
+    description: "Add or remove labels from a message (move to folder, mark as read/unread, star, archive).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        message_id: { type: "string", description: "Message ID to modify" },
+        add_labels: { type: "array", items: { type: "string" }, description: "Label IDs to add (e.g. 'STARRED', 'IMPORTANT', 'UNREAD')" },
+        remove_labels: { type: "array", items: { type: "string" }, description: "Label IDs to remove (e.g. 'UNREAD' to mark as read, 'INBOX' to archive)" },
+      },
+      required: ["message_id"],
+    },
+  },
+  {
+    name: "gmail_trash",
+    description: "Move an email to trash.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        message_id: { type: "string", description: "Message ID to trash" },
+      },
+      required: ["message_id"],
     },
   },
 ];
@@ -3538,6 +3679,21 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
     case "get_films_alerts":               return handleGetFilmsAlerts();
     case "get_films_procurement_forecast": return handleGetFilmsProcurementForecast(args);
 
+    // Gmail
+    case "gmail_connect":       return handleGmailConnect();
+    case "gmail_status":        return handleGmailStatus();
+    case "gmail_get_profile":   return handleGmailGetProfile();
+    case "gmail_search":        return handleGmailSearch(args);
+    case "gmail_read_message":  return handleGmailReadMessage(args);
+    case "gmail_read_thread":   return handleGmailReadThread(args);
+    case "gmail_send":          return handleGmailSend(args);
+    case "gmail_create_draft":  return handleGmailCreateDraft(args);
+    case "gmail_list_drafts":   return handleGmailListDrafts(args);
+    case "gmail_send_draft":    return handleGmailSendDraft(args);
+    case "gmail_list_labels":   return handleGmailListLabels();
+    case "gmail_modify_labels": return handleGmailModifyLabels(args);
+    case "gmail_trash":         return handleGmailTrash(args);
+
     default:
       throw new Error(`Unknown tool: ${name}`);
   }
@@ -5098,6 +5254,124 @@ async function handleGetFilmsProcurementForecast(args: Record<string, unknown>) 
       return `ℹ️ ${material}: ${data.needed} needed — no matching stock item found in inventory`;
     }),
   };
+}
+
+// ─── Gmail handlers ─────────────────────────────────────────────────────────
+
+async function handleGmailConnect() {
+  const { randomBytes } = await import("crypto");
+  const state = randomBytes(16).toString("hex");
+  const url = buildGmailAuthUrl(state);
+  return { authUrl: url, instructions: "Open this URL in a browser to authorize Gmail access. After authorization, you'll be redirected back and Gmail tools will be fully operational." };
+}
+
+async function handleGmailStatus() {
+  try {
+    const token = await getGmailAccessToken("default");
+    const profile = await gmailGetProfile(token) as { emailAddress?: string; messagesTotal?: number; threadsTotal?: number };
+    return { connected: true, email: profile.emailAddress, messagesTotal: profile.messagesTotal, threadsTotal: profile.threadsTotal };
+  } catch (err) {
+    return { connected: false, error: err instanceof Error ? err.message : "Not connected" };
+  }
+}
+
+async function handleGmailGetProfile() {
+  const token = await getGmailAccessToken("default");
+  return gmailGetProfile(token);
+}
+
+async function handleGmailSearch(args: Record<string, unknown>) {
+  const token = await getGmailAccessToken("default");
+  const query = String(args.query || "");
+  const maxResults = Math.min(Number(args.max_results) || 20, 100);
+  const pageToken = args.page_token ? String(args.page_token) : undefined;
+
+  const list = await gmailListMessages(token, { query, maxResults, pageToken });
+  const messages = (list.messages || []) as { id: string; threadId: string }[];
+
+  // Fetch snippets for each message
+  const results = await Promise.all(
+    messages.slice(0, maxResults).map(async (m) => {
+      try {
+        const msg = await gmailGetMessage(token, m.id, "metadata");
+        return msg;
+      } catch {
+        return { id: m.id, threadId: m.threadId, error: "Failed to fetch" };
+      }
+    })
+  );
+
+  return {
+    messages: results,
+    count: results.length,
+    nextPageToken: list.nextPageToken || null,
+    resultSizeEstimate: list.resultSizeEstimate,
+  };
+}
+
+async function handleGmailReadMessage(args: Record<string, unknown>) {
+  const token = await getGmailAccessToken("default");
+  return gmailGetMessage(token, String(args.message_id));
+}
+
+async function handleGmailReadThread(args: Record<string, unknown>) {
+  const token = await getGmailAccessToken("default");
+  return gmailGetThread(token, String(args.thread_id));
+}
+
+async function handleGmailSend(args: Record<string, unknown>) {
+  const token = await getGmailAccessToken("default");
+  return gmailSendMessage(token, {
+    to: String(args.to),
+    subject: String(args.subject),
+    body: String(args.body),
+    cc: args.cc ? String(args.cc) : undefined,
+    bcc: args.bcc ? String(args.bcc) : undefined,
+    replyTo: args.reply_to ? String(args.reply_to) : undefined,
+    inReplyTo: args.in_reply_to ? String(args.in_reply_to) : undefined,
+    threadId: args.thread_id ? String(args.thread_id) : undefined,
+  });
+}
+
+async function handleGmailCreateDraft(args: Record<string, unknown>) {
+  const token = await getGmailAccessToken("default");
+  return gmailCreateDraft(token, {
+    to: String(args.to),
+    subject: String(args.subject),
+    body: String(args.body),
+    cc: args.cc ? String(args.cc) : undefined,
+    bcc: args.bcc ? String(args.bcc) : undefined,
+  });
+}
+
+async function handleGmailListDrafts(args: Record<string, unknown>) {
+  const token = await getGmailAccessToken("default");
+  return gmailListDrafts(token, Number(args.max_results) || 10);
+}
+
+async function handleGmailSendDraft(args: Record<string, unknown>) {
+  const token = await getGmailAccessToken("default");
+  return gmailSendDraft(token, String(args.draft_id));
+}
+
+async function handleGmailListLabels() {
+  const token = await getGmailAccessToken("default");
+  return gmailListLabels(token);
+}
+
+async function handleGmailModifyLabels(args: Record<string, unknown>) {
+  const token = await getGmailAccessToken("default");
+  return gmailModifyLabels(
+    token,
+    String(args.message_id),
+    (args.add_labels as string[]) || [],
+    (args.remove_labels as string[]) || [],
+  );
+}
+
+async function handleGmailTrash(args: Record<string, unknown>) {
+  const token = await getGmailAccessToken("default");
+  return gmailTrashMessage(token, String(args.message_id));
 }
 
 // ─── JSON-RPC helpers ─────────────────────────────────────────────────────────
