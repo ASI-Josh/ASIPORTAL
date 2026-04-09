@@ -647,6 +647,260 @@ const TOOLS: McpTool[] = [
       required: ["scan"],
     },
   },
+  // ─── Leads Register tools ───────────────────────────────────────────────────
+  {
+    name: "create_leads_register_entry",
+    description: "Create a new Leads Register entry. This is the pre-pipeline qualification layer — entries must be assessed and promoted before becoming CRM leads.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        streamType: { type: "string", enum: ["sales", "supply_chain"], description: "Stream: 'sales' (SENTINEL) or 'supply_chain' (VANGUARD)." },
+        source: {
+          type: "object", description: "How this entry was sourced.",
+          properties: {
+            type: { type: "string", enum: ["osint", "inbound", "manual", "referral"] },
+            scanDate: { type: "string", description: "ISO date of OSINT scan if applicable." },
+            scanId: { type: "string" }, findingId: { type: "string" }, notes: { type: "string" },
+          },
+        },
+        company: {
+          type: "object", description: "Company details.",
+          properties: {
+            name: { type: "string" }, website: { type: "string" },
+            sector: { type: "string", enum: ["mass-transit", "manufacturing", "wholesale-trade", "structural", "marine", "technology", "other"] },
+            description: { type: "string" }, location: { type: "string" }, size: { type: "string" },
+          }, required: ["name"],
+        },
+        contact: {
+          type: "object", description: "Primary contact.",
+          properties: {
+            name: { type: "string" }, role: { type: "string" }, email: { type: "string" },
+            phone: { type: "string" }, linkedin: { type: "string" },
+          },
+        },
+        opportunity: {
+          type: "object", description: "Opportunity details.",
+          properties: {
+            description: { type: "string" },
+            category: { type: "string", enum: ["technology", "supplier", "partner", "distributor", "customer", "innovation", "grant", "other"] },
+            potentialValue: { type: "number", description: "Estimated AUD annual value." },
+            potentialValueNotes: { type: "string" },
+            urgencyFlag: { type: "boolean" }, urgencyReason: { type: "string" },
+          },
+        },
+        notes: { type: "string" },
+        tags: { type: "array", items: { type: "string" } },
+        status: { type: "string", enum: ["identified", "assessed", "shortlisted"], description: "Initial status (default: identified)." },
+      },
+      required: ["streamType", "company"],
+    },
+  },
+  {
+    name: "get_leads_register",
+    description: "List/filter Leads Register entries. Always filter by streamType — never show mixed streams.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        streamType: { type: "string", enum: ["sales", "supply_chain"], description: "Required — filter by stream." },
+        status: { type: "string", enum: ["identified", "assessed", "shortlisted", "promoted", "parked", "rejected"] },
+        roeGrade: { type: "string", enum: ["A", "B", "C", "D", "E"] },
+        urgencyFlag: { type: "boolean" },
+        createdAfter: { type: "string", description: "ISO date — only entries created after this date." },
+        limit: { type: "number", description: "Max entries (default 50, max 200)." },
+        offset: { type: "number", description: "Pagination offset." },
+      },
+    },
+  },
+  {
+    name: "get_leads_register_entry",
+    description: "Get a single Leads Register entry by ID.",
+    inputSchema: {
+      type: "object",
+      properties: { id: { type: "string", description: "Register entry document ID." } },
+      required: ["id"],
+    },
+  },
+  {
+    name: "update_leads_register_entry",
+    description: "Update a Leads Register entry — ROE score, Stockdale assessment, status, weekly decision, notes, tags, contact, opportunity, etc.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Register entry document ID." },
+        status: { type: "string", enum: ["identified", "assessed", "shortlisted", "promoted", "parked", "rejected"] },
+        roeScore: {
+          type: "object", description: "ROE score breakdown (0-100 total).",
+          properties: {
+            strategicFit: { type: "number" }, effortEstimate: { type: "number" },
+            revenueImpact: { type: "number" }, conversionProbability: { type: "number" },
+            resourceRisk: { type: "number" }, assessedBy: { type: "string" },
+          },
+        },
+        stockdaleAssessment: {
+          type: "object", description: "Stockdale brutal-facts assessment.",
+          properties: {
+            resourceAvailability: { type: "string", enum: ["available", "stretched", "committed"] },
+            gunpowderCheck: { type: "string" }, growthRisk: { type: "string" },
+            flywheelImpact: { type: "string" },
+            verdict: { type: "string", enum: ["pursue", "park", "watch", "reject"] },
+          },
+        },
+        weeklyDecision: {
+          type: "object", description: "Weekly decision gate result.",
+          properties: {
+            weekEnding: { type: "string" },
+            decision: { type: "string", enum: ["promote", "park", "reject", "defer"] },
+            reasoning: { type: "string" },
+            decidedBy: { type: "string" },
+          },
+        },
+        contact: { type: "object", properties: { name: { type: "string" }, role: { type: "string" }, email: { type: "string" }, phone: { type: "string" }, linkedin: { type: "string" } } },
+        opportunity: { type: "object", properties: { description: { type: "string" }, category: { type: "string" }, potentialValue: { type: "number" }, potentialValueNotes: { type: "string" }, urgencyFlag: { type: "boolean" }, urgencyReason: { type: "string" } } },
+        company: { type: "object", properties: { name: { type: "string" }, website: { type: "string" }, sector: { type: "string" }, description: { type: "string" }, location: { type: "string" }, size: { type: "string" } } },
+        notes: { type: "string" },
+        tags: { type: "array", items: { type: "string" } },
+      },
+      required: ["id"],
+    },
+  },
+  {
+    name: "promote_leads_register_entry",
+    description: "Promote a Leads Register entry to the CRM pipeline. Creates a CRM lead from register data. Entry must be 'assessed' or 'shortlisted' with a complete ROE score.",
+    inputSchema: {
+      type: "object",
+      properties: { id: { type: "string", description: "Register entry document ID." } },
+      required: ["id"],
+    },
+  },
+  {
+    name: "get_leads_register_weekly_shortlist",
+    description: "Get top entries by ROE score for weekly review — the decision gate shortlist.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        streamType: { type: "string", enum: ["sales", "supply_chain"], description: "Filter by stream." },
+        weekEnding: { type: "string", description: "ISO date for week ending (default: this week's Sunday)." },
+        limit: { type: "number", description: "Max entries (default 5)." },
+      },
+    },
+  },
+  {
+    name: "get_leads_register_active_pursuits",
+    description: "Get register entries that have been promoted but not yet closed in CRM — active pursuits in progress.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        streamType: { type: "string", enum: ["sales", "supply_chain"], description: "Filter by stream." },
+      },
+    },
+  },
+  {
+    name: "get_leads_register_stats",
+    description: "Summary counts by stream, status, grade. Active pursuit count. Conversion rate (promoted → won).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        streamType: { type: "string", enum: ["sales", "supply_chain"], description: "Filter by stream. Omit for both." },
+      },
+    },
+  },
+  // ─── Contact Lookup ────────────────────────────────────────────────────────
+  {
+    name: "contact_lookup",
+    description: "Check if an email/name exists in Xero contacts, Portal organisations, or Portal leads. Used by ATHENA for email escalation — if found, escalate to Tier 3.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        email: { type: "string", description: "Email address to search." },
+        name: { type: "string", description: "Contact name to search (fuzzy match)." },
+      },
+    },
+  },
+  // ─── Email Template tools ─────────────────────────────────────────────────
+  {
+    name: "create_email_template",
+    description: "Create a new email template for agent automation. Templates support {{variable}} placeholders.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        agent: { type: "string", enum: ["athena", "vanguard", "sentinel"], description: "Which agent uses this template." },
+        category: { type: "string", enum: ["outreach", "follow-up", "response", "scheduling", "acknowledgement", "info-request"] },
+        name: { type: "string", description: "Template name." },
+        description: { type: "string", description: "When to use this template." },
+        subject: { type: "string", description: "Email subject (supports {{variable}} placeholders)." },
+        bodyHtml: { type: "string", description: "HTML body (supports {{variable}} placeholders)." },
+        variables: { type: "array", items: { type: "string" }, description: "Placeholder variable names used." },
+        sequence: {
+          type: "object", description: "If part of a multi-touch sequence.",
+          properties: {
+            sequenceId: { type: "string" }, touchNumber: { type: "number" }, dayOffset: { type: "number" },
+          },
+        },
+        authLevel: { type: "string", enum: ["auto-send", "draft-for-review"], description: "Whether this can be auto-sent or needs review." },
+        status: { type: "string", enum: ["active", "draft"], description: "Default: draft." },
+      },
+      required: ["agent", "category", "name", "subject", "bodyHtml"],
+    },
+  },
+  {
+    name: "get_email_templates",
+    description: "List/filter email templates by agent, category, auth level, status, or sequence.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        agent: { type: "string", enum: ["athena", "vanguard", "sentinel"] },
+        category: { type: "string", enum: ["outreach", "follow-up", "response", "scheduling", "acknowledgement", "info-request"] },
+        authLevel: { type: "string", enum: ["auto-send", "draft-for-review"] },
+        status: { type: "string", enum: ["active", "draft", "archived"] },
+        sequenceId: { type: "string" },
+        limit: { type: "number" },
+      },
+    },
+  },
+  {
+    name: "get_email_template",
+    description: "Get a single email template by ID.",
+    inputSchema: {
+      type: "object",
+      properties: { id: { type: "string" } },
+      required: ["id"],
+    },
+  },
+  {
+    name: "update_email_template",
+    description: "Update an email template. Auto-increments version number.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string" },
+        name: { type: "string" }, description: { type: "string" },
+        subject: { type: "string" }, bodyHtml: { type: "string" },
+        variables: { type: "array", items: { type: "string" } },
+        sequence: { type: "object", properties: { sequenceId: { type: "string" }, touchNumber: { type: "number" }, dayOffset: { type: "number" } } },
+        authLevel: { type: "string", enum: ["auto-send", "draft-for-review"] },
+        status: { type: "string", enum: ["active", "draft", "archived"] },
+      },
+      required: ["id"],
+    },
+  },
+  {
+    name: "delete_email_template",
+    description: "Soft-delete an email template (sets status to 'archived').",
+    inputSchema: {
+      type: "object",
+      properties: { id: { type: "string" } },
+      required: ["id"],
+    },
+  },
+  {
+    name: "approve_email_template",
+    description: "Mark an email template as approved by the Director. Only approved templates with authLevel 'auto-send' can be sent automatically.",
+    inputSchema: {
+      type: "object",
+      properties: { id: { type: "string" } },
+      required: ["id"],
+    },
+  },
   // ─── VANGUARD Report tools ──────────────────────────────────────────────────
   {
     name: "push_vanguard_report",
@@ -2014,6 +2268,19 @@ async function handleGetPipelineStats(args: Record<string, unknown>) {
       overdueFollowUps += 1;
     }
   });
+  // Include Leads Register stats
+  const regSnap = await db.collection(COLLECTIONS.LEADS_REGISTER).limit(500).get();
+  const buildRegStats = (stream: string) => {
+    const se = regSnap.docs.map((d) => d.data()).filter((e) => e.streamType === stream);
+    const rs: Record<string, number> = { total: se.length, identified: 0, assessed: 0, shortlisted: 0, promoted: 0, parked: 0, rejected: 0, activePursuits: 0 };
+    se.forEach((e) => {
+      const s = String(e.status || "identified");
+      rs[s] = (rs[s] || 0) + 1;
+      if (s === "promoted" && e.promotedToPipeline) rs.activePursuits++;
+    });
+    return rs;
+  };
+
   return {
     total,
     totalActive: total - (byStage["won"] || 0) - (byStage["lost"] || 0) - (byStage["onboarded"] || 0) - (byStage["inactive"] || 0),
@@ -2024,6 +2291,10 @@ async function handleGetPipelineStats(args: Record<string, unknown>) {
     byGrade,
     byStream,
     streamFilter: streamFilter || "all",
+    registerStats: {
+      supply_chain: buildRegStats("supply_chain"),
+      sales: buildRegStats("sales"),
+    },
   };
 }
 
@@ -2208,11 +2479,62 @@ async function handleEnrichPipelineFromOsint(args: Record<string, unknown>) {
 }
 
 async function handleImportLeadsFromOsint(args: Record<string, unknown>) {
-  // Delegate to the import API logic inline for MCP
   const leads = (args.leads as unknown[]) || [];
   const scanDate = String(args.osintScanDate || "");
   const db = admin.firestore();
   const now = admin.firestore.FieldValue.serverTimestamp();
+
+  // ── NEW: Route to Leads Register when enabled ──────────────────────────
+  if (LEADS_REGISTER_ENABLED) {
+    let created = 0, skipped = 0;
+    const results = [];
+    for (const item of leads as Array<Record<string, unknown>>) {
+      const company = String(item.company || "").trim();
+      if (!company) { skipped++; continue; }
+      // Dedup against existing register entries
+      const existingReg = await db.collection(COLLECTIONS.LEADS_REGISTER)
+        .where("company.name", "==", company).limit(1).get();
+      if (!existingReg.empty) { skipped++; results.push({ companyName: company, action: "skipped-duplicate" }); continue; }
+
+      const contactRaw = (item.contact || {}) as Record<string, string>;
+      const sourceRaw = (item.source || {}) as Record<string, unknown>;
+      const ref = await db.collection(COLLECTIONS.LEADS_REGISTER).add({
+        streamType: String(item.streamType || item.stream_type || "sales"),
+        status: "identified",
+        source: {
+          type: "osint", scanDate: sourceRaw.osint_scan_date || scanDate,
+          scanId: sourceRaw.scan_id || null, findingId: sourceRaw.finding_id || null,
+          notes: sourceRaw.finding || item.notes || null,
+        },
+        company: {
+          name: company, website: item.companyWebsite || null,
+          sector: String(item.sector || "other"), description: null,
+          location: null, size: null,
+        },
+        contact: {
+          name: contactRaw.name || null, role: contactRaw.title || null,
+          email: contactRaw.email || null, phone: contactRaw.phone || null,
+          linkedin: contactRaw.linkedin || null,
+        },
+        opportunity: {
+          description: String(item.notes || ""), category: "other",
+          potentialValue: typeof item.estimated_value === "number" ? item.estimated_value : null,
+          potentialValueNotes: null, urgencyFlag: false, urgencyReason: null,
+        },
+        roeScore: null, stockdaleAssessment: null,
+        promotedToPipeline: false, promotedDate: null, pipelineLeadId: null,
+        weeklyDecision: null,
+        notes: String(item.notes || ""),
+        tags: ((item.tags as string[]) || []).concat(["osint", "auto-imported"]).filter((v, i, a) => a.indexOf(v) === i),
+        createdAt: now, updatedAt: now, createdBy: "osint-auto",
+      });
+      created++;
+      results.push({ id: ref.id, companyName: company, action: "created-in-register" });
+    }
+    return { created, updated: 0, skipped, destination: "leads_register", leads: results };
+  }
+
+  // ── LEGACY: Direct CRM import (when LEADS_REGISTER_ENABLED = false) ────
   const year = new Date().getFullYear();
   let created = 0, updated = 0, skipped = 0;
   const results = [];
@@ -2255,7 +2577,7 @@ async function handleImportLeadsFromOsint(args: Record<string, unknown>) {
       results.push({ id: ref.id, leadNumber, companyName: company, action: "created" });
     }
   }
-  return { created, updated, skipped, leads: results };
+  return { created, updated, skipped, destination: "crm_direct", leads: results };
 }
 
 async function handleIngestOsintScan(args: Record<string, unknown>) {
@@ -2267,7 +2589,7 @@ async function handleIngestOsintScan(args: Record<string, unknown>) {
   // Store the scan
   await db.collection(COLLECTIONS.OSINT_SCANS).doc(date).set(scan);
 
-  // Auto-create leads from high-relevance opportunities
+  // Auto-create entries from high-relevance opportunities
   const matrix = (scan.opportunityMatrix as Array<Record<string, unknown>>) || [];
   const now = admin.firestore.FieldValue.serverTimestamp();
   let leadsCreated = 0;
@@ -2278,33 +2600,561 @@ async function handleIngestOsintScan(args: Record<string, unknown>) {
     const name = String(opp.name || "");
     if (!name) continue;
 
-    const existing = await db.collection(COLLECTIONS.LEADS)
-      .where("companyName", "==", name).limit(1).get();
-    if (!existing.empty) continue;
+    if (LEADS_REGISTER_ENABLED) {
+      // Route to Leads Register
+      const existingReg = await db.collection(COLLECTIONS.LEADS_REGISTER)
+        .where("company.name", "==", name).limit(1).get();
+      if (!existingReg.empty) continue;
 
-    await db.collection(COLLECTIONS.LEADS).add({
-      leadNumber: `LD-OSINT-${date}-${opp.rank}`,
-      companyName: name,
-      sector: String(opp.pillar || "other").toLowerCase().replace(/\s+/g, "-"),
-      isExistingClient: false, contacts: [],
-      bantScore: score * 17,
-      bantBreakdown: { budget: 10, authority: 10, need: score * 5, timing: opp.urgency === "immediate" ? 20 : 10, fit: score * 3 },
-      leadGrade: score >= 5 ? "A" : "B",
-      stage: "identified", stageHistory: [], stageEnteredAt: new Date().toISOString(),
-      source: { type: "osint", osintScanDate: date, osintFinding: name, osintPillar: opp.pillar, osintRelevanceScore: score },
-      estimatedServices: [], painPoints: [], asiSolutionFit: [String(opp.action || "")],
-      outreachSequence: null,
-      outreachStatus: { linkedInConnected: false, linkedInMessageSent: false, emailsSent: 0, responseReceived: false, meetingScheduled: false },
-      outreachHistory: [], marketMode: "growth",
-      nextAction: String(opp.action || ""), nextActionDate: date,
-      notes: `[Auto-imported from OSINT ${date}] Rank #${opp.rank}. Urgency: ${opp.urgency}. ${opp.action}`,
-      tags: ["osint", "auto-imported", String(opp.urgency || "")],
-      createdAt: now, updatedAt: now, createdBy: "mcp-agent", isDeleted: false,
-    });
+      await db.collection(COLLECTIONS.LEADS_REGISTER).add({
+        streamType: "sales",
+        status: "identified",
+        source: { type: "osint", scanDate: date, scanId: date, findingId: String(opp.rank || ""), notes: String(opp.action || "") },
+        company: {
+          name, website: null,
+          sector: String(opp.pillar || "other").toLowerCase().replace(/\s+/g, "-"),
+          description: null, location: null, size: null,
+        },
+        contact: { name: null, role: null, email: null, phone: null, linkedin: null },
+        opportunity: {
+          description: String(opp.action || ""), category: "other",
+          potentialValue: null, potentialValueNotes: null,
+          urgencyFlag: opp.urgency === "immediate", urgencyReason: opp.urgency === "immediate" ? "First-mover from OSINT" : null,
+        },
+        roeScore: null, stockdaleAssessment: null,
+        promotedToPipeline: false, promotedDate: null, pipelineLeadId: null,
+        weeklyDecision: null,
+        notes: `[Auto-imported from OSINT ${date}] Rank #${opp.rank}. Urgency: ${opp.urgency}. ${opp.action}`,
+        tags: ["osint", "auto-imported", String(opp.urgency || "")],
+        createdAt: now, updatedAt: now, createdBy: "osint-auto",
+      });
+    } else {
+      // Legacy: direct CRM import
+      const existing = await db.collection(COLLECTIONS.LEADS)
+        .where("companyName", "==", name).limit(1).get();
+      if (!existing.empty) continue;
+
+      await db.collection(COLLECTIONS.LEADS).add({
+        leadNumber: `LD-OSINT-${date}-${opp.rank}`,
+        companyName: name,
+        sector: String(opp.pillar || "other").toLowerCase().replace(/\s+/g, "-"),
+        isExistingClient: false, contacts: [],
+        bantScore: score * 17,
+        bantBreakdown: { budget: 10, authority: 10, need: score * 5, timing: opp.urgency === "immediate" ? 20 : 10, fit: score * 3 },
+        leadGrade: score >= 5 ? "A" : "B",
+        stage: "identified", stageHistory: [], stageEnteredAt: new Date().toISOString(),
+        source: { type: "osint", osintScanDate: date, osintFinding: name, osintPillar: opp.pillar, osintRelevanceScore: score },
+        estimatedServices: [], painPoints: [], asiSolutionFit: [String(opp.action || "")],
+        outreachSequence: null,
+        outreachStatus: { linkedInConnected: false, linkedInMessageSent: false, emailsSent: 0, responseReceived: false, meetingScheduled: false },
+        outreachHistory: [], marketMode: "growth",
+        nextAction: String(opp.action || ""), nextActionDate: date,
+        notes: `[Auto-imported from OSINT ${date}] Rank #${opp.rank}. Urgency: ${opp.urgency}. ${opp.action}`,
+        tags: ["osint", "auto-imported", String(opp.urgency || "")],
+        createdAt: now, updatedAt: now, createdBy: "mcp-agent", isDeleted: false,
+      });
+    }
     leadsCreated++;
   }
 
-  return { ok: true, date, totalFindings: scan.metadata ? (scan.metadata as Record<string, unknown>).totalFindings : 0, leadsCreated };
+  return {
+    ok: true, date, destination: LEADS_REGISTER_ENABLED ? "leads_register" : "crm_direct",
+    totalFindings: scan.metadata ? (scan.metadata as Record<string, unknown>).totalFindings : 0, leadsCreated,
+  };
+}
+
+// ─── Leads Register handlers ─────────────────────────────────────────────────
+
+const LEADS_REGISTER_ENABLED = true; // Toggle: true = OSINT → register, false = OSINT → CRM direct
+
+function calcRoeGrade(total: number): string {
+  if (total >= 80) return "A";
+  if (total >= 60) return "B";
+  if (total >= 40) return "C";
+  if (total >= 20) return "D";
+  return "E";
+}
+
+async function handleCreateLeadsRegisterEntry(args: Record<string, unknown>) {
+  const company = args.company as Record<string, unknown> | undefined;
+  if (!company?.name) throw new Error("company.name is required.");
+  const streamType = String(args.streamType || "sales");
+  if (streamType !== "sales" && streamType !== "supply_chain") throw new Error("streamType must be 'sales' or 'supply_chain'.");
+  const db = admin.firestore();
+  const now = admin.firestore.FieldValue.serverTimestamp();
+  const source = (args.source || { type: "manual" }) as Record<string, unknown>;
+  const contact = (args.contact || {}) as Record<string, unknown>;
+  const opportunity = (args.opportunity || {}) as Record<string, unknown>;
+
+  const entry = {
+    streamType,
+    status: String(args.status || "identified"),
+    source: {
+      type: String(source.type || "manual"),
+      scanDate: source.scanDate || null,
+      scanId: source.scanId || null,
+      findingId: source.findingId || null,
+      notes: source.notes || null,
+    },
+    company: {
+      name: String(company.name),
+      website: company.website || null,
+      sector: String(company.sector || "other"),
+      description: company.description || null,
+      location: company.location || null,
+      size: company.size || null,
+    },
+    contact: {
+      name: contact.name || null,
+      role: contact.role || null,
+      email: contact.email || null,
+      phone: contact.phone || null,
+      linkedin: contact.linkedin || null,
+    },
+    opportunity: {
+      description: opportunity.description || null,
+      category: String(opportunity.category || "other"),
+      potentialValue: typeof opportunity.potentialValue === "number" ? opportunity.potentialValue : null,
+      potentialValueNotes: opportunity.potentialValueNotes || null,
+      urgencyFlag: Boolean(opportunity.urgencyFlag),
+      urgencyReason: opportunity.urgencyReason || null,
+    },
+    roeScore: null,
+    stockdaleAssessment: null,
+    promotedToPipeline: false,
+    promotedDate: null,
+    pipelineLeadId: null,
+    weeklyDecision: null,
+    notes: String(args.notes || ""),
+    tags: (args.tags as string[]) || [],
+    createdAt: now,
+    updatedAt: now,
+    createdBy: String(args.createdBy || "mcp-agent"),
+  };
+
+  const ref = await db.collection(COLLECTIONS.LEADS_REGISTER).add(entry);
+  return { id: ref.id, streamType, companyName: String(company.name), status: entry.status };
+}
+
+async function handleGetLeadsRegister(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const limit = safeLimit(args.limit, 50, 200);
+  let q: admin.firestore.Query = db.collection(COLLECTIONS.LEADS_REGISTER).orderBy("createdAt", "desc");
+  if (typeof args.streamType === "string") q = q.where("streamType", "==", args.streamType);
+  if (typeof args.status === "string") q = q.where("status", "==", args.status);
+  q = q.limit(limit + (typeof args.offset === "number" ? (args.offset as number) : 0));
+  const snap = await q.get();
+  let entries = snap.docs.map((d) => serializeDoc(d.id, d.data()));
+  if (typeof args.roeGrade === "string") entries = entries.filter((e) => (e.roeScore as Record<string, unknown> | null)?.grade === args.roeGrade);
+  if (args.urgencyFlag === true) entries = entries.filter((e) => (e.opportunity as Record<string, unknown> | null)?.urgencyFlag === true);
+  if (typeof args.createdAfter === "string") entries = entries.filter((e) => String(e.createdAt || "") > String(args.createdAfter));
+  const offset = typeof args.offset === "number" ? (args.offset as number) : 0;
+  return entries.slice(offset, offset + limit);
+}
+
+async function handleGetLeadsRegisterEntry(args: Record<string, unknown>) {
+  const id = String(args.id);
+  const db = admin.firestore();
+  const snap = await db.collection(COLLECTIONS.LEADS_REGISTER).doc(id).get();
+  if (!snap.exists) return { error: "Register entry not found" };
+  return serializeDoc(snap.id, snap.data()!);
+}
+
+async function handleUpdateLeadsRegisterEntry(args: Record<string, unknown>) {
+  const id = String(args.id);
+  if (!id) throw new Error("id is required.");
+  const db = admin.firestore();
+  const now = admin.firestore.FieldValue.serverTimestamp();
+
+  const updates: Record<string, unknown> = { updatedAt: now };
+
+  if (typeof args.status === "string") updates.status = args.status;
+  if (typeof args.notes === "string") updates.notes = args.notes;
+  if (Array.isArray(args.tags)) updates.tags = args.tags;
+
+  // ROE Score
+  if (args.roeScore) {
+    const roe = args.roeScore as Record<string, unknown>;
+    const strategicFit = Number(roe.strategicFit || 0);
+    const effortEstimate = Number(roe.effortEstimate || 0);
+    const revenueImpact = Number(roe.revenueImpact || 0);
+    const conversionProbability = Number(roe.conversionProbability || 0);
+    const resourceRisk = Number(roe.resourceRisk || 0);
+    const total = strategicFit + effortEstimate + revenueImpact + conversionProbability + resourceRisk;
+    updates.roeScore = {
+      strategicFit, effortEstimate, revenueImpact, conversionProbability, resourceRisk,
+      total, grade: calcRoeGrade(total),
+      assessedBy: String(roe.assessedBy || "mcp-agent"),
+      assessedAt: new Date().toISOString(),
+    };
+  }
+
+  // Stockdale Assessment
+  if (args.stockdaleAssessment) {
+    const sa = args.stockdaleAssessment as Record<string, unknown>;
+    updates.stockdaleAssessment = {
+      resourceAvailability: String(sa.resourceAvailability || "available"),
+      gunpowderCheck: sa.gunpowderCheck || null,
+      growthRisk: sa.growthRisk || null,
+      flywheelImpact: sa.flywheelImpact || null,
+      verdict: String(sa.verdict || "watch"),
+      assessedAt: new Date().toISOString(),
+    };
+  }
+
+  // Weekly Decision
+  if (args.weeklyDecision) {
+    const wd = args.weeklyDecision as Record<string, unknown>;
+    updates.weeklyDecision = {
+      weekEnding: String(wd.weekEnding || ""),
+      decision: String(wd.decision || "defer"),
+      reasoning: String(wd.reasoning || ""),
+      decidedBy: String(wd.decidedBy || "director"),
+    };
+  }
+
+  // Nested object merges
+  if (args.contact) updates.contact = args.contact;
+  if (args.opportunity) updates.opportunity = args.opportunity;
+  if (args.company) updates.company = args.company;
+
+  await db.collection(COLLECTIONS.LEADS_REGISTER).doc(id).set(updates, { merge: true });
+  const updated = await db.collection(COLLECTIONS.LEADS_REGISTER).doc(id).get();
+  return serializeDoc(updated.id, updated.data()!);
+}
+
+async function handlePromoteLeadsRegisterEntry(args: Record<string, unknown>) {
+  const id = String(args.id);
+  const db = admin.firestore();
+  const snap = await db.collection(COLLECTIONS.LEADS_REGISTER).doc(id).get();
+  if (!snap.exists) throw new Error("Register entry not found.");
+  const entry = snap.data()!;
+
+  // Validate status
+  const status = String(entry.status);
+  if (status !== "assessed" && status !== "shortlisted") {
+    throw new Error(`Cannot promote entry with status '${status}'. Must be 'assessed' or 'shortlisted'.`);
+  }
+
+  // Validate ROE score
+  if (!entry.roeScore || typeof entry.roeScore.total !== "number") {
+    throw new Error("Cannot promote: ROE score is missing or incomplete.");
+  }
+
+  // Create CRM lead from register data
+  const now = admin.firestore.FieldValue.serverTimestamp();
+  const leadNumber = await nextMcpLeadNumber();
+  const company = (entry.company || {}) as Record<string, unknown>;
+  const contact = (entry.contact || {}) as Record<string, unknown>;
+  const opportunity = (entry.opportunity || {}) as Record<string, unknown>;
+  const roe = entry.roeScore as Record<string, unknown>;
+
+  const contacts = contact.name ? [{
+    id: crypto.randomUUID(), name: String(contact.name), title: String(contact.role || ""),
+    email: String(contact.email || ""), phone: String(contact.phone || ""),
+    linkedInUrl: String(contact.linkedin || ""), isPrimary: true,
+  }] : [];
+
+  const leadRef = await db.collection(COLLECTIONS.LEADS).add({
+    leadNumber, companyName: String(company.name || ""),
+    companyWebsite: company.website || null, sector: String(company.sector || "other"),
+    isExistingClient: false, contacts,
+    bantScore: Number(roe.total || 0), bantBreakdown: { budget: 10, authority: 10, need: 10, timing: 10, fit: 10 },
+    leadGrade: calcLeadGrade(Number(roe.total || 0)),
+    stage: "identified", stageHistory: [], stageEnteredAt: new Date().toISOString(),
+    streamType: String(entry.streamType || "sales"),
+    source: { type: "leads-register", registerId: id },
+    estimatedValue: typeof opportunity.potentialValue === "number" ? opportunity.potentialValue : null,
+    estimatedServices: [], painPoints: [], asiSolutionFit: [],
+    outreachSequence: null,
+    outreachStatus: { linkedInConnected: false, linkedInMessageSent: false, emailsSent: 0, responseReceived: false, meetingScheduled: false },
+    outreachHistory: [], marketMode: "growth",
+    nextAction: "Initial qualification and outreach planning",
+    notes: `Promoted from Leads Register (${id}). ROE: ${roe.total}/100 (${roe.grade}).${opportunity.description ? " Opportunity: " + opportunity.description : ""}`,
+    tags: [...(entry.tags || []), "from-register"],
+    createdAt: now, updatedAt: now, createdBy: "leads-register", isDeleted: false,
+  });
+
+  // Update register entry
+  await db.collection(COLLECTIONS.LEADS_REGISTER).doc(id).set({
+    promotedToPipeline: true, promotedDate: new Date().toISOString(),
+    pipelineLeadId: leadRef.id, status: "promoted", updatedAt: now,
+  }, { merge: true });
+
+  return { ok: true, registerId: id, leadId: leadRef.id, leadNumber, companyName: String(company.name || "") };
+}
+
+async function handleGetLeadsRegisterWeeklyShortlist(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const limit = Number(args.limit) || 5;
+  let q: admin.firestore.Query = db.collection(COLLECTIONS.LEADS_REGISTER)
+    .where("status", "in", ["assessed", "shortlisted"])
+    .orderBy("createdAt", "desc")
+    .limit(100);
+  const snap = await q.get();
+  let entries = snap.docs.map((d) => serializeDoc(d.id, d.data()));
+  if (typeof args.streamType === "string") entries = entries.filter((e) => e.streamType === args.streamType);
+  // Sort by ROE score descending
+  entries.sort((a, b) => ((b.roeScore as Record<string, number> | null)?.total || 0) - ((a.roeScore as Record<string, number> | null)?.total || 0));
+  return entries.slice(0, limit);
+}
+
+async function handleGetLeadsRegisterActivePursuits(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  let q: admin.firestore.Query = db.collection(COLLECTIONS.LEADS_REGISTER)
+    .where("status", "==", "promoted")
+    .where("promotedToPipeline", "==", true);
+  const snap = await q.get();
+  let entries = snap.docs.map((d) => serializeDoc(d.id, d.data()));
+  if (typeof args.streamType === "string") entries = entries.filter((e) => e.streamType === args.streamType);
+
+  // Cross-reference with CRM to check if lead is still active
+  const results = [];
+  for (const entry of entries) {
+    const leadId = entry.pipelineLeadId;
+    let crmStatus: Record<string, unknown> | null = null;
+    if (leadId) {
+      const leadSnap = await db.collection(COLLECTIONS.LEADS).doc(String(leadId)).get();
+      if (leadSnap.exists) {
+        const ld = leadSnap.data()!;
+        crmStatus = { stage: ld.stage, leadGrade: ld.leadGrade, nextAction: ld.nextAction, nextActionDate: ld.nextActionDate };
+      }
+    }
+    results.push({ ...entry, crmStatus });
+  }
+  return results;
+}
+
+async function handleGetLeadsRegisterStats(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const snap = await db.collection(COLLECTIONS.LEADS_REGISTER).limit(500).get();
+  const entries = snap.docs.map((d) => d.data());
+  const streamFilter = typeof args.streamType === "string" ? args.streamType : null;
+
+  const buildStreamStats = (stream: string) => {
+    const se = entries.filter((e) => e.streamType === stream);
+    const byStatus: Record<string, number> = {};
+    const byGrade: Record<string, number> = {};
+    let activePursuits = 0;
+    let promoted = 0;
+
+    se.forEach((e) => {
+      const s = String(e.status || "identified");
+      byStatus[s] = (byStatus[s] || 0) + 1;
+      if (e.roeScore?.grade) {
+        const g = String(e.roeScore.grade);
+        byGrade[g] = (byGrade[g] || 0) + 1;
+      }
+      if (s === "promoted" && e.promotedToPipeline) activePursuits++;
+      if (s === "promoted") promoted++;
+    });
+
+    return { total: se.length, byStatus, byGrade, activePursuits, promoted, ...byStatus };
+  };
+
+  if (streamFilter) {
+    return { [streamFilter]: buildStreamStats(streamFilter) };
+  }
+  return {
+    supply_chain: buildStreamStats("supply_chain"),
+    sales: buildStreamStats("sales"),
+  };
+}
+
+// ─── Contact Lookup handler ─────────────────────────────────────────────────
+
+async function handleContactLookup(args: Record<string, unknown>) {
+  const email = typeof args.email === "string" ? args.email.toLowerCase().trim() : "";
+  const name = typeof args.name === "string" ? args.name.trim() : "";
+  if (!email && !name) throw new Error("At least one of email or name is required.");
+
+  const db = admin.firestore();
+  const matches: Array<Record<string, unknown>> = [];
+
+  // Search Portal organisations/contacts
+  const orgsSnap = await db.collection(COLLECTIONS.CONTACT_ORGANIZATIONS).limit(300).get();
+  const contactsSnap = await db.collection(COLLECTIONS.ORGANIZATION_CONTACTS).limit(500).get();
+
+  // Search org contacts by email
+  contactsSnap.docs.forEach((d) => {
+    const c = d.data();
+    const cEmail = String(c.email || "").toLowerCase();
+    const cName = String(c.name || "").toLowerCase();
+    if ((email && cEmail === email) || (name && cName.includes(name.toLowerCase()))) {
+      matches.push({
+        source: "portal-customer",
+        contactName: c.name || "",
+        companyName: c.organizationName || "",
+        email: c.email || "",
+        contactId: d.id,
+        xeroContactId: null,
+      });
+    }
+  });
+
+  // Search orgs by name
+  if (name) {
+    orgsSnap.docs.forEach((d) => {
+      const o = d.data();
+      const oName = String(o.name || "").toLowerCase();
+      if (oName.includes(name.toLowerCase())) {
+        matches.push({
+          source: "portal-supplier",
+          contactName: o.primaryContactName || o.name || "",
+          companyName: o.name || "",
+          email: o.primaryContactEmail || o.email || "",
+          contactId: d.id,
+          xeroContactId: o.xeroContactId || null,
+        });
+      }
+    });
+  }
+
+  // Search Portal leads
+  const leadsSnap = await db.collection(COLLECTIONS.LEADS).limit(300).get();
+  leadsSnap.docs.filter((d) => !d.data().isDeleted).forEach((d) => {
+    const l = d.data();
+    const contacts = (l.contacts || []) as Array<Record<string, unknown>>;
+    for (const c of contacts) {
+      const cEmail = String(c.email || "").toLowerCase();
+      const cName = String(c.name || "").toLowerCase();
+      if ((email && cEmail === email) || (name && cName.includes(name.toLowerCase()))) {
+        matches.push({
+          source: "portal-lead",
+          contactName: c.name || "",
+          companyName: l.companyName || "",
+          email: c.email || "",
+          contactId: d.id,
+          xeroContactId: null,
+        });
+      }
+    }
+  });
+
+  // Search Xero contacts
+  try {
+    const xeroContacts = await xeroListContacts(email || name || undefined) as Record<string, unknown> | null;
+    const xeroContactList = (xeroContacts?.Contacts || xeroContacts?.contacts || []) as Array<Record<string, unknown>>;
+    if (xeroContactList.length > 0) {
+      for (const xc of xeroContactList) {
+        const xcName = String(xc.Name || xc.name || "").toLowerCase();
+        const xcEmail = String(xc.EmailAddress || xc.emailAddress || "").toLowerCase();
+        if ((email && xcEmail === email) || (name && xcName.includes(name.toLowerCase()))) {
+          matches.push({
+            source: "xero",
+            contactName: xc.Name || xc.name || "",
+            companyName: xc.Name || xc.name || "",
+            email: xcEmail,
+            contactId: xc.ContactID || xc.contactId || "",
+            xeroContactId: xc.ContactID || xc.contactId || "",
+          });
+        }
+      }
+    }
+  } catch {
+    // Xero may not be connected — skip silently
+  }
+
+  return { found: matches.length > 0, matches };
+}
+
+// ─── Email Template handlers ────────────────────────────────────────────────
+
+async function handleCreateEmailTemplate(args: Record<string, unknown>) {
+  if (!args.agent || !args.category || !args.name || !args.subject || !args.bodyHtml) {
+    throw new Error("agent, category, name, subject, and bodyHtml are required.");
+  }
+  const db = admin.firestore();
+  const now = admin.firestore.FieldValue.serverTimestamp();
+  const seq = args.sequence as Record<string, unknown> | null;
+
+  const ref = await db.collection(COLLECTIONS.EMAIL_TEMPLATES).add({
+    agent: String(args.agent),
+    category: String(args.category),
+    name: String(args.name),
+    description: String(args.description || ""),
+    subject: String(args.subject),
+    bodyHtml: String(args.bodyHtml),
+    variables: (args.variables as string[]) || [],
+    sequence: seq ? { sequenceId: String(seq.sequenceId || ""), touchNumber: Number(seq.touchNumber || 1), dayOffset: Number(seq.dayOffset || 0) } : null,
+    authLevel: String(args.authLevel || "draft-for-review"),
+    status: String(args.status || "draft"),
+    version: 1,
+    createdAt: now, updatedAt: now,
+    createdBy: String(args.createdBy || "mcp-agent"),
+    approvedBy: null, approvedAt: null,
+  });
+
+  return { id: ref.id, name: String(args.name), agent: String(args.agent), version: 1 };
+}
+
+async function handleGetEmailTemplates(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const limit = safeLimit(args.limit, 50, 200);
+  let q: admin.firestore.Query = db.collection(COLLECTIONS.EMAIL_TEMPLATES).orderBy("createdAt", "desc");
+  if (typeof args.agent === "string") q = q.where("agent", "==", args.agent);
+  if (typeof args.category === "string") q = q.where("category", "==", args.category);
+  if (typeof args.status === "string") q = q.where("status", "==", args.status);
+  q = q.limit(limit);
+  const snap = await q.get();
+  let templates = snap.docs.map((d) => serializeDoc(d.id, d.data()));
+  if (typeof args.authLevel === "string") templates = templates.filter((t) => t.authLevel === args.authLevel);
+  if (typeof args.sequenceId === "string") templates = templates.filter((t) => (t.sequence as Record<string, unknown> | null)?.sequenceId === args.sequenceId);
+  return templates;
+}
+
+async function handleGetEmailTemplate(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const snap = await db.collection(COLLECTIONS.EMAIL_TEMPLATES).doc(String(args.id)).get();
+  if (!snap.exists) return { error: "Template not found" };
+  return serializeDoc(snap.id, snap.data()!);
+}
+
+async function handleUpdateEmailTemplate(args: Record<string, unknown>) {
+  const id = String(args.id);
+  const db = admin.firestore();
+  const now = admin.firestore.FieldValue.serverTimestamp();
+  const existing = await db.collection(COLLECTIONS.EMAIL_TEMPLATES).doc(id).get();
+  if (!existing.exists) throw new Error("Template not found.");
+
+  const updates: Record<string, unknown> = { updatedAt: now, version: admin.firestore.FieldValue.increment(1) };
+  if (typeof args.name === "string") updates.name = args.name;
+  if (typeof args.description === "string") updates.description = args.description;
+  if (typeof args.subject === "string") updates.subject = args.subject;
+  if (typeof args.bodyHtml === "string") updates.bodyHtml = args.bodyHtml;
+  if (Array.isArray(args.variables)) updates.variables = args.variables;
+  if (args.sequence !== undefined) {
+    const seq = args.sequence as Record<string, unknown> | null;
+    updates.sequence = seq ? { sequenceId: String(seq.sequenceId || ""), touchNumber: Number(seq.touchNumber || 1), dayOffset: Number(seq.dayOffset || 0) } : null;
+  }
+  if (typeof args.authLevel === "string") updates.authLevel = args.authLevel;
+  if (typeof args.status === "string") updates.status = args.status;
+
+  await db.collection(COLLECTIONS.EMAIL_TEMPLATES).doc(id).set(updates, { merge: true });
+  const updated = await db.collection(COLLECTIONS.EMAIL_TEMPLATES).doc(id).get();
+  return serializeDoc(updated.id, updated.data()!);
+}
+
+async function handleDeleteEmailTemplate(args: Record<string, unknown>) {
+  const id = String(args.id);
+  const db = admin.firestore();
+  await db.collection(COLLECTIONS.EMAIL_TEMPLATES).doc(id).set(
+    { status: "archived", updatedAt: admin.firestore.FieldValue.serverTimestamp() },
+    { merge: true },
+  );
+  return { ok: true, id, status: "archived" };
+}
+
+async function handleApproveEmailTemplate(args: Record<string, unknown>) {
+  const id = String(args.id);
+  const db = admin.firestore();
+  const now = admin.firestore.FieldValue.serverTimestamp();
+  await db.collection(COLLECTIONS.EMAIL_TEMPLATES).doc(id).set(
+    { approvedBy: "director", approvedAt: now, updatedAt: now },
+    { merge: true },
+  );
+  const updated = await db.collection(COLLECTIONS.EMAIL_TEMPLATES).doc(id).get();
+  return serializeDoc(updated.id, updated.data()!);
 }
 
 // ─── VANGUARD Report handlers ─────────────────────────────────────────────────
@@ -3388,6 +4238,19 @@ async function handleGetCompanyOverview(args: Record<string, unknown>) {
       ? { date: latestVanguard.date, executiveSummary: latestVanguard.executiveSummary }
       : null,
     recentDepartmentReports: deptReports,
+    leadsRegister: await (async () => {
+      const regSnap = await db.collection(COLLECTIONS.LEADS_REGISTER).limit(300).get();
+      const regEntries = regSnap.docs.map((d) => d.data());
+      const regStream = (stream: string) => {
+        const se = regEntries.filter((e) => e.streamType === stream);
+        return {
+          activePursuits: se.filter((e) => e.status === "promoted" && e.promotedToPipeline).length,
+          awaitingAssessment: se.filter((e) => e.status === "identified" && !e.roeScore).length,
+          shortlisted: se.filter((e) => e.status === "shortlisted").length,
+        };
+      };
+      return { supply_chain: regStream("supply_chain"), sales: regStream("sales") };
+    })(),
   };
 }
 
@@ -3489,6 +4352,24 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
     case "enrich_pipeline_from_osint": return handleEnrichPipelineFromOsint(args);
     case "import_leads_from_osint": return handleImportLeadsFromOsint(args);
     case "ingest_osint_scan":    return handleIngestOsintScan(args);
+    // Leads Register
+    case "create_leads_register_entry": return handleCreateLeadsRegisterEntry(args);
+    case "get_leads_register":          return handleGetLeadsRegister(args);
+    case "get_leads_register_entry":    return handleGetLeadsRegisterEntry(args);
+    case "update_leads_register_entry": return handleUpdateLeadsRegisterEntry(args);
+    case "promote_leads_register_entry": return handlePromoteLeadsRegisterEntry(args);
+    case "get_leads_register_weekly_shortlist": return handleGetLeadsRegisterWeeklyShortlist(args);
+    case "get_leads_register_active_pursuits":  return handleGetLeadsRegisterActivePursuits(args);
+    case "get_leads_register_stats":    return handleGetLeadsRegisterStats(args);
+    // Contact Lookup
+    case "contact_lookup":              return handleContactLookup(args);
+    // Email Templates
+    case "create_email_template":       return handleCreateEmailTemplate(args);
+    case "get_email_templates":         return handleGetEmailTemplates(args);
+    case "get_email_template":          return handleGetEmailTemplate(args);
+    case "update_email_template":       return handleUpdateEmailTemplate(args);
+    case "delete_email_template":       return handleDeleteEmailTemplate(args);
+    case "approve_email_template":      return handleApproveEmailTemplate(args);
     case "push_vanguard_report": return handlePushVanguardReport(args);
     case "get_vanguard_report":  return handleGetVanguardReport(args);
     case "get_vanguard_reports": return handleGetVanguardReports(args);

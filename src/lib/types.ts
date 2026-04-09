@@ -2172,3 +2172,175 @@ export interface ApiResponse<T> {
   error?: string;
   message?: string;
 }
+
+// ============================================
+// LEADS REGISTER (Pre-Pipeline Qualification)
+// ============================================
+
+export type LeadsRegisterStatus =
+  | "identified"
+  | "assessed"
+  | "shortlisted"
+  | "promoted"
+  | "parked"
+  | "rejected";
+
+export type LeadsRegisterSourceType = "osint" | "inbound" | "manual" | "referral";
+
+export type LeadsRegisterSector =
+  | "mass-transit"
+  | "manufacturing"
+  | "wholesale-trade"
+  | "structural"
+  | "marine"
+  | "technology"
+  | "other";
+
+export type LeadsRegisterOpportunityCategory =
+  | "technology"
+  | "supplier"
+  | "partner"
+  | "distributor"
+  | "customer"
+  | "innovation"
+  | "grant"
+  | "other";
+
+export type RoeGrade = "A" | "B" | "C" | "D" | "E";
+
+export type StockdaleVerdict = "pursue" | "park" | "watch" | "reject";
+
+export type LeadsRegisterAgent = "vanguard" | "sentinel" | "athena" | "director" | "osint-auto";
+
+export interface LeadsRegisterSource {
+  type: LeadsRegisterSourceType;
+  scanDate?: string;
+  scanId?: string;
+  findingId?: string;
+  notes?: string;
+}
+
+export interface LeadsRegisterCompany {
+  name: string;
+  website?: string;
+  sector: LeadsRegisterSector;
+  description?: string;
+  location?: string;
+  size?: string;
+}
+
+export interface LeadsRegisterContact {
+  name?: string;
+  role?: string;
+  email?: string;
+  phone?: string;
+  linkedin?: string;
+}
+
+export interface LeadsRegisterOpportunity {
+  description?: string;
+  category: LeadsRegisterOpportunityCategory;
+  potentialValue?: number;
+  potentialValueNotes?: string;
+  urgencyFlag?: boolean;
+  urgencyReason?: string;
+}
+
+export interface RoeScore {
+  strategicFit: number;     // 0-25
+  effortEstimate: number;   // 0-20
+  revenueImpact: number;    // 0-25
+  conversionProbability: number; // 0-15
+  resourceRisk: number;     // 0-15
+  total: number;            // 0-100
+  grade: RoeGrade;
+  assessedBy: LeadsRegisterAgent;
+  assessedAt: string;
+}
+
+export interface StockdaleAssessment {
+  resourceAvailability: "available" | "stretched" | "committed";
+  gunpowderCheck?: string;
+  growthRisk?: string;
+  flywheelImpact?: string;
+  verdict: StockdaleVerdict;
+  assessedAt: string;
+}
+
+export interface WeeklyDecision {
+  weekEnding: string;
+  decision: "promote" | "park" | "reject" | "defer";
+  reasoning: string;
+  decidedBy: LeadsRegisterAgent;
+}
+
+export interface LeadsRegisterEntry {
+  id: string;
+  streamType: StreamType;
+  status: LeadsRegisterStatus;
+
+  source: LeadsRegisterSource;
+  company: LeadsRegisterCompany;
+  contact: LeadsRegisterContact;
+  opportunity: LeadsRegisterOpportunity;
+
+  roeScore?: RoeScore;
+  stockdaleAssessment?: StockdaleAssessment;
+
+  promotedToPipeline: boolean;
+  promotedDate?: string;
+  pipelineLeadId?: string;
+
+  weeklyDecision?: WeeklyDecision;
+
+  notes?: string;
+  tags: string[];
+
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+  createdBy: LeadsRegisterAgent;
+}
+
+// ============================================
+// EMAIL TEMPLATES
+// ============================================
+
+export type EmailTemplateAgent = "athena" | "vanguard" | "sentinel";
+
+export type EmailTemplateCategory =
+  | "outreach"
+  | "follow-up"
+  | "response"
+  | "scheduling"
+  | "acknowledgement"
+  | "info-request";
+
+export type EmailTemplateAuthLevel = "auto-send" | "draft-for-review";
+
+export type EmailTemplateStatus = "active" | "draft" | "archived";
+
+export interface EmailTemplateSequence {
+  sequenceId: string;
+  touchNumber: number;
+  dayOffset: number;
+}
+
+export interface EmailTemplate {
+  id: string;
+  agent: EmailTemplateAgent;
+  category: EmailTemplateCategory;
+  name: string;
+  description?: string;
+  subject: string;
+  bodyHtml: string;
+  variables: string[];
+  sequence?: EmailTemplateSequence | null;
+  authLevel: EmailTemplateAuthLevel;
+  status: EmailTemplateStatus;
+  version: number;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+  createdBy: string;
+  approvedBy?: string;
+  approvedAt?: Timestamp;
+}

@@ -29,6 +29,7 @@ import {
   Radar,
   PackageCheck,
   BarChart3,
+  Target,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import {
@@ -56,6 +57,7 @@ import { cn } from "@/lib/utils";
 const adminMenuItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/dashboard/crm", label: "CRM", icon: KanbanSquare },
+  { href: "/dashboard/leads-register", label: "Leads Register", icon: Target },
   { href: "/dashboard/bookings", label: "Bookings", icon: Briefcase },
   { href: "/dashboard/job-lifecycle", label: "Job Lifecycle", icon: GitBranch },
   { href: "/dashboard/inspections", label: "Inspections", icon: ClipboardCheck },

@@ -60,4 +60,7 @@ export const COLLECTIONS = {
   ZEB_ENERGY_RECORDS: "zebEnergyRecords",
   KPI_SNAPSHOTS: "kpiSnapshots",
   SATISFACTION_SURVEYS: "satisfactionSurveys",
+  // Leads Register & Email Templates
+  LEADS_REGISTER: "leadsRegister",
+  EMAIL_TEMPLATES: "emailTemplates",
 } as const;
