@@ -50,6 +50,14 @@ ASIPORTAL/
 # ATHENA working documents
 *.xlsx
 *.docx
+.~lock.*
 /startup-meeting-briefing.html
 /workforce-capacity-model.html
 /skills/
+
+# Misc artifacts
+*.zip
+SESSION_HANDOVER_*.md
+
+# Claude Code local settings
+.claude/settings.local.json
