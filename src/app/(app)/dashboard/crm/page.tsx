@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo, useRef, type DragEvent } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef, lazy, Suspense, type DragEvent } from "react";
 import Link from "next/link";
 import {
   PlusCircle, TrendingUp, Users, AlertTriangle, RefreshCw,
-  Flame, Filter, Search, Sparkles, Link2, ArrowRightLeft,
+  Flame, Filter, Search, Sparkles, Link2, ArrowRightLeft, Target,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -405,7 +405,51 @@ function AddLeadModal({ open, onClose, onCreated, getToken, stream }: {
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
+const LeadsRegisterContent = lazy(() => import("@/app/(app)/dashboard/leads-register/page"));
+
 export default function CrmPage() {
+  const [topTab, setTopTab] = useState<"pipeline" | "register">("pipeline");
+
+  return (
+    <div className="flex flex-col">
+      {/* Top-level CRM tabs */}
+      <div className="flex items-center border-b border-border/50 px-6 pt-4">
+        <button
+          onClick={() => setTopTab("pipeline")}
+          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${
+            topTab === "pipeline"
+              ? "border-primary text-primary"
+              : "border-transparent text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <TrendingUp className="h-4 w-4" />
+          Pipeline
+        </button>
+        <button
+          onClick={() => setTopTab("register")}
+          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${
+            topTab === "register"
+              ? "border-violet-400 text-violet-400"
+              : "border-transparent text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <Target className="h-4 w-4" />
+          Leads Register
+        </button>
+      </div>
+
+      {topTab === "pipeline" ? (
+        <PipelineView />
+      ) : (
+        <Suspense fallback={<div className="flex items-center justify-center h-64"><div className="animate-spin h-8 w-8 border-2 border-primary border-t-transparent rounded-full" /></div>}>
+          <LeadsRegisterContent />
+        </Suspense>
+      )}
+    </div>
+  );
+}
+
+function PipelineView() {
   const { firebaseUser } = useAuth();
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);

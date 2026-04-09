@@ -358,6 +358,21 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // Leads Register & Email Templates (admin/staff access)
+    match /leadsRegister/{entryId} {
+      allow read: if isStaff();
+      allow create: if isStaff();
+      allow update: if isStaff();
+      allow delete: if isAdmin();
+    }
+
+    match /emailTemplates/{templateId} {
+      allow read: if isStaff();
+      allow create: if isStaff();
+      allow update: if isStaff();
+      allow delete: if isAdmin();
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }
