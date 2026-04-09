@@ -424,7 +424,7 @@ const TOOLS: McpTool[] = [
   {
     name: "create_ims_document_draft",
     description:
-      "Create a new IMS document draft in Firestore. Returns the new document ID.",
+      "Create a new IMS document draft in Firestore. Returns the new document ID. Draft starts at revision 1 with approvalStatus 'draft'. For management_review type, pass meetingId and managementReview inputs/outputs.",
     inputSchema: {
       type: "object",
       properties: {
@@ -432,14 +432,30 @@ const TOOLS: McpTool[] = [
         docId: { type: "string", description: "Document reference code (e.g. IMS-PROC-042)." },
         type: {
           type: "string",
-          description: "Document type: procedure, policy, register, form, work_instruction, etc.",
+          description: "Document type: procedure, policy, register, form, work_instruction, management_review, etc.",
         },
         content: { type: "string", description: "Full document content (markdown or plain text)." },
         processOwner: { type: "string", description: "Name or role of the process owner." },
         isoClauses: {
           type: "array",
           items: { type: "string" },
-          description: "ISO 9001 clauses this document addresses (e.g. ['4.2', '7.5']).",
+          description: "ISO 9001/14001/45001 clauses this document addresses (e.g. ['4.2', '7.5']).",
+        },
+        meetingId: { type: "string", description: "For type='management_review': link to the meetings collection doc ID." },
+        managementReview: {
+          type: "object",
+          description: "For type='management_review': structured inputs/outputs per ISO 9.3.2/9.3.3.",
+          properties: {
+            meetingDate: { type: "string" }, chair: { type: "string" }, attendees: { type: "array", items: { type: "string" } },
+            inputs: {
+              type: "object",
+              description: "ISO 9.3.2 inputs: previousActions, contextChanges, satisfaction, processPerformance, nonconformities, auditResults, risks, opportunities, resources.",
+            },
+            outputs: {
+              type: "object",
+              description: "ISO 9.3.3 outputs: improvementOpportunities, imsChanges, resourceNeeds, decisions, actionItems (linked to CAPAs where applicable).",
+            },
+          },
         },
       },
       required: ["title", "type", "content"],
@@ -448,7 +464,7 @@ const TOOLS: McpTool[] = [
   {
     name: "update_ims_document",
     description:
-      "Update fields on an existing IMS document (e.g. change status, update content). Returns the updated document.",
+      "Update fields on an existing IMS document. Auto-increments revisionNumber and appends to revisionHistory when content or title changes. Returns the updated document.",
     inputSchema: {
       type: "object",
       properties: {
@@ -456,10 +472,105 @@ const TOOLS: McpTool[] = [
         updates: {
           type: "object",
           description:
-            "Key-value pairs of fields to update. Allowed fields: title, content, status, processOwner, isoClauses, type.",
+            "Key-value pairs of fields to update. Allowed fields: title, content, status, processOwner, isoClauses, type, docId.",
         },
+        changeNote: { type: "string", description: "Brief note describing what changed (appended to revisionHistory)." },
+        updatedBy: { type: "string", description: "User or agent ID performing the update." },
       },
       required: ["id", "updates"],
+    },
+  },
+  {
+    name: "submit_ims_document_for_review",
+    description: "Submit an IMS document for review (draft → under_review). Only documents in 'draft' status can be submitted.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "The IMS document Firestore ID." },
+        submittedBy: { type: "string", description: "User or agent ID submitting for review." },
+      },
+      required: ["id"],
+    },
+  },
+  {
+    name: "approve_ims_document",
+    description: "Approve an IMS document (under_review → approved). DIRECTOR-ONLY. Requires approverUserId, effectiveDate, and nextReviewDate. Does not activate — call activate_ims_document separately.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "The IMS document Firestore ID." },
+        approverUserId: { type: "string", description: "Firebase UID of the approver (must be Director)." },
+        approverEmail: { type: "string", description: "Email of the approver — validated as Director." },
+        effectiveDate: { type: "string", description: "ISO date when the document becomes effective (default: today)." },
+        nextReviewDate: { type: "string", description: "ISO date for the next scheduled review (required)." },
+      },
+      required: ["id", "approverUserId", "nextReviewDate"],
+    },
+  },
+  {
+    name: "activate_ims_document",
+    description: "Activate an approved IMS document (approved → active). Auto-obsoletes any prior active version with the same docId reference code.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "The IMS document Firestore ID." },
+      },
+      required: ["id"],
+    },
+  },
+  {
+    name: "obsolete_ims_document",
+    description: "Mark an active IMS document as obsolete (active → obsolete). Preserves the document for audit trail — never deletes. Requires a reason.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "The IMS document Firestore ID." },
+        reason: { type: "string", description: "Reason for obsoleting (required for audit trail)." },
+        obsoletedBy: { type: "string", description: "User or agent ID performing the action." },
+      },
+      required: ["id", "reason"],
+    },
+  },
+  {
+    name: "get_ims_health_snapshot",
+    description: "Return a full IMS posture snapshot: document status counts, audit stats, CAPA stats, incidents, risks, and ISO compliance score. Used by the dashboard widget and GUARDIAN reports.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "provision_auditor_access",
+    description: "Grant time-limited read-only auditor access. Creates/updates a user record with role 'auditor' and sets auditorTokenExpiresAt. Default 14 days. Director-only.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        email: { type: "string", description: "Auditor email address." },
+        name: { type: "string", description: "Auditor full name." },
+        firm: { type: "string", description: "Audit firm name (for audit trail)." },
+        days: { type: "number", description: "Access duration in days (default 14)." },
+      },
+      required: ["email", "name"],
+    },
+  },
+  {
+    name: "revoke_auditor_access",
+    description: "Revoke auditor access immediately by expiring the token. Director-only.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        email: { type: "string", description: "Auditor email address." },
+      },
+      required: ["email"],
+    },
+  },
+  {
+    name: "export_ims_document_pdf",
+    description: "Generate printable HTML for an IMS document in a specified format. Returns HTML ready for headless rendering to PDF. Formats: 'a3_framed' (workshop display), 'a5_laminated' (vehicle cab), 'standard' (A4).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "The IMS document Firestore ID." },
+        format: { type: "string", enum: ["a3_framed", "a5_laminated", "standard"], description: "Export format." },
+      },
+      required: ["id", "format"],
     },
   },
 
@@ -2154,40 +2265,542 @@ async function handleGetDashboardMetrics() {
 
 async function handleCreateImsDocumentDraft(args: Record<string, unknown>) {
   const now = admin.firestore.FieldValue.serverTimestamp();
+  const type = String(args.type || "procedure");
+
+  // Management Review records (ISO 9.3) — structured inputs/outputs + meeting link
+  const isManagementReview = type === "management_review";
+  const managementReviewData = isManagementReview ? (args.managementReview || {}) : null;
+  const meetingId = typeof args.meetingId === "string" ? args.meetingId : null;
+
   const payload: Record<string, unknown> = {
     title: String(args.title || ""),
     docId: args.docId ? String(args.docId) : null,
-    type: String(args.type || "procedure"),
+    type,
     status: "draft",
+    approvalStatus: "draft",
     content: String(args.content || ""),
     processOwner: args.processOwner ? String(args.processOwner) : null,
     isoClauses: Array.isArray(args.isoClauses) ? args.isoClauses : [],
-    revision: 0,
+    revisionNumber: 1,
+    revisionHistory: [],
+    approvedBy: null,
+    approvedAt: null,
+    effectiveDate: null,
+    reviewDueDate: null,
+    nextReviewDate: null,
+    supersededBy: null,
+    supersedes: null,
+    reviewOverdue: false,
+    meetingId,
+    managementReview: managementReviewData,
     createdByAgent: true,
     createdAt: now,
     updatedAt: now,
   };
   const ref = await admin.firestore().collection(COLLECTIONS.IMS_DOCUMENTS).add(payload);
-  return { id: ref.id, status: "draft", title: payload.title };
+  return { id: ref.id, status: "draft", approvalStatus: "draft", title: payload.title, type };
 }
 
 const ALLOWED_UPDATE_FIELDS = new Set([
-  "title", "content", "status", "processOwner", "isoClauses", "type",
+  "title", "content", "status", "processOwner", "isoClauses", "type", "docId",
 ]);
+
+const DIRECTOR_EMAIL = "joshua@asi-australia.com.au";
 
 async function handleUpdateImsDocument(args: Record<string, unknown>) {
   const id = String(args.id);
   const updates = (args.updates || {}) as Record<string, unknown>;
+  const changeNote = typeof args.changeNote === "string" ? args.changeNote : "";
+  const updatedBy = typeof args.updatedBy === "string" ? args.updatedBy : "mcp-agent";
+
   const filtered: Record<string, unknown> = {};
+  let contentChanged = false;
   for (const [k, v] of Object.entries(updates)) {
-    if (ALLOWED_UPDATE_FIELDS.has(k)) filtered[k] = v;
+    if (ALLOWED_UPDATE_FIELDS.has(k)) {
+      filtered[k] = v;
+      if (k === "content" || k === "title") contentChanged = true;
+    }
   }
   if (Object.keys(filtered).length === 0) throw new Error("No valid fields to update.");
-  filtered.updatedAt = admin.firestore.FieldValue.serverTimestamp();
-  await admin.firestore().collection(COLLECTIONS.IMS_DOCUMENTS).doc(id).set(filtered, { merge: true });
-  const updated = await admin.firestore().collection(COLLECTIONS.IMS_DOCUMENTS).doc(id).get();
-  if (!updated.exists) throw new Error(`IMS document '${id}' not found.`);
+
+  const db = admin.firestore();
+  const docRef = db.collection(COLLECTIONS.IMS_DOCUMENTS).doc(id);
+  const existing = await docRef.get();
+  if (!existing.exists) throw new Error(`IMS document '${id}' not found.`);
+
+  const now = admin.firestore.FieldValue.serverTimestamp();
+  filtered.updatedAt = now;
+
+  // Auto-increment revision number on content changes
+  if (contentChanged) {
+    const currentRev = Number(existing.data()?.revisionNumber || 1);
+    filtered.revisionNumber = currentRev + 1;
+    filtered.revisionHistory = admin.firestore.FieldValue.arrayUnion({
+      revision: currentRev + 1,
+      updatedBy,
+      updatedAt: new Date().toISOString(),
+      changeNote: changeNote || "Content updated",
+    });
+  }
+
+  await docRef.set(filtered, { merge: true });
+  const updated = await docRef.get();
   return serializeDoc(updated.id, updated.data()!);
+}
+
+// ─── IMS Document Approval Workflow ─────────────────────────────────────────
+
+async function handleSubmitImsDocumentForReview(args: Record<string, unknown>) {
+  const id = String(args.id);
+  if (!id) throw new Error("id is required.");
+  const db = admin.firestore();
+  const docRef = db.collection(COLLECTIONS.IMS_DOCUMENTS).doc(id);
+  const snap = await docRef.get();
+  if (!snap.exists) throw new Error(`IMS document '${id}' not found.`);
+
+  const current = snap.data()!;
+  const currentStatus = String(current.approvalStatus || current.status || "draft");
+  if (currentStatus !== "draft") {
+    throw new Error(`Cannot submit for review: document is currently '${currentStatus}'. Must be 'draft'.`);
+  }
+
+  const submittedBy = typeof args.submittedBy === "string" ? args.submittedBy : "mcp-agent";
+  await docRef.set({
+    approvalStatus: "under_review",
+    status: "under_review",
+    submittedForReviewAt: new Date().toISOString(),
+    submittedForReviewBy: submittedBy,
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  }, { merge: true });
+
+  return { id, approvalStatus: "under_review", submittedBy, submittedAt: new Date().toISOString() };
+}
+
+async function handleApproveImsDocument(args: Record<string, unknown>) {
+  const id = String(args.id);
+  if (!id) throw new Error("id is required.");
+  const approverUserId = String(args.approverUserId || "");
+  const approverEmail = typeof args.approverEmail === "string" ? args.approverEmail.toLowerCase() : "";
+  if (!approverUserId) throw new Error("approverUserId is required.");
+  // Director-only guard
+  if (approverEmail && approverEmail !== DIRECTOR_EMAIL) {
+    throw new Error(`Only the Director (${DIRECTOR_EMAIL}) can approve IMS documents.`);
+  }
+  const effectiveDate = String(args.effectiveDate || new Date().toISOString().split("T")[0]);
+  // reviewDueDate = when the current revision's review is due (drives reminder emails)
+  // nextReviewDate = same value at approval time (updated after each review cycle)
+  const reviewDueDate = String(args.reviewDueDate || args.nextReviewDate || "");
+  const nextReviewDate = String(args.nextReviewDate || args.reviewDueDate || "");
+  if (!reviewDueDate) throw new Error("reviewDueDate (or nextReviewDate) is required (ISO date).");
+
+  const db = admin.firestore();
+  const docRef = db.collection(COLLECTIONS.IMS_DOCUMENTS).doc(id);
+  const snap = await docRef.get();
+  if (!snap.exists) throw new Error(`IMS document '${id}' not found.`);
+
+  const current = snap.data()!;
+  const currentStatus = String(current.approvalStatus || current.status || "draft");
+  if (currentStatus !== "under_review") {
+    throw new Error(`Cannot approve: document is currently '${currentStatus}'. Must be 'under_review'.`);
+  }
+
+  const now = new Date().toISOString();
+  await docRef.set({
+    approvalStatus: "approved",
+    status: "approved",
+    approvedBy: approverUserId,
+    approvedByEmail: approverEmail || null,
+    approvedAt: now,
+    effectiveDate,
+    reviewDueDate,
+    nextReviewDate,
+    reviewOverdue: false,
+    reviewReminderLog: [],
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  }, { merge: true });
+
+  return { id, approvalStatus: "approved", approvedBy: approverUserId, approvedAt: now, effectiveDate, reviewDueDate, nextReviewDate };
+}
+
+async function handleActivateImsDocument(args: Record<string, unknown>) {
+  const id = String(args.id);
+  if (!id) throw new Error("id is required.");
+
+  const db = admin.firestore();
+  const docRef = db.collection(COLLECTIONS.IMS_DOCUMENTS).doc(id);
+  const snap = await docRef.get();
+  if (!snap.exists) throw new Error(`IMS document '${id}' not found.`);
+
+  const current = snap.data()!;
+  const currentStatus = String(current.approvalStatus || current.status || "draft");
+  if (currentStatus !== "approved") {
+    throw new Error(`Cannot activate: document is currently '${currentStatus}'. Must be 'approved'.`);
+  }
+
+  // Auto-obsolete prior active version with same docId
+  const docIdRef = current.docId ? String(current.docId) : null;
+  const obsoletedIds: string[] = [];
+  let supersedesId: string | null = null;
+  if (docIdRef) {
+    const priorSnap = await db.collection(COLLECTIONS.IMS_DOCUMENTS)
+      .where("docId", "==", docIdRef)
+      .where("approvalStatus", "==", "active")
+      .get();
+    const batch = db.batch();
+    priorSnap.docs.forEach((d) => {
+      if (d.id !== id) {
+        batch.set(d.ref, {
+          approvalStatus: "obsolete",
+          status: "obsolete",
+          obsoletedAt: new Date().toISOString(),
+          obsoletedReason: `Superseded by revision ${current.revisionNumber || 1}`,
+          supersededBy: id,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, { merge: true });
+        obsoletedIds.push(d.id);
+        supersedesId = d.id;
+      }
+    });
+    await batch.commit();
+  }
+
+  await docRef.set({
+    approvalStatus: "active",
+    status: "active",
+    activatedAt: new Date().toISOString(),
+    supersedes: supersedesId,
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  }, { merge: true });
+
+  return { id, approvalStatus: "active", obsoletedPriorVersions: obsoletedIds };
+}
+
+async function handleObsoleteImsDocument(args: Record<string, unknown>) {
+  const id = String(args.id);
+  if (!id) throw new Error("id is required.");
+  const reason = String(args.reason || "");
+  if (!reason) throw new Error("reason is required for audit trail.");
+
+  const db = admin.firestore();
+  const docRef = db.collection(COLLECTIONS.IMS_DOCUMENTS).doc(id);
+  const snap = await docRef.get();
+  if (!snap.exists) throw new Error(`IMS document '${id}' not found.`);
+
+  const current = snap.data()!;
+  const currentStatus = String(current.approvalStatus || current.status || "draft");
+  if (currentStatus !== "active") {
+    throw new Error(`Cannot obsolete: document is currently '${currentStatus}'. Must be 'active'.`);
+  }
+
+  await docRef.set({
+    approvalStatus: "obsolete",
+    status: "obsolete",
+    obsoletedAt: new Date().toISOString(),
+    obsoletedReason: reason,
+    obsoletedBy: typeof args.obsoletedBy === "string" ? args.obsoletedBy : "mcp-agent",
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  }, { merge: true });
+
+  return { id, approvalStatus: "obsolete", reason };
+}
+
+// ─── IMS Health Snapshot ────────────────────────────────────────────────────
+
+async function handleGetImsHealthSnapshot() {
+  const db = admin.firestore();
+  const [docsSnap, auditsSnap, capasSnap, incidentsSnap, risksSnap] = await Promise.all([
+    db.collection(COLLECTIONS.IMS_DOCUMENTS).limit(500).get(),
+    db.collection(COLLECTIONS.IMS_AUDITS).limit(200).get(),
+    db.collection(COLLECTIONS.IMS_CORRECTIVE_ACTIONS).limit(300).get(),
+    db.collection(COLLECTIONS.IMS_INCIDENTS).limit(300).get(),
+    db.collection(COLLECTIONS.IMS_RISK_REGISTER).limit(300).get(),
+  ]);
+
+  const today = new Date().toISOString().split("T")[0];
+  const yearStart = `${new Date().getFullYear()}-01-01`;
+  const monthStart = new Date().toISOString().slice(0, 7) + "-01";
+
+  // Documents
+  const docs = docsSnap.docs.map((d) => d.data());
+  const documents = {
+    active: docs.filter((d) => (d.approvalStatus || d.status) === "active").length,
+    draft: docs.filter((d) => (d.approvalStatus || d.status) === "draft").length,
+    underReview: docs.filter((d) => (d.approvalStatus || d.status) === "under_review").length,
+    approved: docs.filter((d) => (d.approvalStatus || d.status) === "approved").length,
+    obsolete: docs.filter((d) => (d.approvalStatus || d.status) === "obsolete").length,
+    overdueReview: docs.filter((d) =>
+      (d.approvalStatus || d.status) === "active" &&
+      typeof d.nextReviewDate === "string" &&
+      d.nextReviewDate < today
+    ).length,
+    total: docs.length,
+  };
+
+  // Audits
+  const audits = auditsSnap.docs.map((d) => d.data());
+  const auditStats = {
+    planned: audits.filter((a) => a.status === "planned").length,
+    inProgress: audits.filter((a) => a.status === "in_progress").length,
+    completedYTD: audits.filter((a) => a.status === "completed" && typeof a.completedAt === "string" && a.completedAt >= yearStart).length,
+    total: audits.length,
+  };
+
+  // CAPAs
+  const capas = capasSnap.docs.map((d) => d.data());
+  const capaStats = {
+    open: capas.filter((c) => c.status === "open" || c.status === "in_progress").length,
+    overdue: capas.filter((c) =>
+      (c.status === "open" || c.status === "in_progress") &&
+      typeof c.dueDate === "string" && c.dueDate < today
+    ).length,
+    closedYTD: capas.filter((c) => c.status === "closed" && typeof c.closedAt === "string" && c.closedAt >= yearStart).length,
+    effectivenessPending: capas.filter((c) => c.status === "closed" && !c.effectivenessVerified).length,
+    total: capas.length,
+  };
+
+  // Incidents
+  const incidents = incidentsSnap.docs.map((d) => d.data());
+  const incidentStats = {
+    openThisMonth: incidents.filter((i) =>
+      i.status === "open" && typeof i.createdAt === "string" && i.createdAt >= monthStart
+    ).length,
+    closedThisMonth: incidents.filter((i) =>
+      i.status === "closed" && typeof i.closedAt === "string" && i.closedAt >= monthStart
+    ).length,
+    openCritical: incidents.filter((i) => i.status === "open" && i.severity === "critical").length,
+    total: incidents.length,
+  };
+
+  // Risks
+  const risks = risksSnap.docs.map((d) => d.data());
+  const riskStats = {
+    open: risks.filter((r) => r.status === "open" || r.status === "monitoring").length,
+    high: risks.filter((r) => r.riskLevel === "high").length,
+    critical: risks.filter((r) => r.riskLevel === "critical").length,
+    total: risks.length,
+  };
+
+  // Compliance score — simple heuristic: % of ISO clauses covered by at least one active doc
+  // ISO 9001 has ~40 auditable clauses across sections 4-10
+  const TOTAL_ISO_CLAUSES = 40;
+  const coveredClauses = new Set<string>();
+  docs.forEach((d) => {
+    if ((d.approvalStatus || d.status) === "active" && Array.isArray(d.isoClauses)) {
+      d.isoClauses.forEach((c: string) => coveredClauses.add(c));
+    }
+  });
+  const complianceScore = Math.round((coveredClauses.size / TOTAL_ISO_CLAUSES) * 100);
+
+  return {
+    generatedAt: new Date().toISOString(),
+    documents,
+    audits: auditStats,
+    capas: capaStats,
+    incidents: incidentStats,
+    risks: riskStats,
+    complianceScore: Math.min(100, complianceScore),
+    isoClausesCovered: coveredClauses.size,
+    isoClausesTotal: TOTAL_ISO_CLAUSES,
+  };
+}
+
+// ─── Auditor Access Provisioning ────────────────────────────────────────────
+
+async function handleProvisionAuditorAccess(args: Record<string, unknown>) {
+  const email = String(args.email || "").toLowerCase().trim();
+  const name = String(args.name || "");
+  const firm = typeof args.firm === "string" ? args.firm : "";
+  const days = typeof args.days === "number" ? args.days : 14;
+  if (!email) throw new Error("email is required.");
+  if (!name) throw new Error("name is required.");
+
+  const db = admin.firestore();
+  const now = admin.firestore.FieldValue.serverTimestamp();
+  const expiresAt = new Date(Date.now() + days * 86400000).toISOString();
+
+  // Find existing user by email
+  const existingSnap = await db.collection(COLLECTIONS.USERS).where("email", "==", email).limit(1).get();
+  let uid: string;
+
+  if (existingSnap.empty) {
+    // Create invite — user self-provisions via Firebase Auth sign-in, then accept-invite
+    // creates the user doc. For auditor provisioning, seed a pending invite.
+    const inviteRef = await db.collection(COLLECTIONS.USER_INVITES).add({
+      email, name, role: "auditor", firm,
+      auditorTokenExpiresAt: expiresAt,
+      invitedAt: now, status: "pending",
+    });
+    uid = `invite:${inviteRef.id}`;
+  } else {
+    const existing = existingSnap.docs[0];
+    uid = existing.id;
+    await existing.ref.set({
+      role: "auditor",
+      auditorTokenExpiresAt: expiresAt,
+      auditorFirm: firm || null,
+      updatedAt: now,
+    }, { merge: true });
+  }
+
+  return {
+    ok: true,
+    email,
+    name,
+    firm,
+    uid,
+    role: "auditor",
+    expiresAt,
+    days,
+    loginUrl: "https://asiportal.live/login",
+  };
+}
+
+async function handleRevokeAuditorAccess(args: Record<string, unknown>) {
+  const email = String(args.email || "").toLowerCase().trim();
+  if (!email) throw new Error("email is required.");
+  const db = admin.firestore();
+  const now = admin.firestore.FieldValue.serverTimestamp();
+
+  const snap = await db.collection(COLLECTIONS.USERS).where("email", "==", email).limit(1).get();
+  if (snap.empty) return { ok: false, error: "User not found" };
+
+  const ref = snap.docs[0].ref;
+  await ref.set({
+    auditorTokenExpiresAt: new Date(Date.now() - 1000).toISOString(),
+    auditorRevokedAt: now,
+    updatedAt: now,
+  }, { merge: true });
+
+  return { ok: true, email, revokedAt: new Date().toISOString() };
+}
+
+// ─── IMS Document PDF Export ────────────────────────────────────────────────
+
+async function handleExportImsDocumentPdf(args: Record<string, unknown>) {
+  const id = String(args.id);
+  const format = String(args.format || "standard");
+  if (!id) throw new Error("id is required.");
+  if (!["a3_framed", "a5_laminated", "standard"].includes(format)) {
+    throw new Error("format must be 'a3_framed', 'a5_laminated', or 'standard'.");
+  }
+
+  const db = admin.firestore();
+  const snap = await db.collection(COLLECTIONS.IMS_DOCUMENTS).doc(id).get();
+  if (!snap.exists) throw new Error(`IMS document '${id}' not found.`);
+  const doc = snap.data()!;
+
+  // Build HTML template based on format. Caller renders HTML→PDF (Puppeteer, Playwright, or
+  // browser print) since Next.js route handlers can't easily spin up headless Chrome inline.
+  // Returning structured HTML + metadata allows GUARDIAN or the portal UI to finalise.
+  const docId = String(doc.docId || "IMS-UNK-000");
+  const revision = String(doc.revisionNumber || 1);
+  const approvedDate = String(doc.approvedAt || doc.effectiveDate || "").split("T")[0] || "—";
+  const title = String(doc.title || "Untitled");
+  const content = String(doc.content || "");
+  const portalUrl = `https://asiportal.live/dashboard/ims/documents/${id}`;
+
+  const footer = `${docId} | Rev ${revision} | Approved ${approvedDate} | Verify master at ${portalUrl}`;
+
+  const formatConfig: Record<string, { pageSize: string; orientation: string; fontSize: string; padding: string }> = {
+    a3_framed: { pageSize: "A3", orientation: "portrait", fontSize: "14pt", padding: "40mm 30mm" },
+    a5_laminated: { pageSize: "A5", orientation: "portrait", fontSize: "9pt", padding: "10mm 12mm" },
+    standard: { pageSize: "A4", orientation: "portrait", fontSize: "11pt", padding: "25mm 20mm" },
+  };
+  const cfg = formatConfig[format];
+
+  // Escape HTML content
+  const escapeHtml = (s: string) => s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+
+  // Basic markdown→HTML conversion (headings, bold, paragraphs, lists)
+  const mdToHtml = (md: string) => {
+    const lines = md.split("\n");
+    let html = "";
+    let inList = false;
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (/^#{1,6}\s/.test(trimmed)) {
+        if (inList) { html += "</ul>"; inList = false; }
+        const level = trimmed.match(/^#+/)![0].length;
+        const text = escapeHtml(trimmed.replace(/^#+\s/, ""));
+        html += `<h${level}>${text}</h${level}>`;
+      } else if (/^[-*]\s/.test(trimmed)) {
+        if (!inList) { html += "<ul>"; inList = true; }
+        html += `<li>${escapeHtml(trimmed.replace(/^[-*]\s/, ""))}</li>`;
+      } else if (trimmed === "") {
+        if (inList) { html += "</ul>"; inList = false; }
+      } else {
+        if (inList) { html += "</ul>"; inList = false; }
+        let formatted = escapeHtml(trimmed);
+        formatted = formatted.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+        html += `<p>${formatted}</p>`;
+      }
+    }
+    if (inList) html += "</ul>";
+    return html;
+  };
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>${escapeHtml(title)} — ${docId}</title>
+<style>
+  @page { size: ${cfg.pageSize} ${cfg.orientation}; margin: 0; }
+  body { font-family: "Inter", "Helvetica Neue", Arial, sans-serif; font-size: ${cfg.fontSize}; color: #1a1a1a; padding: ${cfg.padding}; margin: 0; line-height: 1.5; }
+  .letterhead { border-bottom: 3px solid #8000FF; padding-bottom: 10mm; margin-bottom: 8mm; display: flex; justify-content: space-between; align-items: flex-start; }
+  .brand { font-size: 1.6em; font-weight: 700; color: #8000FF; letter-spacing: -0.02em; }
+  .brand-sub { font-size: 0.75em; color: #666; margin-top: 2mm; }
+  .doc-meta { text-align: right; font-size: 0.8em; color: #444; }
+  .doc-meta strong { color: #1a1a1a; }
+  h1 { font-size: 1.8em; margin: 0 0 4mm 0; color: #1a1a1a; }
+  h2 { font-size: 1.3em; margin: 6mm 0 3mm 0; color: #8000FF; border-bottom: 1px solid #ddd; padding-bottom: 1mm; }
+  h3 { font-size: 1.1em; margin: 5mm 0 2mm 0; }
+  p { margin: 0 0 3mm 0; }
+  ul { margin: 0 0 4mm 4mm; padding: 0; }
+  li { margin-bottom: 1mm; }
+  .footer { position: fixed; bottom: 0; left: 0; right: 0; padding: 5mm 20mm; border-top: 1px solid #ccc; font-size: 0.65em; color: #666; text-align: center; background: #fff; }
+  ${format === "a3_framed" ? ".frame-border { border: 4px solid #8000FF; padding: 10mm; border-radius: 4px; }" : ""}
+  ${format === "a5_laminated" ? "body { font-size: 9pt; } h1 { font-size: 1.3em; } h2 { font-size: 1em; }" : ""}
+</style>
+</head>
+<body>
+  ${format === "a3_framed" ? '<div class="frame-border">' : ""}
+  <div class="letterhead">
+    <div>
+      <div class="brand">ASI Australia</div>
+      <div class="brand-sub">Integrated Management System</div>
+    </div>
+    <div class="doc-meta">
+      <div><strong>${docId}</strong></div>
+      <div>Revision ${revision}</div>
+      <div>Approved ${approvedDate}</div>
+    </div>
+  </div>
+  <h1>${escapeHtml(title)}</h1>
+  ${mdToHtml(content)}
+  ${format === "a3_framed" ? "</div>" : ""}
+  <div class="footer">${escapeHtml(footer)}</div>
+</body>
+</html>`;
+
+  return {
+    id,
+    docId,
+    title,
+    format,
+    html,
+    footer,
+    metadata: {
+      revision: Number(revision),
+      approvedDate,
+      portalUrl,
+      pageSize: cfg.pageSize,
+      orientation: cfg.orientation,
+    },
+  };
 }
 
 // ─── Lead tool handlers ───────────────────────────────────────────────────────
@@ -4343,6 +4956,14 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
     case "get_dashboard_metrics": return handleGetDashboardMetrics();
     case "create_ims_document_draft": return handleCreateImsDocumentDraft(args);
     case "update_ims_document":  return handleUpdateImsDocument(args);
+    case "submit_ims_document_for_review": return handleSubmitImsDocumentForReview(args);
+    case "approve_ims_document":  return handleApproveImsDocument(args);
+    case "activate_ims_document": return handleActivateImsDocument(args);
+    case "obsolete_ims_document": return handleObsoleteImsDocument(args);
+    case "get_ims_health_snapshot": return handleGetImsHealthSnapshot();
+    case "export_ims_document_pdf": return handleExportImsDocumentPdf(args);
+    case "provision_auditor_access": return handleProvisionAuditorAccess(args);
+    case "revoke_auditor_access":    return handleRevokeAuditorAccess(args);
     // Sales pipeline
     case "get_leads":            return handleGetLeads(args);
     case "get_pipeline_stats":   return handleGetPipelineStats(args);

@@ -50,6 +50,20 @@ service cloud.firestore {
       return signedIn() && (isAdminEmail() || isAsiEmail() || isAdmin() || isTechnician());
     }
 
+    // External auditor role — read-only access to IMS collections.
+    // Access is time-limited: userDoc must have auditorTokenExpiresAt > now.
+    function isAuditor() {
+      return signedIn()
+        && userRole() == "auditor"
+        && userDoc().data.auditorTokenExpiresAt != null
+        && request.time < timestamp.value(userDoc().data.auditorTokenExpiresAt);
+    }
+
+    // Read access for IMS-related collections — staff OR external auditors
+    function canReadIms() {
+      return isStaff() || isAuditor();
+    }
+
     function hasOrg(orgId) {
       return signedIn() && userOrgId() != null && userOrgId() == orgId;
     }
@@ -102,7 +116,7 @@ service cloud.firestore {
     }
 
     match /inspections/{inspectionId} {
-      allow read: if isStaff() || hasOrg(resource.data.organizationId);
+      allow read: if isStaff() || isAuditor() || hasOrg(resource.data.organizationId);
       allow create: if isStaff();
       allow update: if isStaff()
         || (signedIn()
@@ -117,14 +131,14 @@ service cloud.firestore {
     }
 
     match /jobs/{jobId} {
-      allow read: if isStaff() || hasOrg(resource.data.organizationId);
+      allow read: if isStaff() || isAuditor() || hasOrg(resource.data.organizationId);
       allow create: if isStaff();
       allow update: if isStaff();
       allow delete: if isAdmin();
     }
 
     match /worksRegister/{entryId} {
-      allow read: if isStaff() || hasOrg(resource.data.organizationId);
+      allow read: if isStaff() || isAuditor() || hasOrg(resource.data.organizationId);
       allow create: if isStaff();
       allow update: if isStaff();
       allow delete: if isAdmin();
@@ -161,22 +175,22 @@ service cloud.firestore {
     }
 
     match /prestartChecks/{checkId} {
-      allow read: if isStaff();
+      allow read: if canReadIms();
       allow create: if isStaff();
       allow update: if isStaff();
       allow delete: if isAdmin();
     }
 
     match /imsDocuments/{docId} {
-      allow read: if isStaff();
-      allow create: if isAdmin();
-      allow update: if isAdmin();
+      allow read: if canReadIms();
+      allow create: if isStaff();
+      allow update: if isStaff();
       allow delete: if isAdmin();
 
       match /revisions/{revisionId} {
-        allow read: if isAdmin() || (isStaff() && resource.data.isCurrent == true);
-        allow create: if isAdmin();
-        allow update: if isAdmin();
+        allow read: if isAdmin() || isAuditor() || (isStaff() && resource.data.isCurrent == true);
+        allow create: if isStaff();
+        allow update: if isStaff();
         allow delete: if isAdmin();
       }
     }
@@ -187,9 +201,9 @@ service cloud.firestore {
     }
 
     match /imsAudits/{auditId} {
-      allow read: if isStaff();
-      allow create: if isAdmin();
-      allow update: if isAdmin();
+      allow read: if canReadIms();
+      allow create: if isStaff();
+      allow update: if isStaff();
       allow delete: if isAdmin();
     }
 
@@ -246,42 +260,42 @@ service cloud.firestore {
     }
 
     match /imsCorrectiveActions/{actionId} {
-      allow read: if isAdmin();
+      allow read: if isAdmin() || isAuditor();
       allow create: if isAdmin();
       allow update: if isAdmin();
       allow delete: if isAdmin();
     }
 
     match /imsIncidents/{incidentId} {
-      allow read: if isStaff();
+      allow read: if canReadIms();
       allow create: if isStaff();
       allow update: if isStaff();
       allow delete: if isAdmin();
     }
 
     match /imsRiskRegister/{entryId} {
-      allow read: if isStaff();
+      allow read: if canReadIms();
       allow create: if isStaff();
       allow update: if isStaff();
       allow delete: if isAdmin();
     }
 
     match /meetings/{meetingId} {
-      allow read: if isStaff();
+      allow read: if isStaff() || isAuditor();
       allow create: if isAdmin();
       allow update: if isStaff();
       allow delete: if false;
     }
 
     match /meetingTemplates/{templateId} {
-      allow read: if isStaff();
+      allow read: if isStaff() || isAuditor();
       allow create: if isAdmin();
       allow update: if isAdmin();
       allow delete: if isAdmin();
     }
 
     match /meetingActions/{actionId} {
-      allow read: if isStaff();
+      allow read: if isStaff() || isAuditor();
       allow create: if isStaff();
       allow update: if isStaff();
       allow delete: if false;

@@ -4,7 +4,7 @@ import { Timestamp } from "firebase/firestore";
 // USER TYPES
 // ============================================
 
-export type UserRole = "admin" | "technician" | "client" | "contractor";
+export type UserRole = "admin" | "technician" | "client" | "contractor" | "auditor";
 
 export interface User {
   uid: string;

@@ -102,6 +102,16 @@ export function AppSidebar() {
         contractor: [
           { href: "/contractor", label: "Contractor Portal", icon: Building2 },
         ],
+        auditor: [
+          { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+          { href: "/dashboard/ims", label: "IMS Hub", icon: Layers },
+          { href: "/dashboard/ims/incidents", label: "Incidents", icon: AlertTriangle },
+          { href: "/dashboard/jobs", label: "Jobs", icon: Briefcase },
+          { href: "/dashboard/inspections", label: "Inspections", icon: ClipboardCheck },
+          { href: "/dashboard/works-register", label: "Works Register", icon: ClipboardList },
+          { href: "/dashboard/daily-prestart", label: "Daily Prestart", icon: ClipboardCheck },
+          { href: "/dashboard/meetings", label: "Meetings", icon: Users },
+        ],
       }[user.role] || adminMenuItems
     : adminMenuItems;
 

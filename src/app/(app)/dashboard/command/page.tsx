@@ -43,6 +43,7 @@ import { SalesIntel } from "./sales-intel";
 import { OSINTFeed } from "./osint-feed";
 import { EnvironmentalImpact } from "./environmental";
 import { ActivePursuits } from "./active-pursuits";
+import { ImsHealth } from "./ims-health";
 
 type InsightPayload = {
   summary?: string;
@@ -364,6 +365,7 @@ export default function CommandCenterPage() {
           inactiveClients={metrics.inactiveClients}
         />
         <ActivePursuits />
+        <ImsHealth />
       </div>
 
       {/* Two-column: OSINT + Schedule/Insights */}
