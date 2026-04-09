@@ -24,12 +24,21 @@ interface OrderLinePayload {
   sku: string;
   quantity: number;
   freightMethod?: "air" | "sea";
+  notes?: string | null;
 }
 
 interface TradeOrderPayload {
+  // Portal-internal shape
   lines?: OrderLinePayload[];
+  // CIPHER's apeax.com.au shape
+  lineItems?: OrderLinePayload[];
+  freightPreference?: "air" | "sea";
+  purchaseOrderRef?: string;
+  submittedAt?: string;
+  // Common
   deliveryMethod?: "pickup" | "courier";
   deliveryAddress?: string;
+  deliveryInstructions?: string;
   notes?: string;
 }
 
@@ -56,9 +65,13 @@ export async function POST(req: NextRequest) {
     const session = await requireTradeSession(req);
     const body = (await req.json().catch(() => ({}))) as TradeOrderPayload;
 
-    if (!Array.isArray(body.lines) || body.lines.length === 0) {
+    // Accept both `lines` (portal-internal) and `lineItems` (CIPHER/apeax.com.au)
+    const incomingLines = body.lineItems || body.lines || [];
+    if (!Array.isArray(incomingLines) || incomingLines.length === 0) {
       throw new Error("At least one line item is required.");
     }
+    // Default freight for all lines if not set per-line
+    const defaultFreight: "air" | "sea" = body.freightPreference === "air" ? "air" : "sea";
 
     const db = admin.firestore();
     const now = admin.firestore.FieldValue.serverTimestamp();
@@ -67,13 +80,17 @@ export async function POST(req: NextRequest) {
     // Resolve each line: fetch SKU, calculate price, check availability
     const resolvedLines: Array<Record<string, unknown>> = [];
     let totalAud = 0;
-    for (const line of body.lines) {
+    for (const line of incomingLines) {
       const sku = String(line.sku || "").trim();
       const quantity = Number(line.quantity || 0);
       if (!sku || quantity <= 0) {
         throw new Error(`Invalid line: sku and positive quantity required.`);
       }
-      const freightMethod: "air" | "sea" = line.freightMethod === "air" ? "air" : "sea";
+      const freightMethod: "air" | "sea" = line.freightMethod === "air"
+        ? "air"
+        : line.freightMethod === "sea"
+          ? "sea"
+          : defaultFreight;
 
       const stockSnap = await db.collection(COLLECTIONS.STOCK_ITEMS)
         .where("sku", "==", sku)
@@ -180,9 +197,23 @@ export async function POST(req: NextRequest) {
       ok: true,
       orderId: orderRef.id,
       orderNumber,
+      orderRef: orderNumber, // CIPHER's trade-order.js reads result.orderRef
       jobId: jobRef.id,
+      linkedJobId: jobRef.id, // CIPHER's trade-order.js reads result.linkedJobId
       jobNumber,
       totalAud,
+      estimatedPricingAud: {
+        totalAud,
+        lineCount: resolvedLines.length,
+        lines: resolvedLines.map((line) => ({
+          sku: line.sku,
+          name: line.name,
+          quantity: line.quantity,
+          unitPriceAud: line.unitPriceAud,
+          lineTotalAud: line.lineTotalAud,
+          stockAvailable: line.stockAvailable,
+        })),
+      },
       lineCount: resolvedLines.length,
       status: "pending_validation",
       message: "Order received. SHIELD will validate and confirm within 1 business day.",

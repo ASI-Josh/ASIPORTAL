@@ -88,9 +88,24 @@ export async function POST(req: NextRequest) {
       tradeDiscountBand: (org.tradeAccount?.tradeDiscountBand as "A" | "B" | "C") || "C",
     });
 
+    // Compute JWT expiry (matches shieldAuth.ts TRADE_SESSION_TTL_SECONDS = 7 days)
+    const expiresAt = new Date(Date.now() + 7 * 86400 * 1000).toISOString();
+
     return NextResponse.json({
       ok: true,
       token,
+      expiresAt,
+      expiresInDays: 7,
+      // CIPHER's trade-login.js reads tradeAccount.{id,legalName,tradingAs,discountTier}
+      tradeAccount: {
+        id: orgDoc.id,
+        legalName: org.name,
+        tradingAs: org.tradeAccount?.tradingAs || null,
+        discountTier: org.tradeAccount?.tradeDiscountBand || "C",
+        contactName: auth.contactName,
+        mustChangePassword: auth.mustChangePassword || false,
+      },
+      // Back-compat for portal-internal callers
       installer: {
         organizationId: orgDoc.id,
         organizationName: org.name,
@@ -98,7 +113,6 @@ export async function POST(req: NextRequest) {
         tradeDiscountBand: org.tradeAccount?.tradeDiscountBand || "C",
         mustChangePassword: auth.mustChangePassword || false,
       },
-      expiresInDays: 7,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Login failed.";

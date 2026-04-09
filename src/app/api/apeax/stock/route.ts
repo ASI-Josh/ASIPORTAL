@@ -106,7 +106,8 @@ export async function GET(req: NextRequest) {
       ok: true,
       authContext: auth.type,
       totalSkus: items.length,
-      items,
+      stock: items, // CIPHER's stock.js reads result.stock
+      items,         // portal-internal back-compat
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to load stock.";
