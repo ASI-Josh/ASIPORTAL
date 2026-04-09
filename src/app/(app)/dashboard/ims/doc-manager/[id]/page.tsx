@@ -849,12 +849,48 @@ export default function DocManagerDetailPage() {
         );
       }
 
+      // Write the FULL canonical field set to the parent doc so the new
+      // branded viewer, IMS Filing, Library, and any MCP read see a
+      // consistent approved+active state. Previously this only wrote
+      // `status: "active"` which left `approvalStatus`, `approverEmail`,
+      // `approvedAt`, `effectiveDate`, `reviewDueDate`, and `revisionHistory`
+      // un-set and caused the split-brain GUARDIAN caught (INC-2026-0001).
+      const todayIso = new Date().toISOString().split("T")[0];
+      const oneYearIso = (() => {
+        const d = new Date();
+        d.setFullYear(d.getFullYear() + 1);
+        return d.toISOString().split("T")[0];
+      })();
+      const approvalHistoryEntry = {
+        revision: revision.revisionNumber,
+        updatedBy: `${user.name || user.email || "Director"} (${user.email || "unknown"}) via Doc Manager`,
+        updatedAt: new Date().toISOString(),
+        changeNote: `Revision ${revision.revisionNumber} approved and activated via Doc Manager. Effective: ${todayIso}. Next review: ${oneYearIso}.`,
+      };
+      const existingHistory = Array.isArray((docRecord as { revisionHistory?: unknown }).revisionHistory)
+        ? ((docRecord as { revisionHistory?: unknown[] }).revisionHistory as unknown[])
+        : [];
+
       await updateDoc(doc(db, COLLECTIONS.IMS_DOCUMENTS, docRecord.id), {
         currentRevisionId: revision.id,
         currentRevisionNumber: revision.revisionNumber,
         currentIssueDate: revision.issueDate,
         currentFile: revision.file || docRecord.currentFile || undefined,
+        // Legacy 3-state status + canonical 5-state approvalStatus in sync
         status: "active",
+        approvalStatus: "active",
+        // Full canonical approval field set
+        approverEmail: user.email || null,
+        approvedByEmail: user.email || null,
+        approvedBy: `${user.name || user.email || "Director"}, Director`,
+        approvedAt: new Date().toISOString(),
+        effectiveDate: todayIso,
+        reviewDueDate: oneYearIso,
+        nextReviewDate: oneYearIso,
+        reviewOverdue: false,
+        activatedAt: new Date().toISOString(),
+        revisionNumber: revision.revisionNumber,
+        revisionHistory: [...existingHistory, approvalHistoryEntry],
         updatedAt: now,
       });
 

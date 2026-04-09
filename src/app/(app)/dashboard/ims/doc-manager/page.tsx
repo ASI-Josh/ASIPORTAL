@@ -4,15 +4,11 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Timestamp,
-  collection,
   doc,
-  onSnapshot,
-  orderBy,
-  query,
   runTransaction,
   setDoc,
 } from "firebase/firestore";
-import { FileText, Plus, ShieldAlert } from "lucide-react";
+import { Eye, FileText, Plus, ShieldAlert } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -38,6 +34,11 @@ import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/firebaseClient";
 import { COLLECTIONS } from "@/lib/collections";
 import type { IMSDocument, IMSDocumentType } from "@/lib/types";
+import {
+  subscribeAllDocuments,
+  type NormalisedDoc,
+  type ApprovalState,
+} from "@/lib/ims/documentService";
 
 const DOC_TYPE_OPTIONS: Array<{ value: IMSDocumentType; label: string; prefix: string }> = [
   { value: "policy", label: "Policy", prefix: "POL" },
@@ -49,14 +50,19 @@ const DOC_TYPE_OPTIONS: Array<{ value: IMSDocumentType; label: string; prefix: s
   { value: "register", label: "Register", prefix: "REG" },
 ];
 
-const statusBadge = (status: IMSDocument["status"]) => {
+const statusBadge = (status: ApprovalState) => {
   switch (status) {
     case "active":
       return "bg-green-500/20 text-green-400 border-green-500/30";
+    case "approved":
+      return "bg-blue-500/20 text-blue-400 border-blue-500/30";
+    case "under_review":
+      return "bg-amber-500/20 text-amber-400 border-amber-500/30";
     case "obsolete":
       return "bg-red-500/20 text-red-400 border-red-500/30";
+    case "draft":
     default:
-      return "bg-amber-500/20 text-amber-400 border-amber-500/30";
+      return "bg-zinc-500/20 text-zinc-400 border-zinc-500/30";
   }
 };
 
@@ -67,7 +73,7 @@ export default function DocManagerPage() {
   const router = useRouter();
   const { user, firebaseUser } = useAuth();
   const { toast } = useToast();
-  const [documents, setDocuments] = useState<IMSDocument[]>([]);
+  const [documents, setDocuments] = useState<NormalisedDoc[]>([]);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [creating, setCreating] = useState(false);
   const [sharingAll, setSharingAll] = useState(false);
@@ -77,27 +83,23 @@ export default function DocManagerPage() {
     isoClauses: "",
   });
 
+  // Canonical service subscription — dual-schema safe, no status/docNumber filter
   useEffect(() => {
-    const docsQuery = query(
-      collection(db, COLLECTIONS.IMS_DOCUMENTS),
-      orderBy("docNumber", "asc")
-    );
-    const unsubscribe = onSnapshot(docsQuery, (snapshot) => {
-      const loaded = snapshot.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...(docSnap.data() as Omit<IMSDocument, "id">),
-      }));
-      setDocuments(loaded);
+    const unsub = subscribeAllDocuments((docs) => {
+      // Sort by docId so both legacy (ASI-POL-001) and MCP (ASI-POL-001) sort predictably
+      setDocuments([...docs].sort((a, b) => a.docId.localeCompare(b.docId)));
     });
-    return () => unsubscribe();
+    return () => unsub();
   }, []);
 
   const stats = useMemo(() => {
     const total = documents.length;
-    const active = documents.filter((doc) => doc.status === "active").length;
-    const draft = documents.filter((doc) => doc.status === "draft").length;
-    const obsolete = documents.filter((doc) => doc.status === "obsolete").length;
-    return { total, active, draft, obsolete };
+    const active = documents.filter((d) => d.approvalStatus === "active").length;
+    const approved = documents.filter((d) => d.approvalStatus === "approved").length;
+    const underReview = documents.filter((d) => d.approvalStatus === "under_review").length;
+    const draft = documents.filter((d) => d.approvalStatus === "draft").length;
+    const obsolete = documents.filter((d) => d.approvalStatus === "obsolete").length;
+    return { total, active, approved, underReview, draft, obsolete };
   }, [documents]);
 
   const reserveDocNumber = async (prefix: string) => {
@@ -246,23 +248,35 @@ export default function DocManagerPage() {
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-6">
         <Card className="bg-card/50 backdrop-blur">
           <CardContent className="pt-6">
             <div className="text-2xl font-bold">{stats.total}</div>
-            <p className="text-xs text-muted-foreground">Total documents</p>
+            <p className="text-xs text-muted-foreground">Total</p>
+          </CardContent>
+        </Card>
+        <Card className="bg-card/50 backdrop-blur">
+          <CardContent className="pt-6">
+            <div className="text-2xl font-bold text-zinc-400">{stats.draft}</div>
+            <p className="text-xs text-muted-foreground">Draft</p>
+          </CardContent>
+        </Card>
+        <Card className="bg-card/50 backdrop-blur">
+          <CardContent className="pt-6">
+            <div className="text-2xl font-bold text-amber-400">{stats.underReview}</div>
+            <p className="text-xs text-muted-foreground">Under Review</p>
+          </CardContent>
+        </Card>
+        <Card className="bg-card/50 backdrop-blur">
+          <CardContent className="pt-6">
+            <div className="text-2xl font-bold text-blue-400">{stats.approved}</div>
+            <p className="text-xs text-muted-foreground">Approved</p>
           </CardContent>
         </Card>
         <Card className="bg-card/50 backdrop-blur">
           <CardContent className="pt-6">
             <div className="text-2xl font-bold text-green-400">{stats.active}</div>
             <p className="text-xs text-muted-foreground">Active</p>
-          </CardContent>
-        </Card>
-        <Card className="bg-card/50 backdrop-blur">
-          <CardContent className="pt-6">
-            <div className="text-2xl font-bold text-amber-400">{stats.draft}</div>
-            <p className="text-xs text-muted-foreground">Draft</p>
           </CardContent>
         </Card>
         <Card className="bg-card/50 backdrop-blur">
@@ -281,24 +295,32 @@ export default function DocManagerPage() {
           {documents.length === 0 ? (
             <div className="text-sm text-muted-foreground">No documents yet.</div>
           ) : (
-            documents.map((doc) => (
+            documents.map((d) => (
               <div
-                key={doc.id}
-                className="flex flex-col gap-2 rounded-lg border border-border/40 bg-background/60 p-3 md:flex-row md:items-center md:justify-between"
+                key={d.id}
+                className="flex flex-col gap-2 rounded-lg border border-border/40 bg-background/60 p-3 md:flex-row md:items-center md:justify-between hover:border-primary/40 transition-colors"
               >
-                <div>
-                  <div className="font-medium text-primary">{doc.docNumber}</div>
-                  <div className="text-sm text-muted-foreground">{doc.title}</div>
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium text-primary">{d.docId}</div>
+                  <div className="text-sm text-muted-foreground truncate">{d.title}</div>
                 </div>
                 <div className="flex flex-wrap items-center gap-2 text-sm">
-                  <Badge variant="outline" className={statusBadge(doc.status)}>
-                    {doc.status}
+                  <Badge variant="outline" className={statusBadge(d.approvalStatus)}>
+                    {d.approvalStatus.replace("_", " ")}
                   </Badge>
-                  <span>Rev {doc.currentRevisionNumber ?? "-"}</span>
+                  <span className="text-xs text-muted-foreground">Rev {d.revisionNumber}</span>
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => router.push(`/dashboard/ims/doc-manager/${doc.id}`)}
+                    onClick={() => router.push(`/dashboard/ims/documents/${d.id}/view`)}
+                  >
+                    <Eye className="h-3.5 w-3.5 mr-1" />
+                    View
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => router.push(`/dashboard/ims/doc-manager/${d.id}`)}
                   >
                     Manage
                   </Button>

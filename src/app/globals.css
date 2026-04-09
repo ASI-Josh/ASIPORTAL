@@ -91,3 +91,462 @@ body {
     -moz-osx-font-smoothing: grayscale;
   }
 }
+
+/* ============================================================================
+   ASI Brand System — for branded document renderer and print output.
+   Applied via explicit classes (.asi-doc-shell, .asi-a4, .asi-a3, .asi-a5)
+   so the brand colours never leak into the portal's dark-theme UI chrome.
+   Locked by docs/BRAND-DECISIONS.md and CAPA qwAtnxVNYiajLXk2CGc9.
+   ============================================================================ */
+:root {
+  --asi-yellow:      #FFC72C;
+  --asi-yellow-dark: #E5A800;
+  --asi-blue:        #00A8E8;
+  --asi-blue-dark:   #0077B6;
+  --asi-black:       #0B0B0B;
+  --asi-charcoal:    #333333;
+  --asi-grey-200:    #E5E5E5;
+  --asi-grey-100:    #F7F7F7;
+  --asi-white:       #FFFFFF;
+  --asi-red-alert:   #D32F2F;
+
+  --asi-font-heading: 'Montserrat', 'Helvetica Neue', Arial, sans-serif;
+  --asi-font-body:    'Inter', 'Helvetica Neue', Arial, sans-serif;
+  --asi-font-mono:    'JetBrains Mono', 'Courier New', monospace;
+}
+
+/* ── Branded document shell ────────────────────────────────────────────── */
+
+.asi-doc-shell {
+  background: var(--asi-white);
+  color: var(--asi-black);
+  font-family: var(--asi-font-body);
+  line-height: 1.55;
+  position: relative;
+  overflow: hidden;
+  /* Default A4 proportions — overridden by .asi-a3 / .asi-a5 */
+  width: 210mm;
+  min-height: 297mm;
+  padding: 20mm 18mm;
+  margin: 0 auto;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.4);
+}
+
+.asi-doc-shell.asi-a3 {
+  width: 297mm;
+  min-height: 420mm;
+  padding: 15mm;
+  border: 4px solid var(--asi-blue-dark);
+}
+
+.asi-doc-shell.asi-a5 {
+  width: 148mm;
+  min-height: 210mm;
+  padding: 10mm;
+  font-size: 9pt;
+}
+
+/* Header */
+.asi-doc-header {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 16px;
+  align-items: start;
+  padding-bottom: 12mm;
+  border-bottom: 1px solid var(--asi-grey-200);
+  margin-bottom: 10mm;
+}
+
+.asi-doc-header .asi-logo {
+  width: 120px;
+  height: auto;
+  display: block;
+}
+
+.asi-a3 .asi-doc-header .asi-logo { width: 180px; }
+.asi-a5 .asi-doc-header .asi-logo { width: 80px; }
+
+.asi-doc-header-title {
+  color: var(--asi-black);
+  font-family: var(--asi-font-heading);
+  font-weight: 700;
+  font-size: 16pt;
+  letter-spacing: 0.02em;
+  line-height: 1.1;
+  margin: 0 0 2mm 0;
+}
+
+.asi-doc-header-subtitle {
+  color: var(--asi-charcoal);
+  font-family: var(--asi-font-body);
+  font-weight: 500;
+  font-size: 10pt;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  margin: 0 0 6mm 0;
+}
+
+.asi-doc-header-bar {
+  height: 3px;
+  background: var(--asi-yellow);
+  width: 100%;
+  max-width: 280px;
+  margin-top: 4mm;
+}
+
+/* Metadata block */
+.asi-doc-meta {
+  background: var(--asi-grey-100);
+  border: 1px solid var(--asi-grey-200);
+  padding: 6mm 8mm;
+  margin-bottom: 10mm;
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 3mm 6mm;
+  font-size: 9.5pt;
+}
+
+.asi-doc-meta dt {
+  font-family: var(--asi-font-heading);
+  font-weight: 600;
+  color: var(--asi-charcoal);
+  text-transform: uppercase;
+  font-size: 8.5pt;
+  letter-spacing: 0.05em;
+}
+
+.asi-doc-meta dd {
+  margin: 0;
+  color: var(--asi-black);
+}
+
+/* Status badge */
+.asi-status-badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border: 1px solid;
+  border-radius: 3px;
+  font-family: var(--asi-font-heading);
+  font-weight: 700;
+  font-size: 8.5pt;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* Document body — markdown rendered */
+.asi-doc-body {
+  font-family: var(--asi-font-body);
+  font-size: 10.5pt;
+  color: var(--asi-black);
+  line-height: 1.6;
+}
+
+.asi-a5 .asi-doc-body { font-size: 9pt; line-height: 1.5; }
+
+.asi-doc-body h1 {
+  font-family: var(--asi-font-heading);
+  font-weight: 800;
+  font-size: 22pt;
+  color: var(--asi-blue-dark);
+  margin: 8mm 0 4mm 0;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+}
+
+.asi-doc-body h2 {
+  font-family: var(--asi-font-heading);
+  font-weight: 700;
+  font-size: 14pt;
+  color: var(--asi-black);
+  margin: 8mm 0 3mm 0;
+  padding-bottom: 2mm;
+  border-bottom: 2px solid var(--asi-yellow);
+  letter-spacing: 0.005em;
+  page-break-after: avoid;
+}
+
+.asi-doc-body h3 {
+  font-family: var(--asi-font-heading);
+  font-weight: 700;
+  font-size: 12pt;
+  color: var(--asi-charcoal);
+  margin: 6mm 0 2mm 0;
+  page-break-after: avoid;
+}
+
+.asi-doc-body p {
+  margin: 0 0 3mm 0;
+}
+
+.asi-doc-body strong {
+  color: var(--asi-blue-dark);
+  font-weight: 700;
+}
+
+.asi-doc-body em {
+  font-style: italic;
+  color: var(--asi-charcoal);
+}
+
+.asi-doc-body ol {
+  padding-left: 6mm;
+  margin: 0 0 4mm 0;
+  list-style: decimal outside;
+}
+
+.asi-doc-body ol li {
+  padding-left: 2mm;
+  margin-bottom: 2mm;
+  line-height: 1.6;
+}
+
+.asi-doc-body ul {
+  padding-left: 6mm;
+  margin: 0 0 4mm 0;
+  list-style: none;
+}
+
+.asi-doc-body ul li {
+  position: relative;
+  padding-left: 5mm;
+  margin-bottom: 1.5mm;
+}
+
+.asi-doc-body ul li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.55em;
+  width: 6px;
+  height: 6px;
+  background: var(--asi-yellow);
+}
+
+.asi-doc-body blockquote {
+  border-left: 3px solid var(--asi-yellow);
+  padding: 2mm 5mm;
+  margin: 4mm 0;
+  color: var(--asi-charcoal);
+  font-style: italic;
+}
+
+.asi-doc-body hr {
+  border: 0;
+  border-top: 1px solid var(--asi-grey-200);
+  margin: 6mm 0;
+}
+
+.asi-doc-body code {
+  font-family: var(--asi-font-mono);
+  background: var(--asi-grey-100);
+  padding: 1px 4px;
+  border-radius: 2px;
+  font-size: 9pt;
+}
+
+.asi-doc-body pre {
+  background: var(--asi-grey-100);
+  border: 1px solid var(--asi-grey-200);
+  padding: 3mm 4mm;
+  font-family: var(--asi-font-mono);
+  font-size: 9pt;
+  overflow-x: auto;
+  border-radius: 2px;
+}
+
+.asi-doc-body table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 4mm 0;
+  font-size: 9.5pt;
+}
+
+.asi-doc-body thead tr {
+  background: var(--asi-blue-dark);
+  color: var(--asi-white);
+}
+
+.asi-doc-body th,
+.asi-doc-body td {
+  border: 1px solid var(--asi-grey-200);
+  padding: 2mm 3mm;
+  text-align: left;
+}
+
+.asi-doc-body tbody tr:nth-child(even) {
+  background: var(--asi-grey-100);
+}
+
+/* Approval block */
+.asi-doc-approval {
+  margin-top: 12mm;
+  padding: 6mm 8mm;
+  background: var(--asi-grey-100);
+  border: 1px solid var(--asi-grey-200);
+  border-left: 4px solid var(--asi-yellow);
+  font-size: 9.5pt;
+}
+
+.asi-doc-approval h4 {
+  font-family: var(--asi-font-heading);
+  font-weight: 700;
+  font-size: 10pt;
+  color: var(--asi-blue-dark);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin: 0 0 3mm 0;
+}
+
+.asi-doc-approval-line {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 3mm;
+  padding: 1.5mm 0;
+}
+
+.asi-doc-approval-line dt {
+  font-weight: 600;
+  color: var(--asi-charcoal);
+}
+
+.asi-doc-approval-line dd {
+  margin: 0;
+  color: var(--asi-black);
+  border-bottom: 1px solid var(--asi-grey-200);
+  padding-bottom: 1mm;
+}
+
+/* Footer */
+.asi-doc-footer {
+  margin-top: 10mm;
+  padding-top: 4mm;
+  border-top: 1px solid var(--asi-grey-200);
+  font-family: var(--asi-font-body);
+  font-size: 8pt;
+  color: var(--asi-charcoal);
+  line-height: 1.4;
+}
+
+.asi-doc-footer-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 8mm;
+  margin-top: 2mm;
+  font-size: 7.5pt;
+  color: var(--asi-charcoal);
+  opacity: 0.8;
+}
+
+/* Watermark */
+.asi-doc-watermark {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) rotate(-30deg);
+  font-family: var(--asi-font-heading);
+  font-weight: 900;
+  font-size: 140pt;
+  letter-spacing: 0.1em;
+  pointer-events: none;
+  user-select: none;
+  white-space: nowrap;
+  z-index: 0;
+}
+
+.asi-a5 .asi-doc-watermark { font-size: 70pt; }
+
+.asi-doc-shell > *:not(.asi-doc-watermark) {
+  position: relative;
+  z-index: 1;
+}
+
+/* ── Print stylesheets ──────────────────────────────────────────────────── */
+
+@media print {
+  /* Hide portal chrome — sidebar, nav, buttons */
+  .no-print,
+  .asi-viewer-chrome,
+  [data-sidebar],
+  nav,
+  aside {
+    display: none !important;
+  }
+
+  body {
+    background: white !important;
+    color: black !important;
+  }
+
+  .asi-doc-shell {
+    width: 100% !important;
+    min-height: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    background: white !important;
+    color: black !important;
+  }
+
+  .asi-doc-shell.asi-a4 {
+    padding: 0 !important;
+  }
+
+  .asi-doc-shell.asi-a3 {
+    padding: 0 !important;
+    border: 4px solid var(--asi-blue-dark) !important;
+  }
+
+  .asi-doc-shell.asi-a5 {
+    padding: 0 !important;
+  }
+
+  /* Force colour fidelity in print */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Page breaks */
+  .asi-doc-body h2,
+  .asi-doc-body h1 {
+    page-break-after: avoid;
+  }
+  .asi-doc-body p,
+  .asi-doc-body li {
+    page-break-inside: avoid;
+    orphans: 3;
+    widows: 3;
+  }
+  .asi-doc-approval {
+    page-break-inside: avoid;
+  }
+}
+
+/* Default @page is A4 portrait. Overridden per-format below. */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 20mm 18mm;
+  }
+}
+
+/* A3 framed display — larger page, larger margins, no footer */
+@media print {
+  .asi-print-a3 {
+    page-break-inside: avoid;
+  }
+}
+
+/* Format-specific @page rules live on the body tag via classes */
+body.asi-print-a4 {
+  /* default */
+}
+
+@media print {
+  body.asi-print-a3 @page { size: A3 portrait; margin: 15mm; }
+  body.asi-print-a5 @page { size: A5 portrait; margin: 10mm; }
+}
+
+/* Typography fallback — only loads when the viewer page is active.
+   The viewer page imports Google Fonts directly via a <link> so we don't
+   pay the font download cost on every portal page. */
