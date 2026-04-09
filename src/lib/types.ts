@@ -840,18 +840,25 @@ export interface IMSDocument {
   updatedAt: Timestamp;
 }
 
+export type IMSAuditStatus = "scheduled" | "planned" | "in_progress" | "completed" | "cancelled";
+
 export interface IMSAuditReport {
   id: string;
   metadata: {
     auditId: string;
-    standard: "ISO9001:2015";
+    standard: "ISO9001:2015" | "ISO14001:2015" | "ISO45001:2018" | "Integrated";
     scope: string;
     period: string;
     sites: string[];
     processes: string[];
     leadAuditor: string;
-    auditDate: string;
-    status: "planned" | "in_progress" | "completed";
+    auditDate: string;           // Actual audit execution date (YYYY-MM-DD)
+    plannedDate?: string;        // Originally scheduled date (may differ from auditDate if rescheduled)
+    status: IMSAuditStatus;
+    calendarEventId?: string;    // Google Calendar event ID if scheduled
+    auditType?: "internal" | "external" | "supplier" | "management_review";
+    scheduledBy?: string;        // Who scheduled it (Director, GUARDIAN, etc.)
+    scheduledAt?: string;        // ISO timestamp when it was first scheduled
   };
   plan: {
     objectives: string[];

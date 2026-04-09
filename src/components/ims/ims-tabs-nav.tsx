@@ -8,7 +8,6 @@ import { cn } from "@/lib/utils";
 const TABS = [
   { label: "IMS Filing", href: "/dashboard/ims" },
   { label: "Doc Manager", href: "/dashboard/ims/doc-manager" },
-  { label: "Doc Manager Chat", href: "/dashboard/ims/doc-manager/chat" },
   { label: "IMS Auditor", href: "/dashboard/ims/ims-auditor" },
 ];
 
@@ -21,10 +20,7 @@ export function ImsTabsNav() {
     }
     if (!pathname) return false;
     if (href === "/dashboard/ims/doc-manager") {
-      return (
-        pathname === href ||
-        (pathname.startsWith(`${href}/`) && !pathname.startsWith(`${href}/chat`))
-      );
+      return pathname === href || pathname.startsWith(`${href}/`);
     }
     return pathname.startsWith(href);
   };

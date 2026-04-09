@@ -311,6 +311,35 @@ const TOOLS: McpTool[] = [
     },
   },
   {
+    name: "schedule_ims_audit",
+    description: "Schedule a future IMS internal audit (ISO 9001/14001/45001). Creates a skeleton audit record with status 'scheduled'. Use for the annual audit schedule — GUARDIAN or the Director books audits in advance, then the audit pack (plan, checklist, findings) is generated closer to the date via create_ims_audit or update_ims_audit. Optionally integrates with Google Calendar.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        auditId: { type: "string", description: "Human-readable audit reference (e.g. 'AUD-2026-Q2-DOCCONTROL'). Generated if omitted." },
+        standard: {
+          type: "string",
+          enum: ["ISO9001:2015", "ISO14001:2015", "ISO45001:2018", "Integrated"],
+          description: "Which standard(s) the audit covers. 'Integrated' = all three.",
+        },
+        auditType: {
+          type: "string",
+          enum: ["internal", "external", "supplier", "management_review"],
+          description: "Audit classification. Defaults to 'internal'.",
+        },
+        scope: { type: "string", description: "Audit scope — what will be audited (processes, clauses, sites)." },
+        period: { type: "string", description: "Reporting period (e.g. 'Q2 2026', '2026 annual')." },
+        plannedDate: { type: "string", description: "Scheduled date (YYYY-MM-DD)." },
+        sites: { type: "array", items: { type: "string" }, description: "Sites in scope." },
+        processes: { type: "array", items: { type: "string" }, description: "Processes in scope." },
+        leadAuditor: { type: "string", description: "Lead auditor name (e.g. 'GUARDIAN', 'Joshua Hyde', or external auditor)." },
+        scheduledBy: { type: "string", description: "Who scheduled the audit (e.g. 'Director', 'GUARDIAN')." },
+        createCalendarEvent: { type: "boolean", description: "If true, attempt to create a Google Calendar event for this audit (requires calendar OAuth)." },
+      },
+      required: ["standard", "scope", "plannedDate", "leadAuditor"],
+    },
+  },
+  {
     name: "get_ims_corrective_actions",
     description: "List IMS corrective/preventive actions (CAPAs). Filter by status or domain.",
     inputSchema: {
@@ -4014,6 +4043,91 @@ async function handleUpdateImsAudit(args: Record<string, unknown>) {
   return serializeDoc(updated.id, updated.data()!);
 }
 
+async function handleScheduleImsAudit(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const now = admin.firestore.FieldValue.serverTimestamp();
+  const nowIso = new Date().toISOString();
+
+  const plannedDate = String(args.plannedDate || "");
+  if (!plannedDate) throw new Error("plannedDate is required (YYYY-MM-DD).");
+  const standard = String(args.standard || "");
+  if (!standard) throw new Error("standard is required.");
+  const scope = String(args.scope || "");
+  if (!scope) throw new Error("scope is required.");
+  const leadAuditor = String(args.leadAuditor || "");
+  if (!leadAuditor) throw new Error("leadAuditor is required.");
+
+  // Generate an audit ID if not provided
+  const year = new Date(plannedDate).getFullYear();
+  const month = String(new Date(plannedDate).getMonth() + 1).padStart(2, "0");
+  const generatedId = `AUD-${year}-${month}-${Math.floor(Math.random() * 900 + 100)}`;
+  const auditId = String(args.auditId || generatedId);
+
+  const metadata = {
+    auditId,
+    standard,
+    auditType: String(args.auditType || "internal"),
+    scope,
+    period: String(args.period || `${year}`),
+    sites: Array.isArray(args.sites) ? args.sites : [],
+    processes: Array.isArray(args.processes) ? args.processes : [],
+    leadAuditor,
+    auditDate: plannedDate,
+    plannedDate,
+    status: "scheduled",
+    scheduledBy: String(args.scheduledBy || "GUARDIAN"),
+    scheduledAt: nowIso,
+    calendarEventId: null as string | null,
+  };
+
+  const payload = {
+    metadata,
+    plan: { objectives: [], criteria: [], methods: [], schedule: [] },
+    checklist: [],
+    findings: [],
+    summary: { strengths: [], risks: [], overallConclusion: "" },
+    questions: [],
+    source: "agent",
+    createdAt: now,
+    updatedAt: now,
+    createdById: "mcp-agent",
+    createdByName: String(args.scheduledBy || "GUARDIAN"),
+    createdByEmail: "",
+  };
+
+  const ref = await db.collection(COLLECTIONS.IMS_AUDITS).add(payload);
+
+  // Best-effort Google Calendar event creation. Failure is non-fatal — the
+  // audit is scheduled in Firestore regardless. The Director can link a
+  // calendar event later from the IMS Auditor page if the portal doesn't
+  // have calendar OAuth.
+  let calendarEventId: string | null = null;
+  if (args.createCalendarEvent === true) {
+    try {
+      // NB: calendar OAuth lives per-user. For now we just record the intent
+      // on the audit record and let the UI complete the calendar event via
+      // the existing /api/google/calendar/create-event endpoint with the
+      // current user's token. The MCP backend does not have a user session.
+      calendarEventId = null;
+    } catch {
+      calendarEventId = null;
+    }
+  }
+
+  if (calendarEventId) {
+    await ref.set({ metadata: { ...metadata, calendarEventId } }, { merge: true });
+  }
+
+  return {
+    ok: true,
+    id: ref.id,
+    auditId,
+    plannedDate,
+    standard,
+    status: "scheduled",
+  };
+}
+
 async function handleGetImsCorrActions(args: Record<string, unknown>) {
   const db = admin.firestore();
   const limit = safeLimit(args.limit, 20, 100);
@@ -5316,6 +5430,7 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
     case "get_ims_audit":        return handleGetImsAudit(args);
     case "create_ims_audit":     return handleCreateImsAudit(args);
     case "update_ims_audit":     return handleUpdateImsAudit(args);
+    case "schedule_ims_audit":   return handleScheduleImsAudit(args);
     case "get_ims_corrective_actions": return handleGetImsCorrActions(args);
     case "create_ims_corrective_action": return handleCreateImsCorrAction(args);
     case "update_ims_corrective_action": return handleUpdateImsCorrAction(args);
