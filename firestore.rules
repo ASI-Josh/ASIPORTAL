@@ -387,6 +387,29 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // Agent heartbeats — staff read, writes happen server-side only
+    match /agentHeartbeats/{agentId} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
+    // SHIELD / APEAX Distribution — admin + staff only.
+    // All installer and public writes happen server-side via /api/apeax/* routes
+    // using SHIELD_API_KEY or JWT session (never direct client writes).
+    match /tradeAccounts/{accountId} {
+      allow read: if isStaff();
+      allow write: if false;
+    }
+
+    match /apeaxOrders/{orderId} {
+      allow read: if isStaff();
+      allow write: if false;
+    }
+
+    match /apeaxSessions/{sessionId} {
+      allow read, write: if false;
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }

@@ -54,6 +54,12 @@ export interface FileAttachment {
 
 export type JobStatus = "pending" | "scheduled" | "in_progress" | "completed" | "closed" | "cancelled";
 
+export type JobDivision = "service" | "distribution";
+
+export type JobType =
+  | "standard_service"
+  | "APEAX_DISTRIBUTION_ORDER";
+
 export type JobLifecycleStage = "rfq" | "job_scheduled" | "job_live" | "job_completed" | "management_closeoff";
 
 export type BookingType =
@@ -331,6 +337,12 @@ export interface Job {
   id: string;
   jobNumber: string;
   jobDescription?: string;
+  // SHIELD / Distribution
+  division?: JobDivision; // "service" (default) or "distribution" (APEAX orders)
+  jobType?: JobType;
+  // ISO traceability touchpoints populated as the job progresses through lifecycle
+  isoClauseTouchpoints?: string[];
+  sourceSystem?: string; // e.g. "apeax_portal" for SHIELD orders
   clientId: string;
   clientName: string;
   clientEmail: string;
@@ -1248,6 +1260,23 @@ export interface SiteLocation {
   notes?: string;
 }
 
+export type TradeDiscountBand = "A" | "B" | "C";
+
+export interface TradeAccount {
+  sectorDeclaration?: string;
+  exclusivityDisclosureText?: string;
+  exclusivityDisclosureDate?: string;
+  tradeDiscountBand: TradeDiscountBand;
+  approvedAt?: string;
+  approvedBy?: string;
+  vettingLockoutUntil?: string | null;
+  credentials?: string;
+  approvalNotes?: string | null;
+  isActive?: boolean;
+  paymentTerms?: string;
+  creditLimit?: number;
+}
+
 export interface ContactOrganization {
   id: string;
   name: string;
@@ -1268,6 +1297,9 @@ export interface ContactOrganization {
   website?: string;
   parentOrganizationId?: string;
   subsidiaryType?: "parent" | "subsidiary";
+  // APEAX Distribution (SHIELD)
+  isApeaxTradeInstaller?: boolean;
+  tradeAccount?: TradeAccount;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
@@ -2185,7 +2217,13 @@ export type LeadsRegisterStatus =
   | "parked"
   | "rejected";
 
-export type LeadsRegisterSourceType = "osint" | "inbound" | "manual" | "referral";
+export type LeadsRegisterSourceType =
+  | "osint"
+  | "inbound"
+  | "manual"
+  | "referral"
+  | "apeax_portal_quote"
+  | "apeax_portal_trade_app";
 
 export type LeadsRegisterSector =
   | "mass-transit"

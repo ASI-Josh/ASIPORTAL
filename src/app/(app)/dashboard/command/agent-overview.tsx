@@ -1,9 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Brain, Shield, TrendingUp, DollarSign, Globe, Monitor } from "lucide-react";
+import { collection, onSnapshot } from "firebase/firestore";
+import { Brain, Shield, TrendingUp, DollarSign, Globe, Monitor, Package } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { db } from "@/lib/firebaseClient";
+import { COLLECTIONS } from "@/lib/collections";
 
 const AGENTS = [
   {
@@ -77,56 +80,113 @@ const AGENTS = [
     bgGlow: "from-orange-500/10 via-orange-500/5 to-transparent",
     description: "Location analytics, route optimisation, regional coverage mapping",
   },
+  {
+    name: "SHIELD",
+    role: "APEAX Distribution",
+    division: "Trade Channel Operations",
+    icon: Package,
+    color: "text-violet-400",
+    borderColor: "border-violet-500/30",
+    bgGlow: "from-violet-500/10 via-violet-500/5 to-transparent",
+    description: "APEAX trade installer vetting, orders, PO to APEAX USA, warranty registration, invoicing",
+  },
 ];
 
-function StatusDot({ online }: { online: boolean }) {
+type Heartbeat = {
+  agentId: string;
+  status: "online" | "busy" | "idle" | "error" | "unknown";
+  activity?: string | null;
+  lastActiveAt?: string;
+};
+
+const STALE_MINUTES = 15;
+
+function formatLastActive(iso?: string): string {
+  if (!iso) return "never";
+  try {
+    const diffMs = Date.now() - new Date(iso).getTime();
+    if (diffMs < 60_000) return "just now";
+    const mins = Math.floor(diffMs / 60_000);
+    if (mins < 60) return `${mins}m ago`;
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    return `${days}d ago`;
+  } catch {
+    return "unknown";
+  }
+}
+
+function StatusDot({ status }: { status: Heartbeat["status"] }) {
+  const colorMap: Record<Heartbeat["status"], string> = {
+    online: "bg-emerald-400",
+    busy: "bg-amber-400",
+    idle: "bg-sky-400",
+    error: "bg-red-400",
+    unknown: "bg-zinc-500",
+  };
+  const isActive = status === "online" || status === "busy";
   return (
     <span className="relative flex h-2.5 w-2.5">
-      {online && (
-        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+      {isActive && (
+        <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${colorMap[status]} opacity-75`} />
       )}
-      <span
-        className={`relative inline-flex rounded-full h-2.5 w-2.5 ${
-          online ? "bg-emerald-400" : "bg-zinc-500"
-        }`}
-      />
+      <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${colorMap[status]}`} />
     </span>
   );
 }
 
 export function AgentOverview() {
-  const [agentStatus, setAgentStatus] = useState<Record<string, boolean>>({});
+  const [heartbeats, setHeartbeats] = useState<Record<string, Heartbeat>>({});
 
-  // Check MCP server connectivity as a proxy for agent availability
+  // Live subscribe to agent heartbeats from Firestore
   useEffect(() => {
-    const checkStatus = async () => {
-      const statuses: Record<string, boolean> = {};
-      // All agents route through the MCP server — if it responds, agents are reachable
-      try {
-        const res = await fetch("/api/mcp", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ jsonrpc: "2.0", method: "tools/list", id: "status-check" }),
+    const unsub = onSnapshot(
+      collection(db, COLLECTIONS.AGENT_HEARTBEATS),
+      (snap) => {
+        const map: Record<string, Heartbeat> = {};
+        snap.docs.forEach((d) => {
+          const data = d.data() as Partial<Heartbeat>;
+          const lastActiveAt = String(data.lastActiveAt || "");
+          let status: Heartbeat["status"] = (data.status as Heartbeat["status"]) || "unknown";
+          // Mark stale heartbeats as unknown (offline visual)
+          if (lastActiveAt) {
+            try {
+              const diffMs = Date.now() - new Date(lastActiveAt).getTime();
+              if (diffMs > STALE_MINUTES * 60_000) status = "unknown";
+            } catch {
+              // keep status as-is
+            }
+          }
+          map[d.id.toUpperCase()] = {
+            agentId: d.id,
+            status,
+            activity: data.activity || null,
+            lastActiveAt,
+          };
         });
-        const online = res.ok;
-        // ATHENA, LEDGER, GUARDIAN, VANGUARD, SENTINEL all use MCP
-        for (const agent of AGENTS) {
-          statuses[agent.name] = online;
-        }
-      } catch {
-        for (const agent of AGENTS) {
-          statuses[agent.name] = false;
-        }
+        // CIPHER is always online — it's the portal itself
+        map["CIPHER"] = {
+          agentId: "cipher",
+          status: "online",
+          activity: "Portal online",
+          lastActiveAt: new Date().toISOString(),
+        };
+        setHeartbeats(map);
+      },
+      () => {
+        // On error, mark all as unknown
+        const map: Record<string, Heartbeat> = {};
+        for (const a of AGENTS) map[a.name] = { agentId: a.name.toLowerCase(), status: "unknown" };
+        map["CIPHER"] = { agentId: "cipher", status: "online", lastActiveAt: new Date().toISOString() };
+        setHeartbeats(map);
       }
-      // CIPHER is always online if the portal is serving this page
-      statuses["CIPHER"] = true;
-      setAgentStatus(statuses);
-    };
-
-    checkStatus();
-    const interval = setInterval(checkStatus, 60_000); // Recheck every 60s
-    return () => clearInterval(interval);
+    );
+    return () => unsub();
   }, []);
+
+  const getHeartbeat = (name: string): Heartbeat =>
+    heartbeats[name] || { agentId: name.toLowerCase(), status: "unknown" };
 
   const chief = AGENTS.find((a) => a.isChief)!;
   const divisions = AGENTS.filter((a) => !a.isChief);
@@ -150,14 +210,17 @@ export function AgentOverview() {
             </div>
             <div>
               <div className="flex items-center justify-center gap-2">
-                <StatusDot online={agentStatus[chief.name] ?? false} />
+                <StatusDot status={getHeartbeat(chief.name).status} />
                 <span className={`font-headline font-bold text-xl ${chief.color}`}>{chief.name}</span>
                 <Badge className="bg-purple-500/20 text-purple-400 border-purple-500/30">
                   {chief.role}
                 </Badge>
               </div>
               <p className="text-sm text-muted-foreground mt-1 max-w-md mx-auto">{chief.description}</p>
-              <p className="text-xs text-muted-foreground mt-2">6 divisions reporting</p>
+              <p className="text-xs text-muted-foreground mt-2">
+                {AGENTS.length - 1} divisions reporting ·
+                <span className="ml-1">Last active {formatLastActive(getHeartbeat(chief.name).lastActiveAt)}</span>
+              </p>
             </div>
           </div>
         </CardContent>
@@ -184,7 +247,7 @@ export function AgentOverview() {
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
-                  <StatusDot online={agentStatus[agent.name] ?? false} />
+                  <StatusDot status={getHeartbeat(agent.name).status} />
                   <span className={`font-headline font-bold ${agent.color}`}>{agent.name}</span>
                   <Badge variant="secondary" className="text-xs">
                     {agent.role}
@@ -193,6 +256,16 @@ export function AgentOverview() {
                 <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
                   {agent.description}
                 </p>
+                <div className="flex items-center gap-2 mt-1.5 text-[10px] text-muted-foreground">
+                  <span className="capitalize">{getHeartbeat(agent.name).status}</span>
+                  <span>·</span>
+                  <span>Last active {formatLastActive(getHeartbeat(agent.name).lastActiveAt)}</span>
+                </div>
+                {getHeartbeat(agent.name).activity && (
+                  <p className="text-[10px] text-muted-foreground mt-0.5 italic truncate">
+                    {getHeartbeat(agent.name).activity}
+                  </p>
+                )}
               </div>
             </CardContent>
           </Card>

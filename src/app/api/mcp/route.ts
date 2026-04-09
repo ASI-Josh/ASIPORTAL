@@ -1411,13 +1411,13 @@ const TOOLS: McpTool[] = [
   {
     name: "push_department_report",
     description:
-      "Submit a weekly department report. Each agent team (LEDGER, SENTINEL, VANGUARD, OSINT) pushes their report here. The Executive Assistant reads them all to compile the company report.",
+      "Submit a weekly department report. Each agent team (LEDGER, SENTINEL, VANGUARD, OSINT, GUARDIAN, CIPHER, SHIELD) pushes their report here. ATHENA reads them all to compile the company report.",
     inputSchema: {
       type: "object",
       properties: {
         department: {
           type: "string",
-          enum: ["ledger", "sentinel", "vanguard", "osint", "operations", "chief_of_staff", "cipher", "guardian"],
+          enum: ["ledger", "sentinel", "vanguard", "osint", "operations", "chief_of_staff", "cipher", "guardian", "shield"],
           description: "Department identifier.",
         },
         weekEnding: { type: "string", description: "ISO date of the Friday this report covers (e.g. '2026-03-28')." },
@@ -2067,6 +2067,87 @@ const TOOLS: McpTool[] = [
         message_id: { type: "string", description: "Message ID to trash" },
       },
       required: ["message_id"],
+    },
+  },
+  // ─── Agent heartbeat (live status tracking) ─────────────────────────────────
+  {
+    name: "agent_heartbeat",
+    description: "Report an agent as alive and active. Call this at the start and end of each agent run (or periodically for long-running agents). Powers the live/last-active status display on the company structure dashboard.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        agentId: { type: "string", enum: ["athena", "vanguard", "sentinel", "ledger", "guardian", "cipher", "meridian", "shield"], description: "Canonical agent identifier." },
+        status: { type: "string", enum: ["online", "busy", "idle", "error"], description: "Current operational status. 'busy' = actively running a workflow, 'idle' = reachable but not running anything, 'error' = last run failed." },
+        activity: { type: "string", description: "Optional human-readable description of current activity (e.g. 'Running weekly OSINT scan')." },
+        metadata: { type: "object", description: "Optional metadata (task count, queue depth, etc)." },
+      },
+      required: ["agentId", "status"],
+    },
+  },
+  {
+    name: "get_agent_heartbeats",
+    description: "Get live/last-active status for all registered agents. Used by the dashboard company structure widget.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  // ─── SHIELD APEAX Distribution tools ───────────────────────────────────────
+  {
+    name: "get_shield_queue",
+    description: "SHIELD operational queue — all items awaiting SHIELD action: pending quote requests, trade applications awaiting vetting, and orders awaiting SHIELD validation. Reads from leadsRegister (apeax_portal_* sources) and apeaxOrders.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        queueType: { type: "string", enum: ["quotes", "applications", "orders", "all"], description: "Filter queue type (default: all)." },
+      },
+    },
+  },
+  {
+    name: "approve_trade_application",
+    description: "SHIELD approves an APEAX trade installer application. Promotes the leads register entry to a ContactOrganization with is_apeax_trade_installer=true, sets trade_discount_band, and issues installer login credentials.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        registerEntryId: { type: "string", description: "Leads register entry ID to approve." },
+        tradeDiscountBand: { type: "string", enum: ["A", "B", "C"], description: "Trade discount band tier." },
+        approvedBy: { type: "string", description: "SHIELD user ID or 'shield-agent'." },
+        notes: { type: "string", description: "Optional approval notes." },
+      },
+      required: ["registerEntryId", "tradeDiscountBand"],
+    },
+  },
+  {
+    name: "reject_trade_application",
+    description: "SHIELD rejects an APEAX trade installer application. Logs rejection reason and sets vetting_lockout_until to NOW+12 months.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        registerEntryId: { type: "string", description: "Leads register entry ID to reject." },
+        reason: { type: "string", description: "Rejection reason (for audit trail)." },
+        rejectedBy: { type: "string", description: "SHIELD user ID or 'shield-agent'." },
+      },
+      required: ["registerEntryId", "reason"],
+    },
+  },
+  {
+    name: "validate_apeax_order",
+    description: "SHIELD validates a pending APEAX distribution order. Marks order as SHIELD-validated, checks stock sufficiency, and triggers a Xero PO to APEAX USA if stock is insufficient.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        orderId: { type: "string", description: "APEAX order document ID." },
+        validatedBy: { type: "string", description: "SHIELD user ID or 'shield-agent'." },
+        notes: { type: "string" },
+      },
+      required: ["orderId"],
+    },
+  },
+  {
+    name: "get_apeax_stock",
+    description: "Get current APEAX stock levels by SKU. Reads from the stockItems collection filtered to APEAX product lines.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        sku: { type: "string", description: "Optional specific SKU to query." },
+      },
     },
   },
 ];
@@ -4928,6 +5009,295 @@ async function handleGetExecutiveReports(args: Record<string, unknown>) {
   return snap.docs.map((d) => serializeDoc(d.id, d.data()));
 }
 
+// ─── Agent Heartbeat handlers ────────────────────────────────────────────────
+
+const KNOWN_AGENTS = ["athena", "vanguard", "sentinel", "ledger", "guardian", "cipher", "meridian", "shield"];
+
+async function handleAgentHeartbeat(args: Record<string, unknown>) {
+  const agentId = String(args.agentId || "").toLowerCase();
+  if (!KNOWN_AGENTS.includes(agentId)) {
+    throw new Error(`Unknown agentId '${agentId}'. Valid: ${KNOWN_AGENTS.join(", ")}`);
+  }
+  const status = String(args.status || "online");
+  if (!["online", "busy", "idle", "error"].includes(status)) {
+    throw new Error(`Invalid status '${status}'. Must be online|busy|idle|error.`);
+  }
+  const activity = typeof args.activity === "string" ? args.activity : null;
+  const metadata = (args.metadata && typeof args.metadata === "object") ? args.metadata : null;
+
+  const db = admin.firestore();
+  const now = admin.firestore.FieldValue.serverTimestamp();
+  const nowIso = new Date().toISOString();
+
+  await db.collection(COLLECTIONS.AGENT_HEARTBEATS).doc(agentId).set({
+    agentId,
+    status,
+    activity,
+    metadata,
+    lastActiveAt: nowIso,
+    lastActiveAtServer: now,
+    updatedAt: now,
+  }, { merge: true });
+
+  return { ok: true, agentId, status, lastActiveAt: nowIso };
+}
+
+async function handleGetAgentHeartbeats() {
+  const db = admin.firestore();
+  const snap = await db.collection(COLLECTIONS.AGENT_HEARTBEATS).get();
+  const STALE_MINUTES = 15;
+  const now = Date.now();
+  const heartbeats: Record<string, unknown> = {};
+  snap.docs.forEach((d) => {
+    const data = d.data();
+    const lastActiveAt = String(data.lastActiveAt || "");
+    let isLive = false;
+    let minutesAgo: number | null = null;
+    if (lastActiveAt) {
+      try {
+        const diffMs = now - new Date(lastActiveAt).getTime();
+        minutesAgo = Math.floor(diffMs / 60000);
+        isLive = diffMs < STALE_MINUTES * 60000;
+      } catch {
+        // invalid date
+      }
+    }
+    heartbeats[d.id] = {
+      agentId: d.id,
+      status: data.status || "unknown",
+      activity: data.activity || null,
+      lastActiveAt,
+      minutesAgo,
+      isLive,
+      metadata: data.metadata || null,
+    };
+  });
+  return { heartbeats, staleThresholdMinutes: STALE_MINUTES };
+}
+
+// ─── SHIELD APEAX Distribution handlers ──────────────────────────────────────
+
+async function handleGetShieldQueue(args: Record<string, unknown>) {
+  const queueType = String(args.queueType || "all");
+  const db = admin.firestore();
+  const result: Record<string, unknown> = {};
+
+  // Quote requests: leadsRegister entries with source apeax_portal_quote, status identified/assessed
+  if (queueType === "quotes" || queueType === "all") {
+    const snap = await db.collection(COLLECTIONS.LEADS_REGISTER)
+      .where("source.type", "==", "apeax_portal_quote")
+      .where("status", "in", ["identified", "assessed"])
+      .limit(100)
+      .get();
+    result.quotes = snap.docs.map((d) => serializeDoc(d.id, d.data()));
+  }
+
+  // Trade applications: leadsRegister entries with source apeax_portal_trade_app, status identified
+  if (queueType === "applications" || queueType === "all") {
+    const snap = await db.collection(COLLECTIONS.LEADS_REGISTER)
+      .where("source.type", "==", "apeax_portal_trade_app")
+      .where("status", "in", ["identified", "assessed"])
+      .limit(100)
+      .get();
+    result.applications = snap.docs.map((d) => serializeDoc(d.id, d.data()));
+  }
+
+  // Orders awaiting SHIELD validation
+  if (queueType === "orders" || queueType === "all") {
+    const snap = await db.collection(COLLECTIONS.APEAX_ORDERS)
+      .where("status", "==", "pending_validation")
+      .limit(100)
+      .get();
+    result.orders = snap.docs.map((d) => serializeDoc(d.id, d.data()));
+  }
+
+  return result;
+}
+
+async function handleApproveTradeApplication(args: Record<string, unknown>) {
+  const registerEntryId = String(args.registerEntryId || "");
+  if (!registerEntryId) throw new Error("registerEntryId is required.");
+  const tradeDiscountBand = String(args.tradeDiscountBand || "C");
+  if (!["A", "B", "C"].includes(tradeDiscountBand)) {
+    throw new Error("tradeDiscountBand must be A, B, or C.");
+  }
+  const approvedBy = String(args.approvedBy || "shield-agent");
+  const notes = typeof args.notes === "string" ? args.notes : "";
+
+  const db = admin.firestore();
+  const now = admin.firestore.FieldValue.serverTimestamp();
+  const nowIso = new Date().toISOString();
+
+  // Load the register entry
+  const regRef = db.collection(COLLECTIONS.LEADS_REGISTER).doc(registerEntryId);
+  const regSnap = await regRef.get();
+  if (!regSnap.exists) throw new Error(`Leads register entry '${registerEntryId}' not found.`);
+  const regData = regSnap.data()!;
+
+  if (regData.source?.type !== "apeax_portal_trade_app") {
+    throw new Error("This register entry is not an APEAX trade application.");
+  }
+
+  // Create the ContactOrganization with trade account flags
+  const company = (regData.company || {}) as Record<string, unknown>;
+  const contact = (regData.contact || {}) as Record<string, unknown>;
+  const orgRef = await db.collection(COLLECTIONS.CONTACT_ORGANIZATIONS).add({
+    name: String(company.name || "Unknown"),
+    category: "trade_client",
+    type: "customer",
+    status: "active",
+    abn: company.abn || null,
+    industry: company.sector || null,
+    phone: contact.phone || null,
+    email: contact.email || null,
+    website: company.website || null,
+    isApeaxTradeInstaller: true,
+    tradeAccount: {
+      sectorDeclaration: company.sectorDeclaration || null,
+      exclusivityDisclosureText: company.exclusivityDisclosureText || null,
+      exclusivityDisclosureDate: company.exclusivityDisclosureDate || null,
+      tradeDiscountBand,
+      approvedAt: nowIso,
+      approvedBy,
+      vettingLockoutUntil: null,
+      credentials: company.credentials || null,
+      approvalNotes: notes || null,
+    },
+    sites: [],
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  // Update the register entry → promoted
+  await regRef.set({
+    status: "promoted",
+    promotedToPipeline: true,
+    promotedDate: nowIso,
+    pipelineLeadId: orgRef.id,
+    updatedAt: now,
+  }, { merge: true });
+
+  return {
+    ok: true,
+    organizationId: orgRef.id,
+    organizationName: company.name,
+    tradeDiscountBand,
+    approvedAt: nowIso,
+    approvedBy,
+  };
+}
+
+async function handleRejectTradeApplication(args: Record<string, unknown>) {
+  const registerEntryId = String(args.registerEntryId || "");
+  const reason = String(args.reason || "");
+  if (!registerEntryId) throw new Error("registerEntryId is required.");
+  if (!reason) throw new Error("reason is required for audit trail.");
+  const rejectedBy = String(args.rejectedBy || "shield-agent");
+
+  const db = admin.firestore();
+  const now = admin.firestore.FieldValue.serverTimestamp();
+  const nowIso = new Date().toISOString();
+  const lockoutUntil = new Date(Date.now() + 365 * 86400000).toISOString();
+
+  const regRef = db.collection(COLLECTIONS.LEADS_REGISTER).doc(registerEntryId);
+  const regSnap = await regRef.get();
+  if (!regSnap.exists) throw new Error(`Leads register entry '${registerEntryId}' not found.`);
+
+  await regRef.set({
+    status: "rejected",
+    rejectionReason: reason,
+    rejectedAt: nowIso,
+    rejectedBy,
+    vettingLockoutUntil: lockoutUntil,
+    updatedAt: now,
+  }, { merge: true });
+
+  return { ok: true, registerEntryId, rejectedAt: nowIso, vettingLockoutUntil: lockoutUntil };
+}
+
+async function handleValidateApeaxOrder(args: Record<string, unknown>) {
+  const orderId = String(args.orderId || "");
+  if (!orderId) throw new Error("orderId is required.");
+  const validatedBy = String(args.validatedBy || "shield-agent");
+  const notes = typeof args.notes === "string" ? args.notes : "";
+
+  const db = admin.firestore();
+  const now = admin.firestore.FieldValue.serverTimestamp();
+  const nowIso = new Date().toISOString();
+
+  const orderRef = db.collection(COLLECTIONS.APEAX_ORDERS).doc(orderId);
+  const orderSnap = await orderRef.get();
+  if (!orderSnap.exists) throw new Error(`APEAX order '${orderId}' not found.`);
+  const order = orderSnap.data()!;
+
+  // Check stock for each line item
+  const lines = (order.lines as Array<Record<string, unknown>>) || [];
+  const stockShortfall: Array<{ sku: string; requested: number; available: number }> = [];
+  for (const line of lines) {
+    const sku = String(line.sku || "");
+    if (!sku) continue;
+    const stockSnap = await db.collection(COLLECTIONS.STOCK_ITEMS).where("sku", "==", sku).limit(1).get();
+    if (stockSnap.empty) {
+      stockShortfall.push({ sku, requested: Number(line.quantity || 0), available: 0 });
+    } else {
+      const available = Number(stockSnap.docs[0].data().quantityOnHand || 0);
+      const requested = Number(line.quantity || 0);
+      if (available < requested) {
+        stockShortfall.push({ sku, requested, available });
+      }
+    }
+  }
+
+  const poRequired = stockShortfall.length > 0;
+
+  await orderRef.set({
+    status: poRequired ? "validated_po_required" : "validated_stock_available",
+    shieldValidatedAt: nowIso,
+    shieldValidatedBy: validatedBy,
+    shieldNotes: notes || null,
+    stockShortfall,
+    poRequired,
+    updatedAt: now,
+  }, { merge: true });
+
+  return {
+    ok: true,
+    orderId,
+    validated: true,
+    poRequired,
+    stockShortfall,
+    validatedAt: nowIso,
+  };
+}
+
+async function handleGetApeaxStock(args: Record<string, unknown>) {
+  const sku = typeof args.sku === "string" ? args.sku : null;
+  const db = admin.firestore();
+  let q: admin.firestore.Query = db.collection(COLLECTIONS.STOCK_ITEMS);
+  // Filter to APEAX product lines (by sku prefix or category tag)
+  if (sku) {
+    q = q.where("sku", "==", sku);
+  } else {
+    q = q.where("supplier", "==", "APEAX");
+  }
+  const snap = await q.limit(200).get();
+  const items = snap.docs.map((d) => {
+    const data = d.data();
+    return {
+      id: d.id,
+      sku: data.sku,
+      name: data.name,
+      description: data.description,
+      quantityOnHand: data.quantityOnHand || 0,
+      reorderPoint: data.reorderPoint || 0,
+      unitCostUsd: data.unitCostUsd || null,
+      unitPriceAud: data.unitPriceAud || null,
+      updatedAt: data.updatedAt,
+    };
+  });
+  return { items, totalSkus: items.length };
+}
+
 // ─── Dispatch ─────────────────────────────────────────────────────────────────
 
 async function callTool(name: string, args: Record<string, unknown>): Promise<unknown> {
@@ -5025,6 +5395,15 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
     case "get_department_reports": return handleGetDepartmentReports(args);
     case "push_executive_report": return handlePushExecutiveReport(args);
     case "get_executive_reports": return handleGetExecutiveReports(args);
+    // Agent heartbeat
+    case "agent_heartbeat":           return handleAgentHeartbeat(args);
+    case "get_agent_heartbeats":      return handleGetAgentHeartbeats();
+    // SHIELD APEAX Distribution
+    case "get_shield_queue":          return handleGetShieldQueue(args);
+    case "approve_trade_application": return handleApproveTradeApplication(args);
+    case "reject_trade_application":  return handleRejectTradeApplication(args);
+    case "validate_apeax_order":      return handleValidateApeaxOrder(args);
+    case "get_apeax_stock":           return handleGetApeaxStock(args);
     // ─── Meetings ───────────────────────────────────────────────────────────
     case "get_meetings": {
       const fdb = admin.firestore();

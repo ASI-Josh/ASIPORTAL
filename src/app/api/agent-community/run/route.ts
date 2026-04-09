@@ -219,6 +219,7 @@ const DEFAULT_PROFILES: Record<string, AgentProfileRecord> = {
   guardian: { name: "GUARDIAN", roleTitle: "Lead Auditor" },
   cipher: { name: "CIPHER", roleTitle: "IT & Digital" },
   meridian: { name: "MERIDIAN", roleTitle: "Critical Intelligence" },
+  shield: { name: "SHIELD", roleTitle: "APEAX Distribution Agent" },
 };
 
 const extractMentionTargets = async (text: string) => {

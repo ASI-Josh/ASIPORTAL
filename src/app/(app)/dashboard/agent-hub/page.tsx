@@ -5,7 +5,7 @@ import Link from "next/link";
 import {
   Bot, Brain, Eye, Globe, Landmark, MessagesSquare,
   Scale, SendHorizonal, ShieldCheck, TrendingUp,
-  Users, ChevronDown, ChevronUp,
+  Users, ChevronDown, ChevronUp, Package,
 } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -120,6 +120,18 @@ const AGENTS: AgentDef[] = [
     borderColor: "border-rose-500/30",
     description: "Geopolitical & institutional analysis.",
     capabilities: ["Geopolitical analysis", "Institutional intelligence", "Policy impact assessment"],
+  },
+  {
+    id: "shield",
+    name: "SHIELD",
+    title: "APEAX Distribution Agent",
+    domain: "Trade Channel Ops",
+    icon: Package,
+    color: "text-violet-400",
+    bgColor: "bg-violet-500/10",
+    borderColor: "border-violet-500/30",
+    description: "Exclusive APEAX AU distribution. Trade installer vetting, quoting, orders, PO to APEAX USA, GUARDIAN QA hold, warranty registration, invoicing, close-out.",
+    capabilities: ["Trade vetting", "Order validation", "APEAX USA PO", "Warranty registration", "Installer invoicing"],
   },
 ];
 
