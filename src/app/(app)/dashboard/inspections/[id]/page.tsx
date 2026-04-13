@@ -100,8 +100,31 @@ const STATUS_BADGE: Record<InspectionStatus, string> = {
   draft: "bg-muted text-muted-foreground",
   submitted: "bg-amber-500/20 text-amber-400 border-amber-500/30",
   approved: "bg-green-500/20 text-green-400 border-green-500/30",
+  partially_converted: "bg-indigo-500/20 text-indigo-300 border-indigo-500/30",
   converted: "bg-blue-500/20 text-blue-400 border-blue-500/30",
   rejected: "bg-red-500/20 text-red-400 border-red-500/30",
+};
+
+const STATUS_LABEL: Record<InspectionStatus, string> = {
+  draft: "Draft",
+  submitted: "Submitted",
+  approved: "Approved",
+  partially_converted: "Partially Converted",
+  converted: "Converted",
+  rejected: "Rejected",
+};
+
+// Per-vehicle conversion status styling
+const VEHICLE_CONV_BADGE: Record<"pending" | "converted" | "rejected", string> = {
+  pending: "bg-amber-500/15 text-amber-300 border-amber-500/30",
+  converted: "bg-green-500/15 text-green-300 border-green-500/30",
+  rejected: "bg-red-500/15 text-red-300 border-red-500/30",
+};
+
+const VEHICLE_CONV_LABEL: Record<"pending" | "converted" | "rejected", string> = {
+  pending: "Pending",
+  converted: "Converted",
+  rejected: "Rejected",
 };
 
 const timeSlots = [
@@ -393,6 +416,10 @@ export default function InspectionDetailPage() {
   const [quoteSending, setQuoteSending] = useState(false);
   const [completingInspection, setCompletingInspection] = useState(false);
   const [convertingInspection, setConvertingInspection] = useState(false);
+  // Per-vehicle conversion state — holds the vehicleId currently being
+  // converted/rejected so we can disable just that one row's buttons while
+  // the Firestore write is in flight without freezing the whole page.
+  const [convertingVehicleId, setConvertingVehicleId] = useState<string | null>(null);
   const [vehicleReports, setVehicleReports] = useState<VehicleReport[]>([]);
   const [showAddVehicleDialog, setShowAddVehicleDialog] = useState(false);
   const [showEditVehicleDialog, setShowEditVehicleDialog] = useState(false);
@@ -1790,10 +1817,32 @@ export default function InspectionDetailPage() {
     }
   };
 
-  const handleApproveInspection = async () => {
-    if (!inspection) return;
-    if (user?.role !== "admin") return;
-    if (convertingInspection) return;
+  /**
+   * Core per-vehicle conversion function.
+   *
+   * Takes a list of vehicleIds from the current inspection and creates ONE
+   * Job per vehicle. Updates the VehicleReport on the inspection with its
+   * `conversionStatus: "converted"` + `convertedJobId` so the inspection
+   * card persists with the full trail of which vehicles have been converted
+   * and which are still pending.
+   *
+   * Auto-transitions the inspection-level status:
+   *   - At least one vehicle still "pending"  → "partially_converted"
+   *   - All vehicles "converted" or "rejected" → "converted"
+   *
+   * Called by:
+   *   - handleConvertVehicle(vehicleId)       — single-vehicle UI action
+   *   - handleApproveInspection()             — bulk convert all pending (back-compat CTA)
+   *
+   * This replaces the old all-or-nothing flow per Josh's request on 2026-04-10.
+   * Reference: per-vehicle conversion allows a 3-vehicle inspection where the
+   * client approves 1 now and wants the other 2 in 2 weeks.
+   */
+  const convertVehiclesToJobs = async (selectedVehicleIds: string[]): Promise<{ createdJobIds: string[] }> => {
+    if (!inspection) return { createdJobIds: [] };
+    if (user?.role !== "admin") return { createdJobIds: [] };
+
+    // Resolve organisation + contact context (same logic as before — required regardless of which vehicles we're converting)
     const matchedOrgFromInspection =
       organizations.find((org) => org.id === inspection.organizationId) ||
       organizations.find((org) => org.id === inspection.clientId) ||
@@ -1819,11 +1868,10 @@ export default function InspectionDetailPage() {
     if (!resolvedOrganizationId || !resolvedOrganizationName || !resolvedContactEmail) {
       toast({
         title: "Missing details",
-        description:
-          "Set the organisation and contact email before converting to a job.",
+        description: "Set the organisation and contact email before converting to a job.",
         variant: "destructive",
       });
-      return;
+      return { createdJobIds: [] };
     }
     if (!scheduledDate || !scheduledTime) {
       toast({
@@ -1831,8 +1879,450 @@ export default function InspectionDetailPage() {
         description: "Set the works schedule date/time before converting to a job.",
         variant: "destructive",
       });
-      return;
+      return { createdJobIds: [] };
     }
+
+    // Filter down to the vehicles actually requested AND currently pending.
+    // Skip any that are already converted or rejected — silently, so bulk
+    // "convert all" is idempotent and safe to re-click.
+    const vehiclesToConvert = vehicleReports.filter((report) => {
+      if (!selectedVehicleIds.includes(report.vehicleId)) return false;
+      const status = report.conversionStatus || "pending";
+      return status === "pending";
+    });
+
+    if (vehiclesToConvert.length === 0) {
+      toast({
+        title: "Nothing to convert",
+        description: "No pending vehicles in the selection.",
+        variant: "destructive",
+      });
+      return { createdJobIds: [] };
+    }
+
+    const now = Timestamp.now();
+    const changedBy = user?.name || user?.email || user?.uid || "System";
+    const changedById = user?.uid || "system";
+
+    const organizationForNumbering: ContactOrganization =
+      resolvedOrganization ||
+      ({
+        id: resolvedOrganizationId,
+        name: resolvedOrganizationName,
+        category: "trade_client",
+        type: "customer",
+        status: "active",
+        sites: [],
+        createdAt: now,
+        updatedAt: now,
+      } as ContactOrganization);
+
+    const assignedTechnicians = selectedStaff.map((staff, index) => ({
+      technicianId: staff.id,
+      technicianName: staff.name,
+      role: index === 0 ? "primary" : "secondary",
+      assignedAt: now,
+      assignedBy: changedById,
+    }));
+
+    const quoteFile = inspection.quote?.file;
+
+    // ── Create one job per vehicle ──────────────────────────────────────────
+    // We intentionally loop and create jobs sequentially (not Promise.all)
+    // so that job numbering stays deterministic and ordered, and so that a
+    // failure on vehicle 2 of 3 leaves vehicle 1's job committed rather than
+    // orphaning state.
+    const createdJobEntries: Array<{
+      vehicleId: string;
+      jobId: string;
+      jobNumber: string;
+    }> = [];
+
+    for (const vehicleReport of vehiclesToConvert) {
+      // Scope all the builders to just this one vehicle
+      const singleVehicleArray = [vehicleReport];
+      const jobVehiclesFromInspection = buildJobVehiclesFromVehicleReports(singleVehicleArray);
+      const totalsForJob = totalsFromJobVehicles(jobVehiclesFromInspection);
+      const inspectionDamage = buildLegacyDamageItemsFromVehicleReports(singleVehicleArray);
+
+      const jobNumber = await generateJobNumber(organizationForNumbering);
+      const jobRef = doc(collection(db, COLLECTIONS.JOBS));
+
+      const regDisplay = vehicleReport.vehicle.registration || vehicleReport.vehicle.fleetAssetNumber || "vehicle";
+      const job = {
+        id: jobRef.id,
+        jobNumber,
+        clientId: resolvedOrganizationId,
+        clientName: resolvedOrganizationName,
+        clientEmail: resolvedContactEmail,
+        clientPhone: resolvedContactPhone,
+        organizationId: resolvedOrganizationId,
+        vehicles: [vehicleReport.vehicle],
+        jobVehicles: jobVehiclesFromInspection,
+        damage: inspectionDamage,
+        status: "pending",
+        assignedTechnicians,
+        assignedTechnicianIds: assignedTechnicians.map((tech) => tech.technicianId),
+        booking: {
+          preferredDate: Timestamp.fromDate(scheduledDate),
+          preferredTime: scheduledTime,
+          urgency: "medium",
+          specialInstructions: notes || undefined,
+        },
+        statusLog: [
+          {
+            status: "pending",
+            changedAt: now,
+            changedBy: changedById,
+            notes: `Job created from inspection ${inspection.inspectionNumber} (vehicle ${regDisplay})`,
+          },
+        ],
+        scheduledDate: Timestamp.fromDate(scheduledDate),
+        createdAt: now,
+        createdBy: user?.uid || inspection.createdBy,
+        updatedAt: now,
+        notes: `Inspection RFQ: ${inspection.inspectionNumber} — ${regDisplay}`,
+        totalJobCost: totalsForJob.totalCost,
+        totalLabourCost: totalsForJob.totalLabourCost,
+        totalMaterialsCost: totalsForJob.totalMaterialsCost,
+        sourceInspectionId: inspection.id,
+        sourceInspectionNumber: inspection.inspectionNumber,
+        sourceInspectionVehicleId: vehicleReport.vehicleId,
+        sourceInspectionQuote: quoteFile
+          ? {
+              fileName: quoteFile.fileName,
+              storagePath: quoteFile.storagePath,
+              downloadUrl: quoteFile.downloadUrl,
+              contentType: quoteFile.contentType,
+              size: quoteFile.size,
+            }
+          : undefined,
+      };
+
+      await setDoc(jobRef, pruneUndefined(job));
+
+      // Create a works register entry for the new job
+      const entryRef = doc(collection(db, COLLECTIONS.WORKS_REGISTER));
+      const entry = createWorksRegisterEntry({
+        job: job as any,
+        serviceType: "Inspection RFQ",
+        technicianName: selectedStaff[0]?.name || "Unassigned",
+        entryId: entryRef.id,
+      });
+      await setDoc(entryRef, entry);
+
+      // Update the job's status log to "scheduled" immediately (same semantics as the old flow)
+      try {
+        await updateJob(jobRef.id, {
+          scheduledDate: Timestamp.fromDate(scheduledDate),
+        });
+        await updateJobStatus(jobRef.id, "scheduled", changedBy, "Quote approved (client email)");
+      } catch {
+        // Non-fatal — the job exists, just didn't auto-advance. Admin can nudge it.
+      }
+
+      // Booking sync for this vehicle's job
+      try {
+        await upsertBookingForConvertedJob(jobRef.id);
+      } catch (bookingErr) {
+        const message =
+          bookingErr instanceof Error
+            ? bookingErr.message
+            : "Unable to create booking for the converted vehicle.";
+        toast({
+          title: "Booking sync failed",
+          description: `${regDisplay}: ${message}`,
+          variant: "destructive",
+        });
+      }
+
+      createdJobEntries.push({
+        vehicleId: vehicleReport.vehicleId,
+        jobId: jobRef.id,
+        jobNumber,
+      });
+    }
+
+    // ── Update the inspection: per-vehicle state + inspection-level status ──
+    const convertedIdsSet = new Set(createdJobEntries.map((entry) => entry.vehicleId));
+    const jobIdByVehicleId: Record<string, { jobId: string; jobNumber: string }> = {};
+    for (const entry of createdJobEntries) {
+      jobIdByVehicleId[entry.vehicleId] = { jobId: entry.jobId, jobNumber: entry.jobNumber };
+    }
+
+    const updatedVehicleReports: VehicleReport[] = vehicleReports.map((report) => {
+      if (!convertedIdsSet.has(report.vehicleId)) return report;
+      const mapping = jobIdByVehicleId[report.vehicleId];
+      return {
+        ...report,
+        conversionStatus: "converted",
+        convertedJobId: mapping.jobId,
+        convertedJobNumber: mapping.jobNumber,
+        convertedAt: now,
+        convertedBy: changedBy,
+      };
+    });
+
+    // Determine new inspection-level status
+    const stillPending = updatedVehicleReports.some((report) => {
+      const status = report.conversionStatus || "pending";
+      return status === "pending";
+    });
+    const nextInspectionStatus: InspectionStatus = stillPending ? "partially_converted" : "converted";
+
+    // Build the appended conversion trail
+    const previousTrail = inspection.convertedJobIds || [];
+    const newTrailEntries = createdJobEntries.map((entry) => ({
+      vehicleId: entry.vehicleId,
+      jobId: entry.jobId,
+      jobNumber: entry.jobNumber,
+      convertedAt: now,
+      convertedBy: changedBy,
+    }));
+    const mergedTrail = [...previousTrail, ...newTrailEntries];
+
+    // Latest job ID — kept in the legacy convertedToJobId field so older UI
+    // callers that still read it get a sensible pointer. When we've only
+    // converted one vehicle this is just that one job; when we've bulk-converted
+    // everything it's the last vehicle's job which, for single-vehicle inspections,
+    // is the only job anyway.
+    const latestJobId = createdJobEntries[createdJobEntries.length - 1]?.jobId || inspection.convertedToJobId;
+
+    await updateDoc(doc(db, COLLECTIONS.INSPECTIONS, inspection.id), {
+      vehicleReports: updatedVehicleReports,
+      status: nextInspectionStatus,
+      convertedJobIds: mergedTrail,
+      convertedToJobId: latestJobId,
+      approvedAt: nextInspectionStatus === "converted" ? now : inspection.approvedAt || now,
+      clientApprovalStatus: stillPending ? "partial" : "approved",
+      clientApprovalUpdatedAt: now,
+      updatedAt: now,
+    });
+
+    // Local state mirror
+    setVehicleReports(updatedVehicleReports);
+    setInspection((prev) =>
+      prev
+        ? {
+            ...prev,
+            vehicleReports: updatedVehicleReports,
+            status: nextInspectionStatus,
+            convertedJobIds: mergedTrail,
+            convertedToJobId: latestJobId,
+            approvedAt: nextInspectionStatus === "converted" ? now : prev.approvedAt || now,
+            clientApprovalStatus: stillPending ? "partial" : "approved",
+            clientApprovalUpdatedAt: now,
+            updatedAt: now,
+          }
+        : prev
+    );
+
+    return { createdJobIds: createdJobEntries.map((entry) => entry.jobId) };
+  };
+
+  /**
+   * Convert a single vehicle from the inspection into its own job.
+   * Used by the per-vehicle "Convert to job" button on each vehicle card.
+   */
+  const handleConvertVehicle = async (vehicleId: string) => {
+    if (!inspection) return;
+    if (convertingVehicleId) return;
+    setConvertingVehicleId(vehicleId);
+    try {
+      const result = await convertVehiclesToJobs([vehicleId]);
+      if (result.createdJobIds.length > 0) {
+        const target = vehicleReports.find((report) => report.vehicleId === vehicleId);
+        const label = target?.vehicle.registration || target?.vehicle.fleetAssetNumber || "Vehicle";
+        toast({
+          title: "Vehicle converted",
+          description: `${label} is now its own job. The inspection card stays open for any remaining vehicles.`,
+        });
+      }
+    } catch (error) {
+      toast({
+        title: "Unable to convert vehicle",
+        description: getErrorMessage(error, "Please check the required fields and try again."),
+        variant: "destructive",
+      });
+    } finally {
+      setConvertingVehicleId(null);
+    }
+  };
+
+  /**
+   * Mark a single vehicle as rejected (client declined this one). The
+   * inspection card keeps it for the audit trail but it never produces a job.
+   * If rejecting the last pending vehicle closes out the inspection, auto-transition
+   * the inspection-level status to "converted" (the work is done — all vehicles
+   * have reached a terminal state).
+   */
+  const handleRejectVehicle = async (vehicleId: string) => {
+    if (!inspection) return;
+    if (user?.role !== "admin") return;
+    if (convertingVehicleId) return;
+    const reason = window.prompt("Reason for rejecting this vehicle's work (shown on the inspection card):") || "";
+
+    setConvertingVehicleId(vehicleId);
+    try {
+      const now = Timestamp.now();
+      const changedBy = user?.name || user?.email || user?.uid || "System";
+
+      const updatedVehicleReports: VehicleReport[] = vehicleReports.map((report) => {
+        if (report.vehicleId !== vehicleId) return report;
+        return {
+          ...report,
+          conversionStatus: "rejected",
+          conversionNote: reason || undefined,
+          convertedBy: changedBy,
+          convertedAt: now,
+        };
+      });
+
+      const stillPending = updatedVehicleReports.some((report) => {
+        const status = report.conversionStatus || "pending";
+        return status === "pending";
+      });
+      const anyConverted = updatedVehicleReports.some((report) => report.conversionStatus === "converted");
+      // If nothing is pending and at least one converted, inspection is fully resolved
+      // (some converted, some rejected). If nothing pending and nothing converted, mark rejected.
+      const nextInspectionStatus: InspectionStatus = stillPending
+        ? inspection.status === "converted" || inspection.status === "partially_converted"
+          ? "partially_converted"
+          : inspection.status
+        : anyConverted
+          ? "converted"
+          : "rejected";
+
+      await updateDoc(doc(db, COLLECTIONS.INSPECTIONS, inspection.id), {
+        vehicleReports: updatedVehicleReports,
+        status: nextInspectionStatus,
+        clientApprovalUpdatedAt: now,
+        updatedAt: now,
+      });
+      setVehicleReports(updatedVehicleReports);
+      setInspection((prev) =>
+        prev
+          ? {
+              ...prev,
+              vehicleReports: updatedVehicleReports,
+              status: nextInspectionStatus,
+              clientApprovalUpdatedAt: now,
+              updatedAt: now,
+            }
+          : prev
+      );
+
+      const target = vehicleReports.find((report) => report.vehicleId === vehicleId);
+      const label = target?.vehicle.registration || target?.vehicle.fleetAssetNumber || "Vehicle";
+      toast({
+        title: "Vehicle rejected",
+        description: `${label} marked rejected. The card stays on the inspection for audit trail.`,
+      });
+    } catch (error) {
+      toast({
+        title: "Unable to reject vehicle",
+        description: getErrorMessage(error, "Please try again."),
+        variant: "destructive",
+      });
+    } finally {
+      setConvertingVehicleId(null);
+    }
+  };
+
+  /**
+   * Reset a rejected vehicle back to pending so it can be reconsidered.
+   * Useful when a client changes their mind ("actually, do that one too now").
+   */
+  const handleReinstateVehicle = async (vehicleId: string) => {
+    if (!inspection) return;
+    if (user?.role !== "admin") return;
+    if (convertingVehicleId) return;
+
+    setConvertingVehicleId(vehicleId);
+    try {
+      const now = Timestamp.now();
+      const updatedVehicleReports: VehicleReport[] = vehicleReports.map((report) => {
+        if (report.vehicleId !== vehicleId) return report;
+        return {
+          ...report,
+          conversionStatus: "pending",
+          conversionNote: undefined,
+        };
+      });
+
+      const nextInspectionStatus: InspectionStatus =
+        inspection.status === "converted" || inspection.status === "rejected"
+          ? "partially_converted"
+          : inspection.status;
+
+      await updateDoc(doc(db, COLLECTIONS.INSPECTIONS, inspection.id), {
+        vehicleReports: updatedVehicleReports,
+        status: nextInspectionStatus,
+        updatedAt: now,
+      });
+      setVehicleReports(updatedVehicleReports);
+      setInspection((prev) =>
+        prev
+          ? {
+              ...prev,
+              vehicleReports: updatedVehicleReports,
+              status: nextInspectionStatus,
+              updatedAt: now,
+            }
+          : prev
+      );
+      toast({ title: "Vehicle reinstated", description: "Back to pending — you can convert it now or later." });
+    } catch (error) {
+      toast({
+        title: "Unable to reinstate vehicle",
+        description: getErrorMessage(error, "Please try again."),
+        variant: "destructive",
+      });
+    } finally {
+      setConvertingVehicleId(null);
+    }
+  };
+
+  /**
+   * Save/update the free-text conversion note on a single vehicle without
+   * changing its status. Used when an admin wants to jot "wait for fleet
+   * availability" against a pending vehicle.
+   */
+  const handleUpdateVehicleNote = async (vehicleId: string, note: string) => {
+    if (!inspection) return;
+    if (user?.role !== "admin") return;
+
+    const updatedVehicleReports: VehicleReport[] = vehicleReports.map((report) => {
+      if (report.vehicleId !== vehicleId) return report;
+      return { ...report, conversionNote: note.trim() || undefined };
+    });
+
+    try {
+      await updateDoc(doc(db, COLLECTIONS.INSPECTIONS, inspection.id), {
+        vehicleReports: updatedVehicleReports,
+        updatedAt: Timestamp.now(),
+      });
+      setVehicleReports(updatedVehicleReports);
+    } catch (error) {
+      toast({
+        title: "Unable to save note",
+        description: getErrorMessage(error, "Please try again."),
+        variant: "destructive",
+      });
+    }
+  };
+
+  /**
+   * Bulk CTA: convert every pending vehicle on the inspection. For a
+   * single-vehicle inspection this is the same as the old "Convert to job"
+   * button (preserves the one-click flow). For multi-vehicle inspections it
+   * creates one job per pending vehicle in a single pass.
+   */
+  const handleApproveInspection = async () => {
+    if (!inspection) return;
+    if (user?.role !== "admin") return;
+    if (convertingInspection) return;
+
     if (vehicleReports.length === 0) {
       toast({
         title: "Missing vehicle reports",
@@ -1842,198 +2332,29 @@ export default function InspectionDetailPage() {
       return;
     }
 
+    const pendingIds = vehicleReports
+      .filter((report) => (report.conversionStatus || "pending") === "pending")
+      .map((report) => report.vehicleId);
+
+    if (pendingIds.length === 0) {
+      toast({
+        title: "Nothing pending",
+        description: "All vehicles on this inspection have already been converted or rejected.",
+      });
+      return;
+    }
+
     setConvertingInspection(true);
     try {
-      const now = Timestamp.now();
-      const changedBy = user?.name || user?.email || user?.uid || "System";
-      let jobId = inspection.convertedToJobId || "";
-
-      if (!jobId) {
-        const organizationForNumbering: ContactOrganization =
-          resolvedOrganization ||
-          ({
-            id: resolvedOrganizationId,
-            name: resolvedOrganizationName,
-            category: "trade_client",
-            type: "customer",
-            status: "active",
-            sites: [],
-            createdAt: now,
-            updatedAt: now,
-          } as ContactOrganization);
-
-        const jobNumber = await generateJobNumber(organizationForNumbering);
-        const jobRef = doc(collection(db, COLLECTIONS.JOBS));
-        jobId = jobRef.id;
-
-        const assignedTechnicians = selectedStaff.map((staff, index) => ({
-          technicianId: staff.id,
-          technicianName: staff.name,
-          role: index === 0 ? "primary" : "secondary",
-          assignedAt: now,
-          assignedBy: user?.uid || "system",
-        }));
-
-        const jobVehiclesFromInspection = buildJobVehiclesFromVehicleReports(vehicleReports);
-        const totalsForJob = totalsFromJobVehicles(jobVehiclesFromInspection);
-        const inspectionDamage = buildLegacyDamageItemsFromVehicleReports(vehicleReports);
-
-        const quoteFile = inspection.quote?.file;
-        const job = {
-          id: jobRef.id,
-          jobNumber,
-          clientId: resolvedOrganizationId,
-          clientName: resolvedOrganizationName,
-          clientEmail: resolvedContactEmail,
-          clientPhone: resolvedContactPhone,
-          organizationId: resolvedOrganizationId,
-          vehicles: vehicleReports.map((report) => report.vehicle),
-          jobVehicles: jobVehiclesFromInspection,
-          damage: inspectionDamage,
-          status: "pending",
-          assignedTechnicians,
-          assignedTechnicianIds: assignedTechnicians.map((tech) => tech.technicianId),
-          booking: {
-            preferredDate: Timestamp.fromDate(scheduledDate),
-            preferredTime: scheduledTime,
-            urgency: "medium",
-            specialInstructions: notes || undefined,
-          },
-          statusLog: [
-            {
-              status: "pending",
-              changedAt: now,
-              changedBy: user?.uid || "System",
-              notes: `Job created from inspection ${inspection.inspectionNumber}`,
-            },
-          ],
-          scheduledDate: Timestamp.fromDate(scheduledDate),
-          createdAt: now,
-          createdBy: user?.uid || inspection.createdBy,
-          updatedAt: now,
-          notes: `Inspection RFQ: ${inspection.inspectionNumber}`,
-          totalJobCost: totalsForJob.totalCost,
-          totalLabourCost: totalsForJob.totalLabourCost,
-          totalMaterialsCost: totalsForJob.totalMaterialsCost,
-          sourceInspectionId: inspection.id,
-          sourceInspectionNumber: inspection.inspectionNumber,
-          sourceInspectionQuote: quoteFile
-            ? {
-                fileName: quoteFile.fileName,
-                storagePath: quoteFile.storagePath,
-                downloadUrl: quoteFile.downloadUrl,
-                contentType: quoteFile.contentType,
-                size: quoteFile.size,
-              }
-            : undefined,
-        };
-
-        await setDoc(jobRef, pruneUndefined(job));
-
-        const existingEntry =
-          (inspection.worksRegisterId
-            ? worksRegister.find((entry) => entry.id === inspection.worksRegisterId)
-            : null) || worksRegister.find((entry) => entry.jobId === jobRef.id);
-        if (existingEntry) {
-          await updateDoc(doc(db, COLLECTIONS.WORKS_REGISTER, existingEntry.id), {
-            jobId: jobRef.id,
-            jobNumber: job.jobNumber,
-            recordType: "job",
-            organizationId: job.organizationId || job.clientId,
-            clientName: job.clientName,
-            technicianId: selectedStaff[0]?.id || "unassigned",
-            technicianName: selectedStaff[0]?.name || "Unassigned",
-            startDate: job.scheduledDate || now,
-          });
-        } else {
-          const entryRef = doc(collection(db, COLLECTIONS.WORKS_REGISTER));
-          const entry = createWorksRegisterEntry({
-            job: job as any,
-            serviceType: "Inspection RFQ",
-            technicianName: selectedStaff[0]?.name || "Unassigned",
-            entryId: entryRef.id,
-          });
-          await setDoc(entryRef, entry);
-        }
-
-        await updateDoc(doc(db, COLLECTIONS.INSPECTIONS, inspection.id), {
-          convertedToJobId: jobRef.id,
-        });
-      }
-
-      if (!jobId) return;
-
-      await updateDoc(doc(db, COLLECTIONS.INSPECTIONS, inspection.id), {
-        status: "converted",
-        approvedAt: now,
-        clientApprovalStatus: "approved",
-        clientApprovalUpdatedAt: now,
-        updatedAt: now,
-      });
-      setInspection((prev) =>
-        prev
-          ? {
-              ...prev,
-              status: "converted",
-              convertedToJobId: jobId,
-              approvedAt: now,
-              clientApprovalStatus: "approved",
-              clientApprovalUpdatedAt: now,
-              updatedAt: now,
-            }
-          : prev
-      );
-
-      await updateJob(jobId, {
-        scheduledDate: Timestamp.fromDate(scheduledDate),
-      });
-      await updateJobStatus(jobId, "scheduled", changedBy, "Quote approved (client email)");
-
-      const existingEntry =
-        (inspection.worksRegisterId
-          ? worksRegister.find((entry) => entry.id === inspection.worksRegisterId)
-          : null) || worksRegister.find((entry) => entry.jobId === jobId);
-      if (existingEntry) {
-        await updateDoc(doc(db, COLLECTIONS.WORKS_REGISTER, existingEntry.id), {
-          jobId,
-          jobNumber: getJobById(jobId)?.jobNumber || existingEntry.jobNumber,
-          recordType: "job",
-          organizationId:
-            inspection.organizationId || inspection.clientId || existingEntry.organizationId,
-          clientName: inspection.clientName || existingEntry.clientName,
-          technicianId: selectedStaff[0]?.id || "unassigned",
-          technicianName: selectedStaff[0]?.name || "Unassigned",
-          startDate: scheduledDate ? Timestamp.fromDate(scheduledDate) : existingEntry.startDate,
-        });
-      } else {
-        const job = getJobById(jobId) || (await getDoc(doc(db, COLLECTIONS.JOBS, jobId))).data();
-        if (job) {
-          const entryRef = doc(collection(db, COLLECTIONS.WORKS_REGISTER));
-          const entry = createWorksRegisterEntry({
-            job: job as any,
-            serviceType: "Inspection RFQ",
-            technicianName: selectedStaff[0]?.name || "Unassigned",
-            entryId: entryRef.id,
-          });
-          await setDoc(entryRef, entry);
-        }
-      }
-
-      try {
-        await upsertBookingForConvertedJob(jobId);
-      } catch (error) {
-        const message =
-          error instanceof Error ? error.message : "Unable to create booking for the approved RFQ.";
-        toast({
-          title: "Booking sync failed",
-          description: message,
-          variant: "destructive",
-        });
-      }
-
+      const result = await convertVehiclesToJobs(pendingIds);
+      if (result.createdJobIds.length === 0) return;
+      const jobWord = result.createdJobIds.length === 1 ? "Job" : `${result.createdJobIds.length} jobs`;
       toast({
-        title: "Job created",
-        description: "The quote has been approved and the job is now scheduled in the pipeline.",
+        title: `${jobWord} created`,
+        description:
+          result.createdJobIds.length === 1
+            ? "The quote has been approved and the job is now scheduled in the pipeline."
+            : `${result.createdJobIds.length} vehicles converted — one job per vehicle. The inspection is now closed out.`,
       });
     } catch (error) {
       toast({
@@ -2209,20 +2530,34 @@ export default function InspectionDetailPage() {
             <Button onClick={handleCompleteInspection} disabled={completingInspection}>
               {completingInspection ? "Completing..." : "Complete inspection"}
             </Button>
-            {canApprove && (
-              <>
-                <Button
-                  variant="outline"
-                  onClick={handleApproveInspection}
-                  disabled={convertingInspection}
-                >
-                  {convertingInspection ? "Converting..." : "Convert to job & schedule"}
-                </Button>
-                <Button variant="destructive" onClick={handleRejectInspection}>
-                  Mark rejected
-                </Button>
-              </>
-            )}
+            {canApprove && (() => {
+              const pendingCount = vehicleReports.filter(
+                (report) => (report.conversionStatus || "pending") === "pending"
+              ).length;
+              const totalCount = vehicleReports.length;
+              if (pendingCount === 0) return null;
+              const buttonLabel = convertingInspection
+                ? "Converting..."
+                : totalCount === 1
+                  ? "Convert to job & schedule"
+                  : pendingCount === totalCount
+                    ? `Convert all ${pendingCount} vehicles`
+                    : `Convert remaining ${pendingCount} vehicle${pendingCount === 1 ? "" : "s"}`;
+              return (
+                <>
+                  <Button
+                    variant="outline"
+                    onClick={handleApproveInspection}
+                    disabled={convertingInspection || Boolean(convertingVehicleId)}
+                  >
+                    {buttonLabel}
+                  </Button>
+                  <Button variant="destructive" onClick={handleRejectInspection}>
+                    Mark rejected
+                  </Button>
+                </>
+              );
+            })()}
             {inspection.convertedToJobId && user?.role === "admin" && (
               <Button
                 variant="outline"
@@ -2232,11 +2567,24 @@ export default function InspectionDetailPage() {
                 {jobSyncing ? "Syncing..." : "Sync job details"}
               </Button>
             )}
-            {inspection.convertedToJobId && (
-              <Button asChild variant="outline">
-                <Link href={`/dashboard/jobs/${inspection.convertedToJobId}`}>View RFQ job</Link>
-              </Button>
-            )}
+            {inspection.convertedToJobId && (() => {
+              const allTrail = inspection.convertedJobIds || [];
+              if (allTrail.length > 1) {
+                // Multi-vehicle inspection — show the latest and a count
+                return (
+                  <Button asChild variant="outline">
+                    <Link href={`/dashboard/jobs/${inspection.convertedToJobId}`}>
+                      View latest job ({allTrail.length} linked)
+                    </Link>
+                  </Button>
+                );
+              }
+              return (
+                <Button asChild variant="outline">
+                  <Link href={`/dashboard/jobs/${inspection.convertedToJobId}`}>View RFQ job</Link>
+                </Button>
+              );
+            })()}
             {inspection.convertedToJobId && (
               <Dialog open={showRecycleDialog} onOpenChange={setShowRecycleDialog}>
                 <DialogTrigger asChild>
@@ -2275,6 +2623,41 @@ export default function InspectionDetailPage() {
                 : "Draft auto-save is active while you edit."}
           </p>
         )}
+        {/* Per-vehicle conversion summary — shows live counts of each lifecycle state.
+            Appears once the inspection has at least one resolved vehicle OR is in a
+            conversion lifecycle state. Gives the admin an at-a-glance view of which
+            vehicles still need action without having to expand every accordion. */}
+        {(() => {
+          const pending = vehicleReports.filter((r) => (r.conversionStatus || "pending") === "pending").length;
+          const converted = vehicleReports.filter((r) => r.conversionStatus === "converted").length;
+          const rejected = vehicleReports.filter((r) => r.conversionStatus === "rejected").length;
+          if (converted === 0 && rejected === 0 && inspection.status !== "partially_converted") return null;
+          return (
+            <div className="flex items-center gap-2 flex-wrap text-xs">
+              <Badge variant="outline" className={cn("text-[10px]", STATUS_BADGE[inspection.status])}>
+                {STATUS_LABEL[inspection.status]}
+              </Badge>
+              {converted > 0 && (
+                <span className="text-muted-foreground">
+                  <span className="text-green-400 font-semibold">{converted}</span> converted
+                </span>
+              )}
+              {pending > 0 && (
+                <span className="text-muted-foreground">
+                  · <span className="text-amber-400 font-semibold">{pending}</span> pending
+                </span>
+              )}
+              {rejected > 0 && (
+                <span className="text-muted-foreground">
+                  · <span className="text-red-400 font-semibold">{rejected}</span> rejected
+                </span>
+              )}
+              <span className="text-muted-foreground">
+                · {vehicleReports.length} total
+              </span>
+            </div>
+          );
+        })()}
       </div>
 
       {user?.role === "admin" && inspection.status !== "draft" && (
@@ -3027,14 +3410,26 @@ export default function InspectionDetailPage() {
                       { totalCost: 0, totalLabour: 0, totalMaterials: 0, totalDowntimeHours: 0 }
                     );
 
+                    const vehicleConvStatus = vehicle.conversionStatus || "pending";
+                    const isVehicleBusy = convertingVehicleId === vehicle.vehicleId;
+                    const convertedJobLink = vehicle.convertedJobId
+                      ? `/dashboard/jobs/${vehicle.convertedJobId}`
+                      : null;
                     return (
                       <AccordionItem
                         key={vehicle.vehicleId}
                         value={vehicle.vehicleId}
-                        className="border border-border/50 rounded-lg"
+                        className={cn(
+                          "border rounded-lg",
+                          vehicleConvStatus === "converted"
+                            ? "border-green-500/30"
+                            : vehicleConvStatus === "rejected"
+                              ? "border-red-500/30 opacity-80"
+                              : "border-border/50"
+                        )}
                       >
                         <AccordionTrigger className="px-4">
-                          <div className="flex flex-1 items-center gap-3">
+                          <div className="flex flex-1 items-center gap-3 flex-wrap">
                             <Car className="h-4 w-4 text-primary" />
                             <span className="font-mono font-medium">
                               {vehicle.vehicle.registration || "Vehicle"}
@@ -3042,12 +3437,157 @@ export default function InspectionDetailPage() {
                             {vehicle.vehicle.poWorksOrderNumber && (
                               <Badge variant="outline">PO: {vehicle.vehicle.poWorksOrderNumber}</Badge>
                             )}
+                            <Badge
+                              variant="outline"
+                              className={cn("text-[10px] uppercase tracking-wide", VEHICLE_CONV_BADGE[vehicleConvStatus])}
+                            >
+                              {VEHICLE_CONV_LABEL[vehicleConvStatus]}
+                            </Badge>
+                            {vehicle.convertedJobNumber && (
+                              <Badge variant="outline" className="text-[10px] font-mono border-blue-500/40 text-blue-300">
+                                {vehicle.convertedJobNumber}
+                              </Badge>
+                            )}
                           </div>
                           <span className="text-sm text-muted-foreground ml-auto mr-4">
                             {vehicle.damages.length} repair(s) - ${vehicleTotals.totalCost.toFixed(2)}
                           </span>
                         </AccordionTrigger>
                         <AccordionContent className="pt-4 space-y-6">
+                          {/* ── Per-vehicle conversion controls ───────────────
+                              Added 2026-04-10: lets the admin convert, reject,
+                              or note a single vehicle without closing out the
+                              whole inspection. See convertVehiclesToJobs() for
+                              the write path. */}
+                          {user?.role === "admin" && (
+                            <div
+                              className={cn(
+                                "rounded-lg border p-4 space-y-3",
+                                vehicleConvStatus === "converted"
+                                  ? "border-green-500/30 bg-green-500/5"
+                                  : vehicleConvStatus === "rejected"
+                                    ? "border-red-500/30 bg-red-500/5"
+                                    : "border-amber-500/30 bg-amber-500/5"
+                              )}
+                            >
+                              <div className="flex items-start justify-between gap-3 flex-wrap">
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                      Conversion
+                                    </Label>
+                                    <Badge
+                                      variant="outline"
+                                      className={cn("text-[10px]", VEHICLE_CONV_BADGE[vehicleConvStatus])}
+                                    >
+                                      {VEHICLE_CONV_LABEL[vehicleConvStatus]}
+                                    </Badge>
+                                  </div>
+                                  {vehicleConvStatus === "converted" && convertedJobLink && (
+                                    <div className="text-xs text-muted-foreground space-y-1">
+                                      <p>
+                                        Converted by {vehicle.convertedBy || "Admin"}
+                                        {vehicle.convertedAt && (
+                                          <>
+                                            {" on "}
+                                            {(() => {
+                                              try {
+                                                return vehicle.convertedAt.toDate().toLocaleString("en-AU");
+                                              } catch {
+                                                return "";
+                                              }
+                                            })()}
+                                          </>
+                                        )}
+                                      </p>
+                                      <Link
+                                        href={convertedJobLink}
+                                        className="text-primary hover:underline inline-flex items-center gap-1"
+                                      >
+                                        <Briefcase className="h-3 w-3" />
+                                        Open linked job
+                                        {vehicle.convertedJobNumber && (
+                                          <span className="font-mono">({vehicle.convertedJobNumber})</span>
+                                        )}
+                                      </Link>
+                                    </div>
+                                  )}
+                                  {vehicleConvStatus === "rejected" && (
+                                    <div className="text-xs text-muted-foreground">
+                                      {vehicle.conversionNote ? (
+                                        <p>
+                                          Rejected reason: <span className="text-foreground">{vehicle.conversionNote}</span>
+                                        </p>
+                                      ) : (
+                                        <p>This vehicle was rejected by the client.</p>
+                                      )}
+                                    </div>
+                                  )}
+                                  {vehicleConvStatus === "pending" && (
+                                    <p className="text-xs text-muted-foreground">
+                                      Convert this vehicle on its own, or mark rejected if the client declined the work.
+                                      The inspection card stays open until every vehicle is resolved.
+                                    </p>
+                                  )}
+                                </div>
+                                <div className="flex flex-wrap gap-2 shrink-0">
+                                  {vehicleConvStatus === "pending" && (
+                                    <>
+                                      <Button
+                                        size="sm"
+                                        onClick={() => handleConvertVehicle(vehicle.vehicleId)}
+                                        disabled={isVehicleBusy || convertingInspection}
+                                      >
+                                        <Briefcase className="h-3.5 w-3.5 mr-1" />
+                                        {isVehicleBusy ? "Converting…" : "Convert to job"}
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() => handleRejectVehicle(vehicle.vehicleId)}
+                                        disabled={isVehicleBusy || convertingInspection}
+                                      >
+                                        Reject
+                                      </Button>
+                                    </>
+                                  )}
+                                  {vehicleConvStatus === "rejected" && (
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => handleReinstateVehicle(vehicle.vehicleId)}
+                                      disabled={isVehicleBusy || convertingInspection}
+                                    >
+                                      Reinstate as pending
+                                    </Button>
+                                  )}
+                                </div>
+                              </div>
+                              {vehicleConvStatus === "pending" && (
+                                <div>
+                                  <Label
+                                    htmlFor={`conv-note-${vehicle.vehicleId}`}
+                                    className="text-xs text-muted-foreground"
+                                  >
+                                    Note (optional — e.g. &quot;client wants this one in 2 weeks, fleet on charter&quot;)
+                                  </Label>
+                                  <Textarea
+                                    id={`conv-note-${vehicle.vehicleId}`}
+                                    className="mt-1 text-sm"
+                                    rows={2}
+                                    defaultValue={vehicle.conversionNote || ""}
+                                    onBlur={(e) => {
+                                      const next = e.target.value;
+                                      if ((vehicle.conversionNote || "") !== next) {
+                                        handleUpdateVehicleNote(vehicle.vehicleId, next);
+                                      }
+                                    }}
+                                  />
+                                </div>
+                              )}
+                            </div>
+                          )}
+
                           <div className="grid gap-4 md:grid-cols-5 p-4 bg-muted/30 rounded-lg">
                             <div>
                               <Label className="text-xs text-muted-foreground">Registration</Label>

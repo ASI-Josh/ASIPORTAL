@@ -456,7 +456,29 @@ export interface JobCompletionAudit {
 // INSPECTION SYSTEM
 // ============================================
 
-export type InspectionStatus = "draft" | "submitted" | "approved" | "converted" | "rejected";
+export type InspectionStatus =
+  | "draft"
+  | "submitted"
+  | "approved"
+  | "partially_converted"  // One or more vehicles converted, others still pending
+  | "converted"
+  | "rejected";
+
+/**
+ * Per-vehicle conversion lifecycle on an inspection report.
+ *
+ * "pending"   — default. Vehicle is on the inspection, client hasn't signed off yet,
+ *               or has signed off but conversion hasn't happened. Carries an optional
+ *               note (e.g. "client wants to do this one in 2 weeks when the bus
+ *               returns from charter") so the reason lives on the record.
+ * "converted" — vehicle has been converted into its own standalone Job. The
+ *               `convertedJobId` field on the same VehicleReport holds the target.
+ *               Inspection card persists — this vehicle just no longer produces
+ *               new jobs.
+ * "rejected"  — client declined this vehicle's work. Stays on the inspection
+ *               card for audit trail but never converts.
+ */
+export type VehicleConversionStatus = "pending" | "converted" | "rejected";
 
 export type InspectionRepairType = "bodywork" | "paint" | "glass" | "trim" | "mechanical" | "other";
 
@@ -486,6 +508,18 @@ export interface VehicleReport {
   damages: DamageReportItem[];
   overallCondition: "excellent" | "good" | "fair" | "poor";
   additionalNotes?: string;
+  // ── Per-vehicle conversion tracking ────────────────────────────────────────
+  // Added 2026-04-10 so inspections can convert vehicle-by-vehicle instead of
+  // all-or-nothing. Each vehicle carries its own lifecycle so a 3-vehicle
+  // inspection can ship 1 job now, 1 in two weeks, 1 a month later, without
+  // losing the inspection card. Legacy inspections (no conversionStatus set)
+  // behave as "pending" for the whole vehicle.
+  conversionStatus?: VehicleConversionStatus;
+  convertedJobId?: string;
+  convertedJobNumber?: string;
+  convertedAt?: Timestamp;
+  convertedBy?: string;
+  conversionNote?: string;    // Free-text reason shown alongside the status (e.g. "owner on leave until 24 Apr, convert then")
 }
 
 export interface InspectionQuoteFile {
@@ -547,7 +581,25 @@ export interface Inspection {
   clientApprovalStatus?: "pending" | "approved" | "rejected" | "partial";
   clientApprovalUpdatedAt?: Timestamp;
   quote?: InspectionQuote;
+  /**
+   * Legacy: single job ID from the old all-or-nothing conversion flow.
+   * Kept for back-compat on existing inspections. New conversions (per-vehicle)
+   * append to `convertedJobIds[]` instead. When the last remaining pending
+   * vehicle converts on a multi-vehicle inspection, we also set this to the
+   * most recent job ID so any legacy UI still finds something to point at.
+   */
   convertedToJobId?: string;
+  /**
+   * Full audit trail of every job created from this inspection, one entry per
+   * vehicle converted. Populated by the per-vehicle conversion flow.
+   */
+  convertedJobIds?: Array<{
+    vehicleId: string;
+    jobId: string;
+    jobNumber: string;
+    convertedAt: Timestamp;
+    convertedBy: string;
+  }>;
   worksRegisterId?: string;
   createdAt: Timestamp;
   createdBy: string;

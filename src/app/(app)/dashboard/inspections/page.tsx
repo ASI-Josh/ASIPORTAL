@@ -58,6 +58,7 @@ const STATUS_LABELS: Record<InspectionStatus, string> = {
   draft: "Draft",
   submitted: "Submitted",
   approved: "Approved",
+  partially_converted: "Partially Converted",
   converted: "Converted",
   rejected: "Rejected",
 };
@@ -66,6 +67,7 @@ const STATUS_BADGE: Record<InspectionStatus, string> = {
   draft: "bg-muted text-muted-foreground",
   submitted: "bg-amber-500/20 text-amber-400 border-amber-500/30",
   approved: "bg-green-500/20 text-green-400 border-green-500/30",
+  partially_converted: "bg-indigo-500/20 text-indigo-300 border-indigo-500/30",
   converted: "bg-blue-500/20 text-blue-400 border-blue-500/30",
   rejected: "bg-red-500/20 text-red-400 border-red-500/30",
 };
@@ -84,6 +86,7 @@ const DISPLAY_STATUS_LABELS: Record<InspectionDisplayStatus, string> = {
   draft: "Draft",
   submitted: "Completed (internal)",
   approved: "Approved",
+  partially_converted: "Partially Converted",
   converted: "Converted",
   rejected: "Rejected",
 };
@@ -92,6 +95,7 @@ const DISPLAY_STATUS_BADGE: Record<InspectionDisplayStatus, string> = {
   draft: STATUS_BADGE.draft,
   submitted: STATUS_BADGE.submitted,
   approved: STATUS_BADGE.approved,
+  partially_converted: STATUS_BADGE.partially_converted,
   converted: STATUS_BADGE.converted,
   rejected: STATUS_BADGE.rejected,
 };
@@ -100,6 +104,7 @@ const INSPECTION_STATUS_ORDER: InspectionDisplayStatus[] = [
   "draft",
   "submitted",
   "approved",
+  "partially_converted",
   "converted",
   "rejected",
 ];
