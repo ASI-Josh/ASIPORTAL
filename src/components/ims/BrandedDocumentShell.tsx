@@ -20,7 +20,6 @@ import remarkGfm from "remark-gfm";
 import {
   type NormalisedDoc,
   statusDisplay,
-  watermarkFor,
 } from "@/lib/ims/documentService";
 
 interface Props {
@@ -64,17 +63,22 @@ function resolveStandard(doc: NormalisedDoc): string {
   return TYPE_LABELS[doc.type] || doc.type;
 }
 
+const CONTROL_BANNER: Record<string, { text: string; color: string }> = {
+  draft: { text: "DRAFT — NOT FOR ISSUE", color: "#B88600" },
+  under_review: { text: "UNDER REVIEW", color: "#B88600" },
+  approved: { text: "APPROVED", color: "#1B5E20" },
+  active: { text: "CONTROLLED ISSUE", color: "#CC0000" },
+  obsolete: { text: "OBSOLETE — DO NOT USE", color: "#CC0000" },
+};
+
 export function BrandedDocumentShell({ doc, format }: Props) {
   const formatClass = `asi-${format}`;
   const status = statusDisplay(doc.approvalStatus);
-  const watermark = watermarkFor(doc.approvalStatus);
+  const banner = CONTROL_BANNER[doc.approvalStatus];
 
   return (
     <article className={`asi-doc-shell ${formatClass}`} aria-label={`${doc.docId} — ${doc.title}`}>
-      {/* Watermark layer */}
-      {watermark && (
-        <div className={`asi-doc-watermark ${watermark.className}`}>{watermark.text}</div>
-      )}
+      {/* No full-page watermark — control status is shown in the footer banner below. */}
 
       {/* Header: logo + identity bar */}
       <header className="asi-doc-header">
@@ -167,6 +171,11 @@ export function BrandedDocumentShell({ doc, format }: Props) {
       {/* Footer — shown on A4 and A5, hidden on A3 framed display */}
       {format !== "a3" && (
         <footer className="asi-doc-footer">
+          {banner && (
+            <p className="asi-doc-control-banner" style={{ color: banner.color }}>
+              {banner.text}
+            </p>
+          )}
           <p>
             This is a controlled document. The current version is maintained at
             asiportal.live. Printed copies are uncontrolled unless stamped

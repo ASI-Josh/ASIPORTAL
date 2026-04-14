@@ -575,17 +575,3 @@ export function statusDisplay(state: ApprovalState): { label: string; className:
   }
 }
 
-export function watermarkFor(state: ApprovalState): { text: string; className: string } | null {
-  switch (state) {
-    case "draft":
-      return { text: "DRAFT", className: "text-[var(--asi-yellow-dark)] opacity-10" };
-    case "under_review":
-      return { text: "UNDER REVIEW", className: "text-[var(--asi-yellow-dark)] opacity-10" };
-    case "active":
-      return { text: "CONTROLLED COPY", className: "text-[var(--asi-red-alert)] opacity-[0.05]" };
-    case "obsolete":
-      return { text: "OBSOLETE", className: "text-[var(--asi-red-alert)] opacity-15" };
-    default:
-      return null;
-  }
-}

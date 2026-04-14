@@ -437,27 +437,13 @@ body {
   opacity: 0.8;
 }
 
-/* Watermark */
-.asi-doc-watermark {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%) rotate(-30deg);
+.asi-doc-control-banner {
+  text-align: center;
   font-family: var(--asi-font-heading);
-  font-weight: 900;
-  font-size: 140pt;
-  letter-spacing: 0.1em;
-  pointer-events: none;
-  user-select: none;
-  white-space: nowrap;
-  z-index: 0;
-}
-
-.asi-a5 .asi-doc-watermark { font-size: 70pt; }
-
-.asi-doc-shell > *:not(.asi-doc-watermark) {
-  position: relative;
-  z-index: 1;
+  font-weight: 700;
+  font-size: 10pt;
+  letter-spacing: 0.15em;
+  margin: 0 0 2mm 0;
 }
 
 /* ── Print stylesheets ──────────────────────────────────────────────────── */
