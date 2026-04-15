@@ -24,8 +24,12 @@ import {
   xeroListContacts, xeroListInvoices, xeroGetConnectionStatus,
   xeroAttachFileToInvoice, xeroSetInvoiceRecipients, xeroCreateBill,
   xeroUpdateInvoice, xeroVoidInvoice, xeroCreateCreditNote, xeroRecordPayment,
-  xeroListAccounts, xeroCreateBankTransaction, xeroListBankTransactions,
+  xeroListAccounts, xeroCreateAccount, xeroUpdateAccount, xeroArchiveAccount,
+  xeroCreateBankTransaction, xeroListBankTransactions,
   xeroCreateBankTransfer, xeroCreateBatchPayment, xeroGetReport,
+  xeroCreateManualJournal, xeroCreateQuote, xeroListQuotes, xeroUpdateQuote,
+  xeroListTrackingCategories, xeroCreateTrackingCategory, xeroAddTrackingOption,
+  xeroCreateContact, xeroUpdateContact,
   xeroCreatePurchaseOrder, xeroSendPurchaseOrder, xeroGetPurchaseOrder,
   xeroListItems, xeroGetItem,
 } from "@/lib/xero";
@@ -1555,6 +1559,240 @@ const TOOLS: McpTool[] = [
         paymentsOnly: { type: "boolean", description: "If true, cash-basis report (for BAS/GST on cash basis)." },
       },
       required: ["reportType"],
+    },
+  },
+  {
+    name: "xero_create_account",
+    description: "Create a new account in the Xero chart of accounts. Use for adding new expense/revenue categories, tracking buckets, or bank accounts.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        code: { type: "string", description: "Account code (e.g. '320')." },
+        name: { type: "string", description: "Account name." },
+        type: { type: "string", description: "Account type: REVENUE, EXPENSE, CURRLIAB, BANK, CURRENT, FIXED, INVENTORY, DIRECTCOSTS, etc." },
+        description: { type: "string" },
+        taxType: { type: "string", description: "Default tax type (e.g. 'OUTPUT', 'INPUT', 'NONE')." },
+        enablePaymentsToAccount: { type: "boolean" },
+        showInExpenseClaims: { type: "boolean" },
+      },
+      required: ["code", "name", "type"],
+    },
+  },
+  {
+    name: "xero_update_account",
+    description: "Update an account in the Xero chart of accounts. Change code, name, description, tax type, or status.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        accountId: { type: "string", description: "Xero AccountID (UUID)." },
+        code: { type: "string" },
+        name: { type: "string" },
+        description: { type: "string" },
+        taxType: { type: "string" },
+        status: { type: "string", enum: ["ACTIVE", "ARCHIVED"] },
+      },
+      required: ["accountId"],
+    },
+  },
+  {
+    name: "xero_archive_account",
+    description: "Archive a Xero chart of accounts entry. Shortcut for xero_update_account with status=ARCHIVED.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        accountId: { type: "string", description: "Xero AccountID to archive." },
+      },
+      required: ["accountId"],
+    },
+  },
+  {
+    name: "xero_create_manual_journal",
+    description:
+      "Create a manual journal entry for period-end adjustments, accruals, depreciation, or corrections. Use positive lineAmount for debits and negative for credits — they MUST sum to zero. Default status is DRAFT (review before posting).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        narration: { type: "string", description: "Short description of the journal (e.g. 'March 2026 depreciation')." },
+        date: { type: "string", description: "Journal date (ISO)." },
+        status: { type: "string", enum: ["DRAFT", "POSTED"], description: "DRAFT (default, editable) or POSTED (locked)." },
+        lineAmountTypes: { type: "string", enum: ["Exclusive", "Inclusive", "NoTax"], description: "Default 'NoTax' for most journals." },
+        journalLines: {
+          type: "array",
+          description: "Journal lines. Positive = debit, negative = credit. Must balance to zero.",
+          items: {
+            type: "object",
+            properties: {
+              description: { type: "string" },
+              accountCode: { type: "string", description: "Xero account code this line posts to." },
+              lineAmount: { type: "number", description: "Positive for debit, negative for credit." },
+              taxType: { type: "string" },
+              trackingCategoryName: { type: "string", description: "Optional tracking category name." },
+              trackingOptionName: { type: "string", description: "Optional tracking option name (required if trackingCategoryName set)." },
+            },
+            required: ["accountCode", "lineAmount"],
+          },
+        },
+      },
+      required: ["narration", "date", "journalLines"],
+    },
+  },
+  {
+    name: "xero_create_quote",
+    description:
+      "Create a quote in Xero. Use for sales proposals that haven't been confirmed yet. Quotes can be converted to invoices once accepted. Default status DRAFT — set to SENT/ACCEPTED once the client responds.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        contactName: { type: "string", description: "Client name (will be created in Xero if not found)." },
+        contactEmail: { type: "string", description: "Client email (optional)." },
+        date: { type: "string", description: "Quote date (ISO)." },
+        expiryDate: { type: "string", description: "Quote expiry date (ISO)." },
+        reference: { type: "string" },
+        title: { type: "string", description: "Quote title (shown on the quote)." },
+        summary: { type: "string", description: "Quote summary/intro text." },
+        terms: { type: "string", description: "Terms and conditions text." },
+        lineItems: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              description: { type: "string" },
+              quantity: { type: "number" },
+              unitAmount: { type: "number" },
+              accountCode: { type: "string", description: "Default '200'." },
+              taxType: { type: "string", description: "Default 'OUTPUT'." },
+              itemCode: { type: "string" },
+            },
+            required: ["description", "quantity", "unitAmount"],
+          },
+        },
+        status: { type: "string", enum: ["DRAFT", "SENT", "ACCEPTED", "DECLINED"] },
+      },
+      required: ["contactName", "date", "lineItems"],
+    },
+  },
+  {
+    name: "xero_list_quotes",
+    description: "Search and list Xero quotes with filters.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        status: { type: "string", description: "Filter by status (DRAFT, SENT, ACCEPTED, DECLINED, INVOICED)." },
+        contactName: { type: "string" },
+        dateFrom: { type: "string", description: "ISO date." },
+        dateTo: { type: "string", description: "ISO date." },
+        expiryDateFrom: { type: "string", description: "ISO date — quotes expiring on/after." },
+        expiryDateTo: { type: "string", description: "ISO date — quotes expiring on/before." },
+        quoteNumber: { type: "string" },
+      },
+    },
+  },
+  {
+    name: "xero_update_quote",
+    description: "Update a Xero quote — most commonly to change status (DRAFT → SENT → ACCEPTED), update reference, or extend expiry.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        quoteId: { type: "string", description: "Xero QuoteID (UUID)." },
+        status: { type: "string", enum: ["DRAFT", "SENT", "ACCEPTED", "DECLINED", "INVOICED"] },
+        reference: { type: "string" },
+        expiryDate: { type: "string", description: "New expiry date (ISO)." },
+      },
+      required: ["quoteId"],
+    },
+  },
+  {
+    name: "xero_list_tracking_categories",
+    description: "List all tracking categories and their options in Xero. Use to find tracking IDs for reporting segmentation (e.g. sector-level P&L).",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "xero_create_tracking_category",
+    description: "Create a new tracking category in Xero for cost-centre or departmental reporting (e.g. 'Sector', 'Region'). Optionally seed with initial options.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Category name (e.g. 'Sector')." },
+        options: {
+          type: "array",
+          items: { type: "string" },
+          description: "Optional initial option names (e.g. ['Mass-Transit', 'Manufacturing', 'Retail']).",
+        },
+      },
+      required: ["name"],
+    },
+  },
+  {
+    name: "xero_add_tracking_option",
+    description: "Add a new option to an existing tracking category.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        trackingCategoryId: { type: "string", description: "Xero TrackingCategoryID." },
+        optionName: { type: "string", description: "New option name to add." },
+      },
+      required: ["trackingCategoryId", "optionName"],
+    },
+  },
+  {
+    name: "xero_create_contact",
+    description: "Create a new contact (customer or supplier) in Xero with full details including ABN, address, phone, and payment terms.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Contact name." },
+        email: { type: "string" },
+        firstName: { type: "string" },
+        lastName: { type: "string" },
+        phone: { type: "string" },
+        abn: { type: "string", description: "ABN / tax number." },
+        address: {
+          type: "object",
+          properties: {
+            line1: { type: "string" },
+            city: { type: "string" },
+            region: { type: "string" },
+            postalCode: { type: "string" },
+            country: { type: "string" },
+          },
+        },
+        defaultPaymentTerms: {
+          type: "object",
+          properties: {
+            days: { type: "number" },
+            type: { type: "string", enum: ["DAYSAFTERBILLDATE", "DAYSAFTERBILLMONTH", "OFCURRENTMONTH", "OFFOLLOWINGMONTH"] },
+          },
+          required: ["days", "type"],
+        },
+      },
+      required: ["name"],
+    },
+  },
+  {
+    name: "xero_update_contact",
+    description:
+      "Update an existing Xero contact: change name, email, address, phone, ABN, status (archive/activate), or payment terms. Use for keeping contact records in sync with the portal.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        contactId: { type: "string", description: "Xero ContactID (UUID)." },
+        name: { type: "string" },
+        email: { type: "string" },
+        firstName: { type: "string" },
+        lastName: { type: "string" },
+        phone: { type: "string" },
+        abn: { type: "string" },
+        status: { type: "string", enum: ["ACTIVE", "ARCHIVED"] },
+        defaultPaymentTerms: {
+          type: "object",
+          properties: {
+            days: { type: "number" },
+            type: { type: "string", enum: ["DAYSAFTERBILLDATE", "DAYSAFTERBILLMONTH", "OFCURRENTMONTH", "OFFOLLOWINGMONTH"] },
+          },
+          required: ["days", "type"],
+        },
+      },
+      required: ["contactId"],
     },
   },
   // ─── Portal Stock & Procurement tools ───────────────────────────────────────
@@ -4750,6 +4988,148 @@ async function handleXeroGetReport(args: Record<string, unknown>) {
   });
 }
 
+async function handleXeroCreateAccount(args: Record<string, unknown>) {
+  return xeroCreateAccount({
+    code: String(args.code),
+    name: String(args.name),
+    type: String(args.type),
+    description: typeof args.description === "string" ? args.description : undefined,
+    taxType: typeof args.taxType === "string" ? args.taxType : undefined,
+    enablePaymentsToAccount: typeof args.enablePaymentsToAccount === "boolean" ? args.enablePaymentsToAccount : undefined,
+    showInExpenseClaims: typeof args.showInExpenseClaims === "boolean" ? args.showInExpenseClaims : undefined,
+  });
+}
+
+async function handleXeroUpdateAccount(args: Record<string, unknown>) {
+  const status = args.status as string | undefined;
+  return xeroUpdateAccount({
+    accountId: String(args.accountId),
+    code: typeof args.code === "string" ? args.code : undefined,
+    name: typeof args.name === "string" ? args.name : undefined,
+    description: typeof args.description === "string" ? args.description : undefined,
+    taxType: typeof args.taxType === "string" ? args.taxType : undefined,
+    status: status === "ACTIVE" || status === "ARCHIVED" ? status : undefined,
+  });
+}
+
+async function handleXeroArchiveAccount(args: Record<string, unknown>) {
+  return xeroArchiveAccount(String(args.accountId));
+}
+
+async function handleXeroCreateManualJournal(args: Record<string, unknown>) {
+  const status = args.status as string | undefined;
+  const lineAmountTypes = args.lineAmountTypes as string | undefined;
+  return xeroCreateManualJournal({
+    narration: String(args.narration),
+    date: String(args.date),
+    status: status === "POSTED" ? "POSTED" : "DRAFT",
+    lineAmountTypes: (lineAmountTypes === "Exclusive" || lineAmountTypes === "Inclusive" || lineAmountTypes === "NoTax") ? lineAmountTypes : undefined,
+    journalLines: (args.journalLines as Array<{
+      description?: string; accountCode: string; lineAmount: number;
+      taxType?: string; trackingCategoryName?: string; trackingOptionName?: string;
+    }>) || [],
+  });
+}
+
+async function handleXeroCreateQuote(args: Record<string, unknown>) {
+  const status = args.status as string | undefined;
+  return xeroCreateQuote({
+    contactName: String(args.contactName),
+    contactEmail: typeof args.contactEmail === "string" ? args.contactEmail : undefined,
+    date: String(args.date),
+    expiryDate: typeof args.expiryDate === "string" ? args.expiryDate : undefined,
+    reference: typeof args.reference === "string" ? args.reference : undefined,
+    title: typeof args.title === "string" ? args.title : undefined,
+    summary: typeof args.summary === "string" ? args.summary : undefined,
+    terms: typeof args.terms === "string" ? args.terms : undefined,
+    lineItems: (args.lineItems as Array<{
+      description: string; quantity: number; unitAmount: number;
+      accountCode?: string; taxType?: string; itemCode?: string;
+    }>) || [],
+    status: (status === "DRAFT" || status === "SENT" || status === "ACCEPTED" || status === "DECLINED") ? status : undefined,
+  });
+}
+
+async function handleXeroListQuotes(args: Record<string, unknown>) {
+  return xeroListQuotes({
+    status: typeof args.status === "string" ? args.status : undefined,
+    contactName: typeof args.contactName === "string" ? args.contactName : undefined,
+    dateFrom: typeof args.dateFrom === "string" ? args.dateFrom : undefined,
+    dateTo: typeof args.dateTo === "string" ? args.dateTo : undefined,
+    expiryDateFrom: typeof args.expiryDateFrom === "string" ? args.expiryDateFrom : undefined,
+    expiryDateTo: typeof args.expiryDateTo === "string" ? args.expiryDateTo : undefined,
+    quoteNumber: typeof args.quoteNumber === "string" ? args.quoteNumber : undefined,
+  });
+}
+
+async function handleXeroUpdateQuote(args: Record<string, unknown>) {
+  const status = args.status as string | undefined;
+  return xeroUpdateQuote({
+    quoteId: String(args.quoteId),
+    status: (status === "DRAFT" || status === "SENT" || status === "ACCEPTED" || status === "DECLINED" || status === "INVOICED") ? status : undefined,
+    reference: typeof args.reference === "string" ? args.reference : undefined,
+    expiryDate: typeof args.expiryDate === "string" ? args.expiryDate : undefined,
+  });
+}
+
+async function handleXeroListTrackingCategories() {
+  return xeroListTrackingCategories();
+}
+
+async function handleXeroCreateTrackingCategory(args: Record<string, unknown>) {
+  return xeroCreateTrackingCategory({
+    name: String(args.name),
+    options: Array.isArray(args.options) ? args.options as string[] : undefined,
+  });
+}
+
+async function handleXeroAddTrackingOption(args: Record<string, unknown>) {
+  return xeroAddTrackingOption(String(args.trackingCategoryId), String(args.optionName));
+}
+
+async function handleXeroCreateContact(args: Record<string, unknown>) {
+  const address = args.address as Record<string, unknown> | undefined;
+  const terms = args.defaultPaymentTerms as Record<string, unknown> | undefined;
+  return xeroCreateContact({
+    name: String(args.name),
+    email: typeof args.email === "string" ? args.email : undefined,
+    firstName: typeof args.firstName === "string" ? args.firstName : undefined,
+    lastName: typeof args.lastName === "string" ? args.lastName : undefined,
+    phone: typeof args.phone === "string" ? args.phone : undefined,
+    abn: typeof args.abn === "string" ? args.abn : undefined,
+    address: address ? {
+      line1: typeof address.line1 === "string" ? address.line1 : undefined,
+      city: typeof address.city === "string" ? address.city : undefined,
+      region: typeof address.region === "string" ? address.region : undefined,
+      postalCode: typeof address.postalCode === "string" ? address.postalCode : undefined,
+      country: typeof address.country === "string" ? address.country : undefined,
+    } : undefined,
+    defaultPaymentTerms: terms && typeof terms.days === "number" && typeof terms.type === "string" ? {
+      days: terms.days,
+      type: terms.type as "DAYSAFTERBILLDATE" | "DAYSAFTERBILLMONTH" | "OFCURRENTMONTH" | "OFFOLLOWINGMONTH",
+    } : undefined,
+  });
+}
+
+async function handleXeroUpdateContact(args: Record<string, unknown>) {
+  const status = args.status as string | undefined;
+  const terms = args.defaultPaymentTerms as Record<string, unknown> | undefined;
+  return xeroUpdateContact({
+    contactId: String(args.contactId),
+    name: typeof args.name === "string" ? args.name : undefined,
+    email: typeof args.email === "string" ? args.email : undefined,
+    firstName: typeof args.firstName === "string" ? args.firstName : undefined,
+    lastName: typeof args.lastName === "string" ? args.lastName : undefined,
+    phone: typeof args.phone === "string" ? args.phone : undefined,
+    abn: typeof args.abn === "string" ? args.abn : undefined,
+    status: status === "ACTIVE" || status === "ARCHIVED" ? status : undefined,
+    defaultPaymentTerms: terms && typeof terms.days === "number" && typeof terms.type === "string" ? {
+      days: terms.days,
+      type: terms.type as "DAYSAFTERBILLDATE" | "DAYSAFTERBILLMONTH" | "OFCURRENTMONTH" | "OFFOLLOWINGMONTH",
+    } : undefined,
+  });
+}
+
 // ─── Portal Stock & Procurement handlers ──────────────────────────────────────
 
 async function handleGetStockItems(args: Record<string, unknown>) {
@@ -5911,6 +6291,18 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
     case "xero_create_bank_transfer":  return handleXeroCreateBankTransfer(args);
     case "xero_create_batch_payment":  return handleXeroCreateBatchPayment(args);
     case "xero_get_report":            return handleXeroGetReport(args);
+    case "xero_create_account":        return handleXeroCreateAccount(args);
+    case "xero_update_account":        return handleXeroUpdateAccount(args);
+    case "xero_archive_account":       return handleXeroArchiveAccount(args);
+    case "xero_create_manual_journal": return handleXeroCreateManualJournal(args);
+    case "xero_create_quote":          return handleXeroCreateQuote(args);
+    case "xero_list_quotes":           return handleXeroListQuotes(args);
+    case "xero_update_quote":          return handleXeroUpdateQuote(args);
+    case "xero_list_tracking_categories": return handleXeroListTrackingCategories();
+    case "xero_create_tracking_category": return handleXeroCreateTrackingCategory(args);
+    case "xero_add_tracking_option":   return handleXeroAddTrackingOption(args);
+    case "xero_create_contact":        return handleXeroCreateContact(args);
+    case "xero_update_contact":        return handleXeroUpdateContact(args);
     // Portal Stock & Procurement
     case "get_stock_items":            return handleGetStockItems(args);
     case "update_stock_item":          return handleUpdateStockItem(args);

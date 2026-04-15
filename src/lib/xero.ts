@@ -893,6 +893,397 @@ export async function xeroListAccounts(options?: {
   return xeroApi("GET", path);
 }
 
+export async function xeroCreateAccount(account: {
+  code: string;
+  name: string;
+  type: string;              // e.g. "EXPENSE", "REVENUE", "CURRLIAB", "BANK"
+  description?: string;
+  taxType?: string;
+  enablePaymentsToAccount?: boolean;
+  showInExpenseClaims?: boolean;
+}): Promise<{ accountId: string; code: string; name: string; status: string }> {
+  const payload = {
+    Code: account.code,
+    Name: account.name,
+    Type: account.type,
+    ...(account.description ? { Description: account.description } : {}),
+    ...(account.taxType ? { TaxType: account.taxType } : {}),
+    ...(account.enablePaymentsToAccount !== undefined ? { EnablePaymentsToAccount: account.enablePaymentsToAccount } : {}),
+    ...(account.showInExpenseClaims !== undefined ? { ShowInExpenseClaims: account.showInExpenseClaims } : {}),
+  };
+  const result = await xeroApi("PUT", "/Accounts", payload) as {
+    Accounts: Array<{ AccountID: string; Code: string; Name: string; Status: string }>;
+  };
+  const created = result.Accounts[0];
+  return {
+    accountId: created.AccountID,
+    code: created.Code,
+    name: created.Name,
+    status: created.Status,
+  };
+}
+
+export async function xeroUpdateAccount(update: {
+  accountId: string;
+  code?: string;
+  name?: string;
+  description?: string;
+  taxType?: string;
+  status?: "ACTIVE" | "ARCHIVED";
+}): Promise<{ accountId: string; status: string }> {
+  const payload: Record<string, unknown> = {};
+  if (update.code !== undefined) payload.Code = update.code;
+  if (update.name !== undefined) payload.Name = update.name;
+  if (update.description !== undefined) payload.Description = update.description;
+  if (update.taxType !== undefined) payload.TaxType = update.taxType;
+  if (update.status !== undefined) payload.Status = update.status;
+
+  const result = await xeroApi("POST", `/Accounts/${update.accountId}`, payload) as {
+    Accounts: Array<{ AccountID: string; Status: string }>;
+  };
+  return {
+    accountId: result.Accounts[0].AccountID,
+    status: result.Accounts[0].Status,
+  };
+}
+
+export async function xeroArchiveAccount(accountId: string): Promise<{ accountId: string; status: string }> {
+  return xeroUpdateAccount({ accountId, status: "ARCHIVED" });
+}
+
+// ─── Manual Journals ─────────────────────────────────────────────────────────
+
+/**
+ * Create a manual journal entry. Use for period-end adjustments, accruals,
+ * depreciation, corrections, and anything that doesn't flow through
+ * invoicing/billing. Debits and credits MUST balance.
+ */
+export async function xeroCreateManualJournal(journal: {
+  narration: string;
+  date: string;              // ISO
+  status?: "DRAFT" | "POSTED";
+  lineAmountTypes?: "Exclusive" | "Inclusive" | "NoTax";
+  journalLines: Array<{
+    description?: string;
+    accountCode: string;
+    lineAmount: number;      // Positive = debit, negative = credit
+    taxType?: string;
+    trackingCategoryName?: string;
+    trackingOptionName?: string;
+  }>;
+}): Promise<{ manualJournalId: string; status: string }> {
+  // Sanity check: debits and credits should balance (sum to zero)
+  const total = journal.journalLines.reduce((sum, l) => sum + l.lineAmount, 0);
+  if (Math.abs(total) > 0.01) {
+    throw new Error(`Journal lines do not balance — total = ${total.toFixed(2)}. Debits (positive) must equal credits (negative).`);
+  }
+
+  const payload = {
+    ManualJournals: [{
+      Narration: journal.narration,
+      Date: journal.date,
+      Status: journal.status || "DRAFT",
+      LineAmountTypes: journal.lineAmountTypes || "NoTax",
+      JournalLines: journal.journalLines.map((l) => ({
+        ...(l.description ? { Description: l.description } : {}),
+        AccountCode: l.accountCode,
+        LineAmount: l.lineAmount,
+        ...(l.taxType ? { TaxType: l.taxType } : {}),
+        ...(l.trackingCategoryName && l.trackingOptionName ? {
+          Tracking: [{ Name: l.trackingCategoryName, Option: l.trackingOptionName }],
+        } : {}),
+      })),
+    }],
+  };
+
+  const result = await xeroApi("PUT", "/ManualJournals", payload) as {
+    ManualJournals: Array<{ ManualJournalID: string; Status: string }>;
+  };
+  return {
+    manualJournalId: result.ManualJournals[0].ManualJournalID,
+    status: result.ManualJournals[0].Status,
+  };
+}
+
+// ─── Quotes ──────────────────────────────────────────────────────────────────
+
+export async function xeroCreateQuote(quote: {
+  contactName: string;
+  contactEmail?: string;
+  date: string;
+  expiryDate?: string;
+  reference?: string;
+  title?: string;
+  summary?: string;
+  terms?: string;
+  lineItems: Array<{
+    description: string;
+    quantity: number;
+    unitAmount: number;
+    accountCode?: string;
+    taxType?: string;
+    itemCode?: string;
+  }>;
+  status?: "DRAFT" | "SENT" | "ACCEPTED" | "DECLINED";
+}): Promise<{ quoteId: string; quoteNumber: string; status: string; total: number }> {
+  // Find or create contact
+  const contactResult = await xeroApi("GET",
+    `/Contacts?where=Name=="${encodeURIComponent(quote.contactName)}"`
+  ) as { Contacts?: Array<{ ContactID: string }> };
+
+  let contactId: string;
+  if (contactResult.Contacts && contactResult.Contacts.length > 0) {
+    contactId = contactResult.Contacts[0].ContactID;
+  } else {
+    const newContact = await xeroApi("POST", "/Contacts", {
+      Contacts: [{
+        Name: quote.contactName,
+        ...(quote.contactEmail ? { EmailAddress: quote.contactEmail } : {}),
+      }],
+    }) as { Contacts: Array<{ ContactID: string }> };
+    contactId = newContact.Contacts[0].ContactID;
+  }
+
+  const payload = {
+    Quotes: [{
+      Contact: { ContactID: contactId },
+      Date: quote.date,
+      ...(quote.expiryDate ? { ExpiryDate: quote.expiryDate } : {}),
+      ...(quote.reference ? { Reference: quote.reference } : {}),
+      ...(quote.title ? { Title: quote.title } : {}),
+      ...(quote.summary ? { Summary: quote.summary } : {}),
+      ...(quote.terms ? { Terms: quote.terms } : {}),
+      Status: quote.status || "DRAFT",
+      LineAmountTypes: "Exclusive",
+      LineItems: quote.lineItems.map((li) => ({
+        Description: li.description,
+        Quantity: li.quantity,
+        UnitAmount: li.unitAmount,
+        AccountCode: li.accountCode || "200",
+        TaxType: li.taxType || "OUTPUT",
+        ...(li.itemCode ? { ItemCode: li.itemCode } : {}),
+      })),
+    }],
+  };
+
+  const result = await xeroApi("POST", "/Quotes", payload) as {
+    Quotes: Array<{
+      QuoteID: string;
+      QuoteNumber: string;
+      Status: string;
+      Total: number;
+    }>;
+  };
+
+  const created = result.Quotes[0];
+  return {
+    quoteId: created.QuoteID,
+    quoteNumber: created.QuoteNumber,
+    status: created.Status,
+    total: created.Total,
+  };
+}
+
+export async function xeroListQuotes(options?: {
+  status?: string;
+  contactName?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  expiryDateFrom?: string;
+  expiryDateTo?: string;
+  quoteNumber?: string;
+}): Promise<unknown> {
+  const params = new URLSearchParams();
+  if (options?.status) params.set("Status", options.status);
+  if (options?.contactName) params.set("ContactID", ""); // Xero Quotes API filters differ; contact filter is limited — leave to caller to filter
+  if (options?.dateFrom) params.set("DateFrom", options.dateFrom);
+  if (options?.dateTo) params.set("DateTo", options.dateTo);
+  if (options?.expiryDateFrom) params.set("ExpiryDateFrom", options.expiryDateFrom);
+  if (options?.expiryDateTo) params.set("ExpiryDateTo", options.expiryDateTo);
+  if (options?.quoteNumber) params.set("QuoteNumber", options.quoteNumber);
+
+  // Remove empty ContactID if we set it
+  if (options?.contactName && !params.get("ContactID")) params.delete("ContactID");
+
+  const qs = params.toString();
+  const path = `/Quotes${qs ? `?${qs}` : ""}`;
+  return xeroApi("GET", path);
+}
+
+export async function xeroUpdateQuote(update: {
+  quoteId: string;
+  status?: "DRAFT" | "SENT" | "ACCEPTED" | "DECLINED" | "INVOICED";
+  reference?: string;
+  expiryDate?: string;
+}): Promise<{ quoteId: string; status: string }> {
+  const payload: Record<string, unknown> = { QuoteID: update.quoteId };
+  if (update.status !== undefined) payload.Status = update.status;
+  if (update.reference !== undefined) payload.Reference = update.reference;
+  if (update.expiryDate !== undefined) payload.ExpiryDate = update.expiryDate;
+
+  const result = await xeroApi("POST", "/Quotes", {
+    Quotes: [payload],
+  }) as { Quotes: Array<{ QuoteID: string; Status: string }> };
+  return {
+    quoteId: result.Quotes[0].QuoteID,
+    status: result.Quotes[0].Status,
+  };
+}
+
+// ─── Tracking Categories ─────────────────────────────────────────────────────
+
+export async function xeroListTrackingCategories(): Promise<unknown> {
+  return xeroApi("GET", "/TrackingCategories");
+}
+
+export async function xeroCreateTrackingCategory(category: {
+  name: string;
+  options?: string[];  // Optional initial options to create
+}): Promise<{ trackingCategoryId: string; name: string; status: string }> {
+  const result = await xeroApi("PUT", "/TrackingCategories", {
+    Name: category.name,
+  }) as {
+    TrackingCategories: Array<{ TrackingCategoryID: string; Name: string; Status: string }>;
+  };
+
+  const created = result.TrackingCategories[0];
+
+  // Add options if provided
+  if (category.options && category.options.length > 0) {
+    for (const optName of category.options) {
+      await xeroApi("PUT", `/TrackingCategories/${created.TrackingCategoryID}/Options`, {
+        Options: [{ Name: optName }],
+      });
+    }
+  }
+
+  return {
+    trackingCategoryId: created.TrackingCategoryID,
+    name: created.Name,
+    status: created.Status,
+  };
+}
+
+export async function xeroAddTrackingOption(
+  trackingCategoryId: string,
+  optionName: string
+): Promise<{ trackingOptionId: string; name: string }> {
+  const result = await xeroApi("PUT", `/TrackingCategories/${trackingCategoryId}/Options`, {
+    Options: [{ Name: optionName }],
+  }) as {
+    Options: Array<{ TrackingOptionID: string; Name: string }>;
+  };
+  return {
+    trackingOptionId: result.Options[0].TrackingOptionID,
+    name: result.Options[0].Name,
+  };
+}
+
+// ─── Contact Create / Update ─────────────────────────────────────────────────
+
+export async function xeroCreateContact(contact: {
+  name: string;
+  email?: string;
+  firstName?: string;
+  lastName?: string;
+  phone?: string;
+  abn?: string;        // Tax number (stored as TaxNumber in Xero)
+  address?: {
+    line1?: string;
+    city?: string;
+    region?: string;
+    postalCode?: string;
+    country?: string;
+  };
+  defaultPaymentTerms?: {
+    days: number;
+    type: "DAYSAFTERBILLDATE" | "DAYSAFTERBILLMONTH" | "OFCURRENTMONTH" | "OFFOLLOWINGMONTH";
+  };
+}): Promise<{ contactId: string; name: string; status: string }> {
+  const payload: Record<string, unknown> = { Name: contact.name };
+  if (contact.email) payload.EmailAddress = contact.email;
+  if (contact.firstName) payload.FirstName = contact.firstName;
+  if (contact.lastName) payload.LastName = contact.lastName;
+  if (contact.abn) payload.TaxNumber = contact.abn;
+  if (contact.phone) {
+    payload.Phones = [{ PhoneType: "DEFAULT", PhoneNumber: contact.phone }];
+  }
+  if (contact.address) {
+    payload.Addresses = [{
+      AddressType: "POBOX",
+      ...(contact.address.line1 ? { AddressLine1: contact.address.line1 } : {}),
+      ...(contact.address.city ? { City: contact.address.city } : {}),
+      ...(contact.address.region ? { Region: contact.address.region } : {}),
+      ...(contact.address.postalCode ? { PostalCode: contact.address.postalCode } : {}),
+      ...(contact.address.country ? { Country: contact.address.country } : {}),
+    }];
+  }
+  if (contact.defaultPaymentTerms) {
+    payload.PaymentTerms = {
+      Bills: {
+        Day: contact.defaultPaymentTerms.days,
+        Type: contact.defaultPaymentTerms.type,
+      },
+    };
+  }
+
+  const result = await xeroApi("POST", "/Contacts", {
+    Contacts: [payload],
+  }) as { Contacts: Array<{ ContactID: string; Name: string; ContactStatus: string }> };
+
+  const created = result.Contacts[0];
+  return {
+    contactId: created.ContactID,
+    name: created.Name,
+    status: created.ContactStatus,
+  };
+}
+
+export async function xeroUpdateContact(update: {
+  contactId: string;
+  name?: string;
+  email?: string;
+  firstName?: string;
+  lastName?: string;
+  phone?: string;
+  abn?: string;
+  status?: "ACTIVE" | "ARCHIVED";
+  defaultPaymentTerms?: {
+    days: number;
+    type: "DAYSAFTERBILLDATE" | "DAYSAFTERBILLMONTH" | "OFCURRENTMONTH" | "OFFOLLOWINGMONTH";
+  };
+}): Promise<{ contactId: string; name: string; status: string }> {
+  const payload: Record<string, unknown> = { ContactID: update.contactId };
+  if (update.name !== undefined) payload.Name = update.name;
+  if (update.email !== undefined) payload.EmailAddress = update.email;
+  if (update.firstName !== undefined) payload.FirstName = update.firstName;
+  if (update.lastName !== undefined) payload.LastName = update.lastName;
+  if (update.abn !== undefined) payload.TaxNumber = update.abn;
+  if (update.status !== undefined) payload.ContactStatus = update.status;
+  if (update.phone !== undefined) {
+    payload.Phones = [{ PhoneType: "DEFAULT", PhoneNumber: update.phone }];
+  }
+  if (update.defaultPaymentTerms) {
+    payload.PaymentTerms = {
+      Bills: {
+        Day: update.defaultPaymentTerms.days,
+        Type: update.defaultPaymentTerms.type,
+      },
+    };
+  }
+
+  const result = await xeroApi("POST", "/Contacts", {
+    Contacts: [payload],
+  }) as { Contacts: Array<{ ContactID: string; Name: string; ContactStatus: string }> };
+
+  const updated = result.Contacts[0];
+  return {
+    contactId: updated.ContactID,
+    name: updated.Name,
+    status: updated.ContactStatus,
+  };
+}
+
 // ─── Bank Transactions, Transfers & Batch Payments ──────────────────────────
 
 /**
