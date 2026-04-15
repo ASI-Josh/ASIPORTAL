@@ -23,6 +23,7 @@ import {
   xeroCreateInvoice, xeroSendInvoice, xeroGetInvoice,
   xeroListContacts, xeroListInvoices, xeroGetConnectionStatus,
   xeroAttachFileToInvoice, xeroSetInvoiceRecipients, xeroCreateBill,
+  xeroUpdateInvoice, xeroVoidInvoice, xeroCreateCreditNote, xeroRecordPayment,
   xeroCreatePurchaseOrder, xeroSendPurchaseOrder, xeroGetPurchaseOrder,
   xeroListItems, xeroGetItem,
 } from "@/lib/xero";
@@ -1302,6 +1303,114 @@ const TOOLS: McpTool[] = [
         paidAccount: { type: "string", description: "Payment account name in Xero (e.g. 'Mastercard', 'ANZ Business Account'). Required if paidDate is set." },
       },
       required: ["contactName", "reference", "date", "dueDate", "lineItems"],
+    },
+  },
+  {
+    name: "xero_list_invoices",
+    description:
+      "Search and list Xero invoices with filters. Use to find invoices by contact, status, date range, reference, or invoice number. Supports both AR (sales invoices) and AP (bills) via the 'type' filter. Replaces the need to search Gmail for invoice numbers.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        status: { type: "string", description: "Filter by status: DRAFT, SUBMITTED, AUTHORISED, PAID, VOIDED, DELETED." },
+        type: { type: "string", enum: ["ACCREC", "ACCPAY"], description: "ACCREC = sales invoice (AR), ACCPAY = supplier bill (AP)." },
+        contactName: { type: "string", description: "Partial contact name match (e.g. 'McKenzie')." },
+        reference: { type: "string", description: "Partial match on the Reference field (e.g. job number 'MCK-26')." },
+        invoiceNumber: { type: "string", description: "Exact invoice number match (e.g. 'INV-0253')." },
+        dateFrom: { type: "string", description: "ISO date — invoices on/after this date." },
+        dateTo: { type: "string", description: "ISO date — invoices on/before this date." },
+        limit: { type: "number", description: "Max results (default 50, max 100)." },
+      },
+    },
+  },
+  {
+    name: "xero_update_invoice",
+    description:
+      "Update an existing Xero invoice: amend line items, change reference/due date, or update status. Cannot modify PAID invoices — use a credit note instead. To void a DRAFT/SUBMITTED invoice, set status to 'VOIDED' or use xero_void_invoice.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        invoiceId: { type: "string", description: "Xero InvoiceID (UUID)." },
+        reference: { type: "string", description: "New reference value (optional)." },
+        dueDate: { type: "string", description: "New due date ISO (optional)." },
+        status: { type: "string", enum: ["DRAFT", "SUBMITTED", "AUTHORISED", "VOIDED", "DELETED"], description: "New status (optional)." },
+        lineItems: {
+          type: "array",
+          description: "Replacement line items. Include lineItemId on existing lines to update them; omit to add new lines. Omitting this field entirely leaves line items unchanged.",
+          items: {
+            type: "object",
+            properties: {
+              lineItemId: { type: "string", description: "Existing LineItemID to update (optional)." },
+              description: { type: "string" },
+              quantity: { type: "number" },
+              unitAmount: { type: "number" },
+              accountCode: { type: "string" },
+              taxType: { type: "string" },
+            },
+            required: ["description", "quantity", "unitAmount"],
+          },
+        },
+      },
+      required: ["invoiceId"],
+    },
+  },
+  {
+    name: "xero_void_invoice",
+    description:
+      "Void a Xero invoice. Only works on DRAFT or SUBMITTED invoices, or AUTHORISED invoices with no payments. For invoices with payments or PAID status, create a credit note via xero_create_credit_note instead.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        invoiceId: { type: "string", description: "Xero InvoiceID (UUID) to void." },
+      },
+      required: ["invoiceId"],
+    },
+  },
+  {
+    name: "xero_create_credit_note",
+    description:
+      "Create a credit note in Xero. Use type 'ACCRECCREDIT' for customer refunds/adjustments on sales invoices, or 'ACCPAYCREDIT' for supplier credits on bills. Optionally allocate the full amount to an existing invoice in one call by setting allocateToInvoiceId (requires status 'AUTHORISED').",
+    inputSchema: {
+      type: "object",
+      properties: {
+        type: { type: "string", enum: ["ACCRECCREDIT", "ACCPAYCREDIT"], description: "ACCRECCREDIT = customer credit (refund), ACCPAYCREDIT = supplier credit." },
+        contactName: { type: "string", description: "Customer or supplier name." },
+        reference: { type: "string", description: "Optional reference (e.g. 'Goodwill adjustment INV-0253')." },
+        date: { type: "string", description: "Credit note date (ISO)." },
+        lineItems: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              description: { type: "string" },
+              quantity: { type: "number" },
+              unitAmount: { type: "number", description: "Amount ex-GST." },
+              accountCode: { type: "string", description: "Default '200' for AR, '310' for AP." },
+              taxType: { type: "string", description: "Default 'OUTPUT' for AR, 'INPUT' for AP." },
+            },
+            required: ["description", "quantity", "unitAmount"],
+          },
+        },
+        status: { type: "string", enum: ["DRAFT", "AUTHORISED"], description: "Default 'DRAFT'. Must be 'AUTHORISED' to allocate to an invoice." },
+        allocateToInvoiceId: { type: "string", description: "If set, allocates the full credit note amount to this invoice. Requires status 'AUTHORISED'." },
+      },
+      required: ["type", "contactName", "date", "lineItems"],
+    },
+  },
+  {
+    name: "xero_record_payment",
+    description:
+      "Record a payment against an existing Xero invoice or bill. Marks it as PAID (or partially paid) and creates a payment record against the specified bank/payment account. Use for reconciling payments received or supplier payments made.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        invoiceId: { type: "string", description: "Xero InvoiceID (UUID) of the invoice or bill being paid." },
+        accountName: { type: "string", description: "Payment account name in Xero (e.g. 'Mastercard', 'ANZ Business Account')." },
+        date: { type: "string", description: "Payment date (ISO)." },
+        amount: { type: "number", description: "Payment amount (inc GST)." },
+        reference: { type: "string", description: "Optional payment reference." },
+      },
+      required: ["invoiceId", "accountName", "date", "amount"],
     },
   },
   // ─── Portal Stock & Procurement tools ───────────────────────────────────────
@@ -4346,6 +4455,70 @@ async function handleXeroCreateBill(args: Record<string, unknown>) {
   });
 }
 
+async function handleXeroListInvoices(args: Record<string, unknown>) {
+  return xeroListInvoices({
+    status: typeof args.status === "string" ? args.status : undefined,
+    type: args.type === "ACCREC" || args.type === "ACCPAY" ? args.type : undefined,
+    contactName: typeof args.contactName === "string" ? args.contactName : undefined,
+    reference: typeof args.reference === "string" ? args.reference : undefined,
+    invoiceNumber: typeof args.invoiceNumber === "string" ? args.invoiceNumber : undefined,
+    dateFrom: typeof args.dateFrom === "string" ? args.dateFrom : undefined,
+    dateTo: typeof args.dateTo === "string" ? args.dateTo : undefined,
+    limit: typeof args.limit === "number" ? args.limit : undefined,
+  });
+}
+
+async function handleXeroUpdateInvoice(args: Record<string, unknown>) {
+  const status = args.status as string | undefined;
+  return xeroUpdateInvoice({
+    invoiceId: String(args.invoiceId),
+    reference: typeof args.reference === "string" ? args.reference : undefined,
+    dueDate: typeof args.dueDate === "string" ? args.dueDate : undefined,
+    status: (status === "DRAFT" || status === "SUBMITTED" || status === "AUTHORISED" || status === "DELETED" || status === "VOIDED") ? status : undefined,
+    lineItems: Array.isArray(args.lineItems) ? args.lineItems as Array<{
+      lineItemId?: string;
+      description: string;
+      quantity: number;
+      unitAmount: number;
+      accountCode?: string;
+      taxType?: string;
+    }> : undefined,
+  });
+}
+
+async function handleXeroVoidInvoice(args: Record<string, unknown>) {
+  return xeroVoidInvoice(String(args.invoiceId));
+}
+
+async function handleXeroCreateCreditNote(args: Record<string, unknown>) {
+  const type = args.type as string;
+  if (type !== "ACCRECCREDIT" && type !== "ACCPAYCREDIT") {
+    throw new Error("type must be 'ACCRECCREDIT' or 'ACCPAYCREDIT'.");
+  }
+  return xeroCreateCreditNote({
+    type,
+    contactName: String(args.contactName),
+    reference: typeof args.reference === "string" ? args.reference : undefined,
+    date: String(args.date),
+    lineItems: (args.lineItems as Array<{
+      description: string; quantity: number; unitAmount: number;
+      accountCode?: string; taxType?: string;
+    }>) || [],
+    status: args.status === "AUTHORISED" ? "AUTHORISED" : "DRAFT",
+    allocateToInvoiceId: typeof args.allocateToInvoiceId === "string" ? args.allocateToInvoiceId : undefined,
+  });
+}
+
+async function handleXeroRecordPayment(args: Record<string, unknown>) {
+  return xeroRecordPayment({
+    invoiceId: String(args.invoiceId),
+    accountName: String(args.accountName),
+    date: String(args.date),
+    amount: Number(args.amount),
+    reference: typeof args.reference === "string" ? args.reference : undefined,
+  });
+}
+
 // ─── Portal Stock & Procurement handlers ──────────────────────────────────────
 
 async function handleGetStockItems(args: Record<string, unknown>) {
@@ -5496,6 +5669,11 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
     case "xero_list_items":            return handleXeroListItems(args);
     case "xero_get_item":              return handleXeroGetItem(args);
     case "xero_create_bill":           return handleXeroCreateBill(args);
+    case "xero_list_invoices":         return handleXeroListInvoices(args);
+    case "xero_update_invoice":        return handleXeroUpdateInvoice(args);
+    case "xero_void_invoice":          return handleXeroVoidInvoice(args);
+    case "xero_create_credit_note":    return handleXeroCreateCreditNote(args);
+    case "xero_record_payment":        return handleXeroRecordPayment(args);
     // Portal Stock & Procurement
     case "get_stock_items":            return handleGetStockItems(args);
     case "update_stock_item":          return handleUpdateStockItem(args);

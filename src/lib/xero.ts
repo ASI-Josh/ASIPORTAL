@@ -391,17 +391,231 @@ export async function xeroGetInvoice(invoiceId: string): Promise<unknown> {
 }
 
 export async function xeroListInvoices(options?: {
-  status?: string;
-  contactName?: string;
+  status?: string;           // e.g. "DRAFT", "AUTHORISED", "PAID", "VOIDED"
+  contactName?: string;      // Partial name match
+  type?: "ACCREC" | "ACCPAY"; // Sales (AR) or Bills (AP)
+  reference?: string;        // Match on Reference field (e.g. job number or supplier invoice #)
+  invoiceNumber?: string;    // Exact invoice number match (e.g. "INV-0253")
+  dateFrom?: string;         // ISO date — invoices on/after this date
+  dateTo?: string;           // ISO date — invoices on/before this date
   limit?: number;
 }): Promise<unknown> {
   let path = "/Invoices?page=1";
   const wheres: string[] = [];
   if (options?.status) wheres.push(`Status=="${options.status}"`);
+  if (options?.type) wheres.push(`Type=="${options.type}"`);
   if (options?.contactName) wheres.push(`Contact.Name.Contains("${options.contactName}")`);
-  if (wheres.length > 0) path += `&where=${wheres.join("&&")}`;
+  if (options?.reference) wheres.push(`Reference.Contains("${options.reference}")`);
+  if (options?.invoiceNumber) wheres.push(`InvoiceNumber=="${options.invoiceNumber}"`);
+  if (options?.dateFrom) wheres.push(`Date>=DateTime(${options.dateFrom.replace(/-/g, ",")})`);
+  if (options?.dateTo) wheres.push(`Date<=DateTime(${options.dateTo.replace(/-/g, ",")})`);
+  if (wheres.length > 0) path += `&where=${encodeURIComponent(wheres.join("&&"))}`;
   if (options?.limit) path += `&pageSize=${Math.min(options.limit, 100)}`;
   return xeroApi("GET", path);
+}
+
+/**
+ * Update an existing invoice. Supports editing line items, reference,
+ * due date, status (e.g. to void), and contact. The invoice must not be PAID.
+ *
+ * To void an invoice entirely, use xeroVoidInvoice instead.
+ */
+export async function xeroUpdateInvoice(update: {
+  invoiceId: string;
+  reference?: string;
+  dueDate?: string;
+  status?: "DRAFT" | "SUBMITTED" | "AUTHORISED" | "DELETED" | "VOIDED";
+  lineItems?: Array<{
+    lineItemId?: string;    // Include to update existing line; omit to add new
+    description: string;
+    quantity: number;
+    unitAmount: number;
+    accountCode?: string;
+    taxType?: string;
+  }>;
+}): Promise<{ invoiceId: string; invoiceNumber: string; status: string; total: number }> {
+  const payload: Record<string, unknown> = {
+    InvoiceID: update.invoiceId,
+  };
+  if (update.reference !== undefined) payload.Reference = update.reference;
+  if (update.dueDate !== undefined) payload.DueDate = update.dueDate;
+  if (update.status !== undefined) payload.Status = update.status;
+  if (update.lineItems !== undefined) {
+    payload.LineItems = update.lineItems.map((li) => ({
+      ...(li.lineItemId ? { LineItemID: li.lineItemId } : {}),
+      Description: li.description,
+      Quantity: li.quantity,
+      UnitAmount: li.unitAmount,
+      AccountCode: li.accountCode || "200",
+      TaxType: li.taxType || "OUTPUT",
+    }));
+  }
+
+  const result = await xeroApi("POST", "/Invoices", {
+    Invoices: [payload],
+  }) as {
+    Invoices: Array<{ InvoiceID: string; InvoiceNumber: string; Status: string; Total: number }>;
+  };
+
+  const updated = result.Invoices[0];
+  return {
+    invoiceId: updated.InvoiceID,
+    invoiceNumber: updated.InvoiceNumber,
+    status: updated.Status,
+    total: updated.Total,
+  };
+}
+
+/**
+ * Void an invoice. Only works on DRAFT or SUBMITTED invoices that haven't
+ * been paid. Paid/authorised invoices with payments need a credit note instead.
+ */
+export async function xeroVoidInvoice(invoiceId: string): Promise<{ voided: boolean; status: string }> {
+  const result = await xeroApi("POST", "/Invoices", {
+    Invoices: [{
+      InvoiceID: invoiceId,
+      Status: "VOIDED",
+    }],
+  }) as { Invoices: Array<{ Status: string }> };
+  return { voided: true, status: result.Invoices[0].Status };
+}
+
+/**
+ * Create a credit note (AR refund/adjustment or AP supplier credit).
+ * Optionally allocate it to an existing invoice/bill in one call.
+ */
+export async function xeroCreateCreditNote(creditNote: {
+  type: "ACCRECCREDIT" | "ACCPAYCREDIT"; // Sales credit (customer refund) or Bill credit (supplier credit)
+  contactName: string;
+  reference?: string;
+  date: string;           // ISO date
+  lineItems: Array<{
+    description: string;
+    quantity: number;
+    unitAmount: number;
+    accountCode?: string;
+    taxType?: string;
+  }>;
+  status?: "DRAFT" | "AUTHORISED";
+  allocateToInvoiceId?: string; // If set, allocate the full credit note amount to this invoice
+}): Promise<{
+  creditNoteId: string;
+  creditNoteNumber: string;
+  status: string;
+  total: number;
+  allocated?: boolean;
+}> {
+  // Find or create contact
+  const contactResult = await xeroApi("GET",
+    `/Contacts?where=Name=="${encodeURIComponent(creditNote.contactName)}"`
+  ) as { Contacts?: Array<{ ContactID: string }> };
+
+  let contactId: string;
+  if (contactResult.Contacts && contactResult.Contacts.length > 0) {
+    contactId = contactResult.Contacts[0].ContactID;
+  } else {
+    const newContact = await xeroApi("POST", "/Contacts", {
+      Contacts: [{ Name: creditNote.contactName }],
+    }) as { Contacts: Array<{ ContactID: string }> };
+    contactId = newContact.Contacts[0].ContactID;
+  }
+
+  // Default account/tax codes based on credit type
+  const isAR = creditNote.type === "ACCRECCREDIT";
+  const defaultAccount = isAR ? "200" : "310";
+  const defaultTax = isAR ? "OUTPUT" : "INPUT";
+
+  const payload = {
+    CreditNotes: [{
+      Type: creditNote.type,
+      Contact: { ContactID: contactId },
+      Date: creditNote.date,
+      ...(creditNote.reference ? { Reference: creditNote.reference } : {}),
+      LineAmountTypes: "Exclusive",
+      Status: creditNote.status || "DRAFT",
+      LineItems: creditNote.lineItems.map((li) => ({
+        Description: li.description,
+        Quantity: li.quantity,
+        UnitAmount: li.unitAmount,
+        AccountCode: li.accountCode || defaultAccount,
+        TaxType: li.taxType || defaultTax,
+      })),
+    }],
+  };
+
+  const result = await xeroApi("PUT", "/CreditNotes", payload) as {
+    CreditNotes: Array<{
+      CreditNoteID: string;
+      CreditNoteNumber: string;
+      Status: string;
+      Total: number;
+    }>;
+  };
+
+  const created = result.CreditNotes[0];
+  let allocated = false;
+
+  // Optionally allocate to an invoice
+  if (creditNote.allocateToInvoiceId && created.Status === "AUTHORISED") {
+    await xeroApi("PUT", `/CreditNotes/${created.CreditNoteID}/Allocations`, {
+      Allocations: [{
+        Invoice: { InvoiceID: creditNote.allocateToInvoiceId },
+        Amount: created.Total,
+        Date: creditNote.date,
+      }],
+    });
+    allocated = true;
+  }
+
+  return {
+    creditNoteId: created.CreditNoteID,
+    creditNoteNumber: created.CreditNoteNumber,
+    status: created.Status,
+    total: created.Total,
+    allocated,
+  };
+}
+
+/**
+ * Record a payment against an existing invoice or bill. Marks the document
+ * as PAID (or partially paid) and creates a payment record against a bank
+ * account.
+ */
+export async function xeroRecordPayment(payment: {
+  invoiceId: string;      // InvoiceID of the invoice or bill being paid
+  accountName: string;    // Bank/payment account name (e.g. "Mastercard", "ANZ Business")
+  date: string;           // Payment date (ISO)
+  amount: number;         // Payment amount (inc GST)
+  reference?: string;     // Payment reference
+}): Promise<{ paymentId: string; status: string; amount: number }> {
+  // Look up the account by name
+  const accountsResult = await xeroApi("GET",
+    `/Accounts?where=Name=="${encodeURIComponent(payment.accountName)}"`
+  ) as { Accounts?: Array<{ AccountID: string }> };
+
+  const accountId = accountsResult.Accounts?.[0]?.AccountID;
+  if (!accountId) {
+    throw new Error(`Payment account '${payment.accountName}' not found in Xero.`);
+  }
+
+  const result = await xeroApi("PUT", "/Payments", {
+    Payments: [{
+      Invoice: { InvoiceID: payment.invoiceId },
+      Account: { AccountID: accountId },
+      Date: payment.date,
+      Amount: payment.amount,
+      ...(payment.reference ? { Reference: payment.reference } : {}),
+    }],
+  }) as {
+    Payments: Array<{ PaymentID: string; Status: string; Amount: number }>;
+  };
+
+  const created = result.Payments[0];
+  return {
+    paymentId: created.PaymentID,
+    status: created.Status,
+    amount: created.Amount,
+  };
 }
 
 export async function xeroAttachFileToInvoice(
