@@ -85,6 +85,8 @@ function buildAgentHeadline(agent: AgentDef): string {
 // MERIDIAN is NOT in any division — she sits in the Shared Resources
 // strip below the main grid and feeds intel to SENTINEL + VANGUARD.
 
+type SuperDivisionId = "asi_services" | "apeax_distribution";
+
 type Division = {
   id: string;
   name: string;
@@ -92,12 +94,26 @@ type Division = {
   color: string;        // header text colour
   borderColor: string;  // column border
   bgColor: string;      // column background tint
+  superDivision: SuperDivisionId; // top-level grouping (Services vs APEAX)
   agents: string[];     // primary agent IDs in this division (in display order)
   subDivisions?: {
     parentAgentId: string;  // the agent this sub-division reports through
     name: string;
     agents: string[];
   }[];
+};
+
+const SUPER_DIVISIONS: Record<SuperDivisionId, { label: string; subtitle: string; color: string }> = {
+  asi_services: {
+    label: "ASI Services / Operations",
+    subtitle: "Core business operations across finance, growth, compliance, digital and people",
+    color: "text-sky-300",
+  },
+  apeax_distribution: {
+    label: "APEAX Films Distribution",
+    subtitle: "Exclusive Australian distribution channel for APEAX USA film products",
+    color: "text-violet-300",
+  },
 };
 
 const DIVISIONS: Division[] = [
@@ -108,6 +124,7 @@ const DIVISIONS: Division[] = [
     color: "text-amber-400",
     borderColor: "border-amber-500/30",
     bgColor: "bg-amber-500/5",
+    superDivision: "asi_services",
     agents: ["ledger"],
     subDivisions: [
       {
@@ -124,16 +141,15 @@ const DIVISIONS: Division[] = [
     color: "text-emerald-400",
     borderColor: "border-emerald-500/30",
     bgColor: "bg-emerald-500/5",
+    superDivision: "asi_services",
     agents: ["vanguard", "sentinel"],
-  },
-  {
-    id: "distribution",
-    name: "Distribution",
-    subtitle: "APEAX trade channel",
-    color: "text-violet-400",
-    borderColor: "border-violet-500/30",
-    bgColor: "bg-violet-500/5",
-    agents: ["shield"],
+    subDivisions: [
+      {
+        parentAgentId: "sentinel",
+        name: "Passenger Vehicle & Trade Sales",
+        agents: ["mercer"],
+      },
+    ],
   },
   {
     id: "legal_compliance",
@@ -142,6 +158,7 @@ const DIVISIONS: Division[] = [
     color: "text-orange-400",
     borderColor: "border-orange-500/30",
     bgColor: "bg-orange-500/5",
+    superDivision: "asi_services",
     agents: ["guardian", "blackstone"],
   },
   {
@@ -151,6 +168,7 @@ const DIVISIONS: Division[] = [
     color: "text-cyan-400",
     borderColor: "border-cyan-500/30",
     bgColor: "bg-cyan-500/5",
+    superDivision: "asi_services",
     agents: ["cipher"],
   },
   {
@@ -160,7 +178,18 @@ const DIVISIONS: Division[] = [
     color: "text-pink-400",
     borderColor: "border-pink-500/30",
     bgColor: "bg-pink-500/5",
+    superDivision: "asi_services",
     agents: ["vesta"],
+  },
+  {
+    id: "distribution",
+    name: "Distribution",
+    subtitle: "APEAX trade channel",
+    color: "text-violet-400",
+    borderColor: "border-violet-500/30",
+    bgColor: "bg-violet-500/5",
+    superDivision: "apeax_distribution",
+    agents: ["shield"],
   },
 ];
 
@@ -189,17 +218,33 @@ const AGENTS: AgentDef[] = [
     name: "SENTINEL",
     humanName: "David Sentinel",
     title: "Business Development & Sales Manager",
-    domain: "Revenue",
+    domain: "Revenue · HV/Bus/Coach/Fleet",
     icon: TrendingUp,
     color: "text-emerald-400",
     bgColor: "bg-emerald-500/10",
     borderColor: "border-emerald-500/30",
     stream: "sales",
-    description: "Sales lead qualification, client outreach, proposals, discovery, revenue conversion.",
-    capabilities: ["Sales pipeline", "Lead qualification", "Outreach sequences", "Proposal support"],
+    description: "Heavy vehicle, bus/coach and commercial fleet sales. Direct report: Emily Mercer (Passenger & Trade). Lead qualification, client outreach, proposals, discovery, revenue conversion across HV markets.",
+    capabilities: ["HV/Bus/Coach pipeline", "Fleet sales", "Outreach sequences", "Proposal support"],
     email: "development@asi-australia.com.au",
     emailSignatureNote: "Sales preset signature",
     feedsTo: ["shield"],
+  },
+  {
+    id: "mercer",
+    name: "MERCER",
+    humanName: "Emily Mercer",
+    title: "Passenger Vehicle & Trade Sales Specialist",
+    domain: "Revenue · Light Vehicle/Trade",
+    icon: TrendingUp,
+    color: "text-teal-400",
+    bgColor: "bg-teal-500/10",
+    borderColor: "border-teal-500/30",
+    stream: "sales",
+    description: "Passenger vehicle and trade sales specialist. Reports to David Sentinel. Owns light vehicle market engagement and trade channel sales support — the consumer-facing and trade-segment slice of the sales stream.",
+    capabilities: ["Passenger vehicle pipeline", "Trade sales", "Consumer engagement", "Light vehicle strategy"],
+    email: "development@asi-australia.com.au",
+    emailSignatureNote: "MERCER preset signature (light vehicle / trade)",
   },
   {
     id: "archer",
@@ -477,9 +522,40 @@ export default function AgentHubPage() {
               <div className="h-px bg-border/60" />
             </div>
 
-            {/* Division columns — each a business unit with its own colour theme */}
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-              {DIVISIONS.map((division) => {
+            {/* ── Super-division groups ── */}
+            {/* ASI Services / Operations and APEAX Films Distribution each */}
+            {/* get a header band above their division columns. */}
+            {(Object.keys(SUPER_DIVISIONS) as SuperDivisionId[]).map((superDivId) => {
+              const superDiv = SUPER_DIVISIONS[superDivId];
+              const divisionsInGroup = DIVISIONS.filter((d) => d.superDivision === superDivId);
+              if (divisionsInGroup.length === 0) return null;
+
+              return (
+                <div key={superDivId} className="mb-6 last:mb-0">
+                  {/* Super-division header band */}
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="h-px flex-1 bg-border/50" />
+                    <div className="text-center">
+                      <p className={cn("text-[11px] font-bold uppercase tracking-widest", superDiv.color)}>
+                        {superDiv.label}
+                      </p>
+                      <p className="text-[9px] text-muted-foreground italic mt-0.5">
+                        {superDiv.subtitle}
+                      </p>
+                    </div>
+                    <div className="h-px flex-1 bg-border/50" />
+                  </div>
+
+                  {/* Division columns within this super-division */}
+                  <div
+                    className={cn(
+                      "grid gap-4",
+                      divisionsInGroup.length === 1
+                        ? "md:grid-cols-1"
+                        : "md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5"
+                    )}
+                  >
+                    {divisionsInGroup.map((division) => {
                 // Primary agents for this division
                 const primaryAgents = division.agents
                   .map((id) => AGENTS.find((a) => a.id === id))
@@ -652,7 +728,10 @@ export default function AgentHubPage() {
                   </div>
                 );
               })}
-            </div>
+                    </div>
+                  </div>
+                );
+              })}
 
             {/* Shared Resources strip — cross-functional agents serving multiple divisions */}
             {SHARED_RESOURCE_AGENT_IDS.length > 0 && (

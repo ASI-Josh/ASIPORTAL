@@ -480,6 +480,10 @@ function PipelineView() {
   const [seeding, setSeeding] = useState(false);
   const [migrating, setMigrating] = useState(false);
   const [stream, setStream] = useState<StreamType>("sales");
+  // Sales-stream sub-filter by market segment / owner.
+  // "all" = both SENTINEL + MERCER, "heavy_vehicle" = SENTINEL only,
+  // "light_vehicle" + "trade" = MERCER's specialties.
+  const [salesOwnerFilter, setSalesOwnerFilter] = useState<"all" | "sentinel" | "mercer">("all");
   const { toast } = useToast();
 
   const getToken = useCallback(async () => {
@@ -562,14 +566,23 @@ function PipelineView() {
     }
   };
 
-  // Filter by stream + search
+  // Filter by stream + search + (sales-only) market segment owner
   const filtered = useMemo(() =>
     leads.filter((l) => {
       const streamMatch = (l.streamType || "sales") === stream;
+      if (!streamMatch) return false;
       const searchMatch = !search || l.companyName.toLowerCase().includes(search.toLowerCase());
-      return streamMatch && searchMatch;
+      if (!searchMatch) return false;
+      // Market segment filter only applies to sales stream
+      if (stream === "sales" && salesOwnerFilter !== "all") {
+        const leadWithSegment = l as Lead & { marketSegment?: "heavy_vehicle" | "light_vehicle" | "trade" };
+        const seg = leadWithSegment.marketSegment || "heavy_vehicle"; // default existing sales leads to SENTINEL
+        if (salesOwnerFilter === "sentinel" && seg !== "heavy_vehicle") return false;
+        if (salesOwnerFilter === "mercer" && seg !== "light_vehicle" && seg !== "trade") return false;
+      }
+      return true;
     }),
-    [leads, stream, search]
+    [leads, stream, search, salesOwnerFilter]
   );
 
   // Stats for current stream
@@ -590,6 +603,17 @@ function PipelineView() {
   const salesCount = leads.filter((l) => (l.streamType || "sales") === "sales").length;
   const supplyCount = leads.filter((l) => l.streamType === "supply_chain").length;
   const tradeCount = leads.filter((l) => l.streamType === "trade_distribution").length;
+
+  // Sales owner sub-counts (SENTINEL = heavy_vehicle, MERCER = light_vehicle + trade)
+  const salesLeads = leads.filter((l) => (l.streamType || "sales") === "sales");
+  const sentinelCount = salesLeads.filter((l) => {
+    const seg = (l as Lead & { marketSegment?: string }).marketSegment || "heavy_vehicle";
+    return seg === "heavy_vehicle";
+  }).length;
+  const mercerCount = salesLeads.filter((l) => {
+    const seg = (l as Lead & { marketSegment?: string }).marketSegment || "heavy_vehicle";
+    return seg === "light_vehicle" || seg === "trade";
+  }).length;
 
   return (
     <div className="flex flex-col gap-4 p-6">
@@ -668,6 +692,43 @@ function PipelineView() {
           <Badge variant="outline" className="text-[10px] h-4 px-1.5 ml-1">{tradeCount}</Badge>
         </button>
       </div>
+
+      {/* Sales-stream market segment filter (SENTINEL vs MERCER) */}
+      {stream === "sales" && (
+        <div className="flex items-center gap-2 text-xs">
+          <span className="text-muted-foreground uppercase tracking-wider text-[10px] font-semibold">Owner:</span>
+          <button
+            onClick={() => setSalesOwnerFilter("all")}
+            className={`rounded-full px-3 py-1 border transition-colors ${
+              salesOwnerFilter === "all"
+                ? "border-emerald-400/60 bg-emerald-500/10 text-emerald-400"
+                : "border-border/40 text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            All Sales <span className="ml-1 opacity-60">({salesCount})</span>
+          </button>
+          <button
+            onClick={() => setSalesOwnerFilter("sentinel")}
+            className={`rounded-full px-3 py-1 border transition-colors ${
+              salesOwnerFilter === "sentinel"
+                ? "border-emerald-400/60 bg-emerald-500/10 text-emerald-400"
+                : "border-border/40 text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            David Sentinel (HV/Bus/Coach) <span className="ml-1 opacity-60">({sentinelCount})</span>
+          </button>
+          <button
+            onClick={() => setSalesOwnerFilter("mercer")}
+            className={`rounded-full px-3 py-1 border transition-colors ${
+              salesOwnerFilter === "mercer"
+                ? "border-teal-400/60 bg-teal-500/10 text-teal-400"
+                : "border-border/40 text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Emily Mercer (Passenger/Trade) <span className="ml-1 opacity-60">({mercerCount})</span>
+          </button>
+        </div>
+      )}
 
       {/* Stats */}
       <div className="flex items-center gap-4 flex-wrap text-sm">

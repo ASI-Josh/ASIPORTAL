@@ -639,6 +639,7 @@ const TOOLS: McpTool[] = [
         },
         grade: { type: "string", enum: ["A","B","C","D","E"], description: "Filter by lead grade." },
         sector: { type: "string", description: "Filter by sector (e.g. mass-transit, manufacturing)." },
+        marketSegment: { type: "string", enum: ["heavy_vehicle", "light_vehicle", "trade"], description: "Sales stream sub-segment owner: 'heavy_vehicle' (SENTINEL), 'light_vehicle' or 'trade' (MERCER). Only meaningful when streamType=sales." },
         limit: { type: "number", description: "Max leads to return (default 50, max 200)." },
       },
     },
@@ -664,7 +665,8 @@ const TOOLS: McpTool[] = [
       type: "object",
       properties: {
         company: { type: "string", description: "Company name." },
-        streamType: { type: "string", enum: ["sales", "supply_chain", "trade_distribution"], description: "Stream type: 'sales' (SENTINEL customer), 'supply_chain' (VANGUARD supplier/partner), or 'trade_distribution' (SHIELD trade installer for APEAX films). Default: sales." },
+        streamType: { type: "string", enum: ["sales", "supply_chain", "trade_distribution"], description: "Stream type: 'sales' (SENTINEL/MERCER customer), 'supply_chain' (VANGUARD supplier/partner), or 'trade_distribution' (SHIELD trade installer for APEAX films). Default: sales." },
+        marketSegment: { type: "string", enum: ["heavy_vehicle", "light_vehicle", "trade"], description: "Sales-stream sub-segment owner: 'heavy_vehicle' → SENTINEL (HV/Bus/Coach/Fleet), 'light_vehicle' or 'trade' → MERCER (Passenger/Trade). Only used when streamType=sales. Defaults to 'heavy_vehicle' if omitted on a sales lead." },
         sector: { type: "string", description: "Sector: mass-transit, manufacturing, wholesale-trade, structural, marine, other." },
         companyWebsite: { type: "string" },
         existingOrganizationId: { type: "string", description: "Link to existing org in portal if already a client." },
@@ -3209,7 +3211,7 @@ const TOOLS: McpTool[] = [
     inputSchema: {
       type: "object",
       properties: {
-        agentId: { type: "string", enum: ["athena", "vanguard", "sentinel", "archer", "ledger", "guardian", "blackstone", "cipher", "meridian", "shield", "vesta"], description: "Canonical agent identifier." },
+        agentId: { type: "string", enum: ["athena", "vanguard", "sentinel", "mercer", "archer", "ledger", "guardian", "blackstone", "cipher", "meridian", "shield", "vesta"], description: "Canonical agent identifier." },
         status: { type: "string", enum: ["online", "busy", "idle", "error"], description: "Current operational status. 'busy' = actively running a workflow, 'idle' = reachable but not running anything, 'error' = last run failed." },
         activity: { type: "string", description: "Optional human-readable description of current activity (e.g. 'Running weekly OSINT scan')." },
         metadata: { type: "object", description: "Optional metadata (task count, queue depth, etc)." },
@@ -4065,6 +4067,15 @@ async function handleGetLeads(args: Record<string, unknown>) {
     const s = args.sector.toLowerCase();
     leads = leads.filter((l) => String(l.sector || "").toLowerCase().includes(s));
   }
+  if (typeof args.marketSegment === "string") {
+    // Market segment filter — for sales stream only.
+    // Leads without a marketSegment default to heavy_vehicle (SENTINEL).
+    leads = leads.filter((l) => {
+      if (String(l.streamType || "sales") !== "sales") return false;
+      const seg = typeof l.marketSegment === "string" ? l.marketSegment : "heavy_vehicle";
+      return seg === args.marketSegment;
+    });
+  }
   return leads;
 }
 
@@ -4078,6 +4089,9 @@ async function handleGetPipelineStats(args: Record<string, unknown>) {
   const byStage: Record<string, number> = {};
   const byGrade: Record<string, number> = {};
   const byStream: Record<string, number> = { sales: 0, supply_chain: 0, trade_distribution: 0 };
+  // Sub-breakdown of sales stream by market segment / owner.
+  // heavy_vehicle → SENTINEL, light_vehicle + trade → MERCER.
+  const salesByMarketSegment: Record<string, number> = { heavy_vehicle: 0, light_vehicle: 0, trade: 0 };
   let totalValue = 0;
   let overdueFollowUps = 0;
   let total = 0;
@@ -4086,6 +4100,10 @@ async function handleGetPipelineStats(args: Record<string, unknown>) {
     const l = d.data() as Record<string, unknown>;
     const st = String(l.streamType || "sales");
     byStream[st] = (byStream[st] || 0) + 1;
+    if (st === "sales") {
+      const seg = typeof l.marketSegment === "string" ? l.marketSegment : "heavy_vehicle";
+      salesByMarketSegment[seg] = (salesByMarketSegment[seg] || 0) + 1;
+    }
     if (streamFilter && st !== streamFilter) return;
     total++;
     const stage = String(l.stage || "unknown");
@@ -4110,6 +4128,12 @@ async function handleGetPipelineStats(args: Record<string, unknown>) {
     return rs;
   };
 
+  // Sales stream owner view: heavy_vehicle = SENTINEL, light_vehicle + trade = MERCER
+  const salesByOwner = {
+    sentinel: salesByMarketSegment.heavy_vehicle || 0,
+    mercer: (salesByMarketSegment.light_vehicle || 0) + (salesByMarketSegment.trade || 0),
+  };
+
   return {
     total,
     totalActive:
@@ -4125,6 +4149,8 @@ async function handleGetPipelineStats(args: Record<string, unknown>) {
     byStage,
     byGrade,
     byStream,
+    salesByMarketSegment,
+    salesByOwner,
     streamFilter: streamFilter || "all",
     registerStats: {
       supply_chain: buildRegStats("supply_chain"),
@@ -4178,9 +4204,19 @@ async function handleCreateLead(args: Record<string, unknown>) {
   }] : [];
 
   const sourceRaw = (args.source || {}) as Record<string, unknown>;
+
+  // Market segment: only relevant for sales stream. Default to heavy_vehicle
+  // (SENTINEL) if omitted on a sales lead. Ignored for non-sales streams.
+  const marketSegmentRaw = args.marketSegment as string | undefined;
+  const validSegments = ["heavy_vehicle", "light_vehicle", "trade"];
+  const marketSegment = streamType === "sales"
+    ? (marketSegmentRaw && validSegments.includes(marketSegmentRaw) ? marketSegmentRaw : "heavy_vehicle")
+    : undefined;
+
   const payload = {
     leadNumber,
     streamType,
+    ...(marketSegment ? { marketSegment } : {}),
     companyName: String(args.company),
     companyWebsite: args.companyWebsite as string | undefined,
     sector: String(args.sector || "other"),
@@ -7458,7 +7494,7 @@ async function handleGetExecutiveReports(args: Record<string, unknown>) {
 
 // ─── Agent Heartbeat handlers ────────────────────────────────────────────────
 
-const KNOWN_AGENTS = ["athena", "vanguard", "sentinel", "archer", "ledger", "guardian", "blackstone", "cipher", "meridian", "shield", "vesta"];
+const KNOWN_AGENTS = ["athena", "vanguard", "sentinel", "mercer", "archer", "ledger", "guardian", "blackstone", "cipher", "meridian", "shield", "vesta"];
 
 async function handleAgentHeartbeat(args: Record<string, unknown>) {
   const agentId = String(args.agentId || "").toLowerCase();

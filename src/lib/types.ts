@@ -1216,12 +1216,27 @@ export interface AgentActionLogEntry {
   stageTransition?: { from: PipelineStage; to: PipelineStage };
 }
 
+/**
+ * Market segment for sales-stream leads. Allows the sales stream to be
+ * sub-divided between SENTINEL (heavy vehicle / fleet / bus & coach) and
+ * MERCER (passenger vehicle / trade). Ignored for non-sales streams.
+ *
+ * - heavy_vehicle → SENTINEL (David Sentinel) — HV/Bus/Coach/Fleet
+ * - light_vehicle → MERCER (Emily Mercer) — Passenger vehicles
+ * - trade → MERCER — Trade sales
+ */
+export type LeadMarketSegment = "heavy_vehicle" | "light_vehicle" | "trade";
+
 export interface Lead {
   id: string;
   leadNumber: string;                // e.g. "LD-2026-0001"
 
   // Stream
-  streamType: StreamType;            // "sales" or "supply_chain"
+  streamType: StreamType;            // "sales" | "supply_chain" | "trade_distribution"
+
+  // Market segment (sales stream only — used to route leads between
+  // SENTINEL and MERCER). Other streams ignore this field.
+  marketSegment?: LeadMarketSegment;
 
   // Company
   companyName: string;
