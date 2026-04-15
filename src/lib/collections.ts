@@ -102,6 +102,12 @@ export const AGENT_MAILBOXES = {
     authorisedAgents: ["SENTINEL", "VANGUARD", "ARCHER"],
     description: "Sales (David Sentinel), innovation/supply chain (Peter Vanguard), R&D & grants (Sophie Archer) correspondence",
   },
+  resources: {
+    address: "resources@asi-australia.com.au",
+    displayName: "Vesta Hearth",
+    authorisedAgents: ["VESTA"],
+    description: "Human & AI Resources — onboarding, training, inductions, requals (Vesta Hearth)",
+  },
 } as const;
 
 export type AgentMailboxKey = keyof typeof AGENT_MAILBOXES;

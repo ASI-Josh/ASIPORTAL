@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { collection, onSnapshot } from "firebase/firestore";
-import { Brain, Shield, TrendingUp, DollarSign, Globe, Monitor, Package, Target, Crown } from "lucide-react";
+import { Brain, Shield, TrendingUp, DollarSign, Globe, Monitor, Package, Target, Crown, Gavel, Users } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { db } from "@/lib/firebaseClient";
@@ -44,53 +44,13 @@ const AGENTS: AgentOverviewDef[] = [
     name: "ATHENA",
     humanName: "Athena Pallas",
     role: "Chief of Staff",
-    division: "Orchestration",
+    division: "Executive",
     icon: Brain,
     color: "text-purple-400",
     borderColor: "border-purple-500/30",
     bgGlow: "from-purple-500/10 via-purple-500/5 to-transparent",
     description: "Coordinates all agent activity, escalation routing, and strategic alignment",
     isChief: true,
-  },
-  {
-    name: "VANGUARD",
-    humanName: "Peter Vanguard",
-    role: "Innovation, Technology & Supply Chain Manager",
-    division: "Innovation & Supply Chain",
-    icon: TrendingUp,
-    color: "text-blue-400",
-    borderColor: "border-blue-500/30",
-    bgGlow: "from-blue-500/10 via-blue-500/5 to-transparent",
-    description: "OSINT scanning, market intelligence, innovation scouting, supply chain risk monitoring",
-    email: "development@asi-australia.com.au",
-    emailSignatureNote: "Supplier preset signature",
-  },
-  {
-    name: "SENTINEL",
-    humanName: "David Sentinel",
-    role: "Business Development & Sales Manager",
-    division: "Revenue & CRM",
-    icon: TrendingUp,
-    color: "text-emerald-400",
-    borderColor: "border-emerald-500/30",
-    bgGlow: "from-emerald-500/10 via-emerald-500/5 to-transparent",
-    description: "Lead management, pipeline tracking, outreach automation, BANT scoring",
-    email: "development@asi-australia.com.au",
-    emailSignatureNote: "Sales preset signature",
-    feedsTo: ["SHIELD"],
-  },
-  {
-    name: "ARCHER",
-    humanName: "Sophie Archer",
-    role: "R&D & Grants Manager",
-    division: "Innovation & Funding",
-    icon: Target,
-    color: "text-fuchsia-400",
-    borderColor: "border-fuchsia-500/30",
-    bgGlow: "from-fuchsia-500/10 via-fuchsia-500/5 to-transparent",
-    description: "R&D programme coordination, grant identification & applications, innovation funding pipeline, compliance reporting",
-    email: "development@asi-australia.com.au",
-    emailSignatureNote: "R&D preset signature",
   },
   {
     name: "LEDGER",
@@ -105,15 +65,78 @@ const AGENTS: AgentOverviewDef[] = [
     email: "accountmanager@asi-australia.com.au",
   },
   {
+    name: "ARCHER",
+    humanName: "Sophie Archer",
+    role: "R&D & Grants Manager",
+    division: "Finance",
+    icon: Target,
+    color: "text-fuchsia-400",
+    borderColor: "border-fuchsia-500/30",
+    bgGlow: "from-fuchsia-500/10 via-fuchsia-500/5 to-transparent",
+    description: "R&D programme coordination, grant identification & applications, innovation funding pipeline. Reports via James Ledger.",
+    email: "development@asi-australia.com.au",
+    emailSignatureNote: "R&D preset signature",
+  },
+  {
+    name: "VANGUARD",
+    humanName: "Peter Vanguard",
+    role: "Innovation, Technology & Supply Chain Manager",
+    division: "Growth & Intelligence",
+    icon: TrendingUp,
+    color: "text-blue-400",
+    borderColor: "border-blue-500/30",
+    bgGlow: "from-blue-500/10 via-blue-500/5 to-transparent",
+    description: "OSINT scanning, market intelligence, innovation scouting, supply chain risk monitoring",
+    email: "development@asi-australia.com.au",
+    emailSignatureNote: "Supplier preset signature",
+  },
+  {
+    name: "SENTINEL",
+    humanName: "David Sentinel",
+    role: "Business Development & Sales Manager",
+    division: "Growth & Intelligence",
+    icon: TrendingUp,
+    color: "text-emerald-400",
+    borderColor: "border-emerald-500/30",
+    bgGlow: "from-emerald-500/10 via-emerald-500/5 to-transparent",
+    description: "Lead management, pipeline tracking, outreach automation, BANT scoring",
+    email: "development@asi-australia.com.au",
+    emailSignatureNote: "Sales preset signature",
+    feedsTo: ["SHIELD"],
+  },
+  {
+    name: "SHIELD",
+    humanName: "Angela Shield",
+    role: "APEAX Distribution",
+    division: "Distribution",
+    icon: Package,
+    color: "text-violet-400",
+    borderColor: "border-violet-500/30",
+    bgGlow: "from-violet-500/10 via-violet-500/5 to-transparent",
+    description: "APEAX trade installer vetting, orders, PO to APEAX USA, warranty registration, invoicing",
+  },
+  {
     name: "GUARDIAN",
     humanName: "Hanzel Guardian",
-    role: "IMS Lead Auditor",
-    division: "Quality, Safety & Compliance",
+    role: "IMS Manager",
+    division: "Legal & Compliance",
     icon: Shield,
-    color: "text-red-400",
-    borderColor: "border-red-500/30",
-    bgGlow: "from-red-500/10 via-red-500/5 to-transparent",
+    color: "text-orange-400",
+    borderColor: "border-orange-500/30",
+    bgGlow: "from-orange-500/10 via-orange-500/5 to-transparent",
     description: "ISO 9001/14001/45001, incidents, corrective actions, risk register, audits",
+  },
+  {
+    name: "BLACKSTONE",
+    humanName: "William Blackstone",
+    role: "Legal Management",
+    division: "Legal & Compliance",
+    icon: Gavel,
+    color: "text-amber-300",
+    borderColor: "border-amber-300/30",
+    bgGlow: "from-amber-300/10 via-amber-300/5 to-transparent",
+    description: "Internal legal review, contract analysis, compliance interpretation, risk flagging. Internal only — ATHENA sends on behalf.",
+    emailSignatureNote: "Internal only — ATHENA sends on behalf",
   },
   {
     name: "CIPHER",
@@ -126,27 +149,40 @@ const AGENTS: AgentOverviewDef[] = [
     description: "Portal development, integrations, API management, system health",
   },
   {
-    name: "MERIDIAN",
-    role: "Geo-Intel",
-    division: "Geographic Intelligence",
-    icon: Globe,
-    color: "text-orange-400",
-    borderColor: "border-orange-500/30",
-    bgGlow: "from-orange-500/10 via-orange-500/5 to-transparent",
-    description: "Location analytics, route optimisation, regional coverage mapping. Feeds intel to SENTINEL and VANGUARD.",
-    feedsTo: ["SENTINEL", "VANGUARD"],
+    name: "VESTA",
+    humanName: "Vesta Hearth",
+    role: "Human & AI Resources Manager",
+    division: "Human & AI Resources",
+    icon: Users,
+    color: "text-pink-400",
+    borderColor: "border-pink-500/30",
+    bgGlow: "from-pink-500/10 via-pink-500/5 to-transparent",
+    description: "Human staff onboarding, inductions, training, requals. AI agent onboarding and protocol training.",
+    email: "resources@asi-australia.com.au",
+    emailSignatureNote: "Resources preset signature",
   },
   {
-    name: "SHIELD",
-    humanName: "Angela Shield",
-    role: "APEAX Distribution",
-    division: "Trade Channel Operations",
-    icon: Package,
-    color: "text-violet-400",
-    borderColor: "border-violet-500/30",
-    bgGlow: "from-violet-500/10 via-violet-500/5 to-transparent",
-    description: "APEAX trade installer vetting, orders, PO to APEAX USA, warranty registration, invoicing",
+    name: "MERIDIAN",
+    role: "Critical Intelligence",
+    division: "Shared Resources",
+    icon: Globe,
+    color: "text-rose-400",
+    borderColor: "border-rose-500/30",
+    bgGlow: "from-rose-500/10 via-rose-500/5 to-transparent",
+    description: "Geopolitical and institutional analysis. Feeds intel to SENTINEL and VANGUARD on demand.",
+    feedsTo: ["SENTINEL", "VANGUARD"],
   },
+];
+
+// Division display order for the compact overview widget
+const DIVISION_ORDER = [
+  "Finance",
+  "Growth & Intelligence",
+  "Distribution",
+  "Legal & Compliance",
+  "Digital Infrastructure",
+  "Human & AI Resources",
+  "Shared Resources",
 ];
 
 type Heartbeat = {
@@ -246,7 +282,19 @@ export function AgentOverview() {
     heartbeats[name] || { agentId: name.toLowerCase(), status: "unknown" };
 
   const chief = AGENTS.find((a) => a.isChief)!;
-  const divisions = AGENTS.filter((a) => !a.isChief);
+  const nonChief = AGENTS.filter((a) => !a.isChief);
+
+  // Group agents by division, preserving DIVISION_ORDER
+  const agentsByDivision = new Map<string, AgentOverviewDef[]>();
+  for (const divisionName of DIVISION_ORDER) {
+    agentsByDivision.set(divisionName, []);
+  }
+  for (const agent of nonChief) {
+    if (!agentsByDivision.has(agent.division)) {
+      agentsByDivision.set(agent.division, []);
+    }
+    agentsByDivision.get(agent.division)!.push(agent);
+  }
 
   const chiefHeadline = buildOverviewHeadline(chief);
 
@@ -307,85 +355,107 @@ export function AgentOverview() {
         </CardContent>
       </Card>
 
-      {/* Division Heads */}
-      <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-        {divisions.map((agent) => {
-          const headline = buildOverviewHeadline(agent);
-          return (
-            <Card
-              key={agent.name}
-              className={`bg-card/50 backdrop-blur-lg ${agent.borderColor} border overflow-hidden`}
-            >
-              <div className={`px-4 py-2 bg-gradient-to-r ${agent.bgGlow} border-b ${agent.borderColor}`}>
-                <div className="flex items-center gap-2">
-                  <agent.icon className={`h-3.5 w-3.5 ${agent.color}`} />
-                  <span className={`font-headline font-semibold text-xs ${agent.color}`}>
-                    {agent.division}
-                  </span>
-                </div>
-              </div>
-              <CardContent className="flex items-start gap-3 py-4">
-                <div className={`rounded-lg bg-background/60 p-2.5 ${agent.color}`}>
-                  <agent.icon className="h-5 w-5" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <StatusDot status={getHeartbeat(agent.name).status} />
-                    <span className={`font-headline font-bold tracking-wide ${agent.color}`}>
-                      {headline}
-                    </span>
-                  </div>
-                  <Badge variant="secondary" className="text-[10px] mt-1">
-                    {agent.role}
-                  </Badge>
-                  <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
-                    {agent.description}
-                  </p>
-                  {agent.feedsTo && agent.feedsTo.length > 0 && (
-                    <div className="mt-2">
-                      <p className="text-[9px] uppercase tracking-wider text-muted-foreground mb-0.5">
-                        Intel feed →
-                      </p>
-                      <div className="flex flex-wrap gap-1">
-                        {agent.feedsTo.map((targetName) => {
-                          const target = AGENTS.find((a) => a.name === targetName);
-                          if (!target) return null;
-                          return (
-                            <span
-                              key={targetName}
-                              className={`rounded border border-dashed px-1.5 py-0.5 text-[9px] font-semibold ${target.borderColor} ${target.color}`}
-                            >
-                              {buildOverviewHeadline(target)}
-                            </span>
-                          );
-                        })}
+      {/* Divisions — grouped by division with section headers */}
+      {Array.from(agentsByDivision.entries()).map(([divisionName, divisionAgents]) => {
+        if (divisionAgents.length === 0) return null;
+        const isSharedResources = divisionName === "Shared Resources";
+
+        return (
+          <div key={divisionName} className="space-y-2">
+            {/* Division header strip */}
+            <div className="flex items-center gap-2">
+              <div className="h-px flex-1 bg-border/40" />
+              <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold">
+                {divisionName}
+              </p>
+              <div className="h-px flex-1 bg-border/40" />
+            </div>
+
+            {/* Agent cards within this division */}
+            <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+              {divisionAgents.map((agent) => {
+                const headline = buildOverviewHeadline(agent);
+                return (
+                  <Card
+                    key={agent.name}
+                    className={`bg-card/50 backdrop-blur-lg ${agent.borderColor} border overflow-hidden ${
+                      isSharedResources ? "border-dashed" : ""
+                    }`}
+                  >
+                    <div className={`px-4 py-2 bg-gradient-to-r ${agent.bgGlow} border-b ${agent.borderColor}`}>
+                      <div className="flex items-center gap-2">
+                        <agent.icon className={`h-3.5 w-3.5 ${agent.color}`} />
+                        <span className={`font-headline font-semibold text-xs ${agent.color}`}>
+                          {agent.role}
+                        </span>
                       </div>
                     </div>
-                  )}
-                  {agent.email && (
-                    <div className="mt-2 pt-2 border-t border-border/30">
-                      <p className={`text-[10px] font-medium truncate ${agent.color}`}>{agent.email}</p>
-                      {agent.emailSignatureNote && (
-                        <p className="text-[9px] text-muted-foreground italic">{agent.emailSignatureNote}</p>
-                      )}
-                    </div>
-                  )}
-                  <div className="flex items-center gap-2 mt-1.5 text-[10px] text-muted-foreground">
-                    <span className="capitalize">{getHeartbeat(agent.name).status}</span>
-                    <span>·</span>
-                    <span>Last active {formatLastActive(getHeartbeat(agent.name).lastActiveAt)}</span>
-                  </div>
-                  {getHeartbeat(agent.name).activity && (
-                    <p className="text-[10px] text-muted-foreground mt-0.5 italic truncate">
-                      {getHeartbeat(agent.name).activity}
-                    </p>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          );
-        })}
-      </div>
+                    <CardContent className="flex items-start gap-3 py-4">
+                      <div className={`rounded-lg bg-background/60 p-2.5 ${agent.color}`}>
+                        <agent.icon className="h-5 w-5" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <StatusDot status={getHeartbeat(agent.name).status} />
+                          <span className={`font-headline font-bold tracking-wide ${agent.color}`}>
+                            {headline}
+                          </span>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
+                          {agent.description}
+                        </p>
+                        {agent.feedsTo && agent.feedsTo.length > 0 && (
+                          <div className="mt-2">
+                            <p className="text-[9px] uppercase tracking-wider text-muted-foreground mb-0.5">
+                              Feeds intel →
+                            </p>
+                            <div className="flex flex-wrap gap-1">
+                              {agent.feedsTo.map((targetName) => {
+                                const target = AGENTS.find((a) => a.name === targetName);
+                                if (!target) return null;
+                                return (
+                                  <span
+                                    key={targetName}
+                                    className={`rounded border border-dashed px-1.5 py-0.5 text-[9px] font-semibold ${target.borderColor} ${target.color}`}
+                                  >
+                                    {buildOverviewHeadline(target)}
+                                  </span>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                        {(agent.email || agent.emailSignatureNote) && (
+                          <div className="mt-2 pt-2 border-t border-border/30">
+                            {agent.email ? (
+                              <p className={`text-[10px] font-medium truncate ${agent.color}`}>{agent.email}</p>
+                            ) : (
+                              <p className="text-[10px] font-medium text-muted-foreground italic">Internal only</p>
+                            )}
+                            {agent.emailSignatureNote && (
+                              <p className="text-[9px] text-muted-foreground italic">{agent.emailSignatureNote}</p>
+                            )}
+                          </div>
+                        )}
+                        <div className="flex items-center gap-2 mt-1.5 text-[10px] text-muted-foreground">
+                          <span className="capitalize">{getHeartbeat(agent.name).status}</span>
+                          <span>·</span>
+                          <span>Last active {formatLastActive(getHeartbeat(agent.name).lastActiveAt)}</span>
+                        </div>
+                        {getHeartbeat(agent.name).activity && (
+                          <p className="text-[10px] text-muted-foreground mt-0.5 italic truncate">
+                            {getHeartbeat(agent.name).activity}
+                          </p>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

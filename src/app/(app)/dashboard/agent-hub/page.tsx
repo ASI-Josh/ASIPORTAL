@@ -5,7 +5,7 @@ import Link from "next/link";
 import {
   Bot, Brain, Eye, Globe, Landmark, MessagesSquare,
   Scale, SendHorizonal, ShieldCheck, TrendingUp,
-  Users, ChevronDown, ChevronUp, Package, Target, Crown,
+  Users, ChevronDown, ChevronUp, Package, Target, Crown, Gavel,
 } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -73,6 +73,98 @@ function buildAgentHeadline(agent: AgentDef): string {
   if (!firstName) return agent.name;
   return `${firstName.toUpperCase()} ${agent.name}`;
 }
+
+// ─── Divisional structure ──────────────────────────────────────────────────
+//
+// Each division is a business unit with its own colour theme and one or
+// more agents. Rendered as a column on the org chart. Sub-divisions nest
+// under a parent agent within the same column (e.g. Sophie Archer's R&D
+// sits under James Ledger inside the Finance column).
+//
+// MERIDIAN is NOT in any division — she sits in the Shared Resources
+// strip below the main grid and feeds intel to SENTINEL + VANGUARD.
+
+type Division = {
+  id: string;
+  name: string;
+  subtitle: string;
+  color: string;        // header text colour
+  borderColor: string;  // column border
+  bgColor: string;      // column background tint
+  agents: string[];     // primary agent IDs in this division (in display order)
+  subDivisions?: {
+    parentAgentId: string;  // the agent this sub-division reports through
+    name: string;
+    agents: string[];
+  }[];
+};
+
+const DIVISIONS: Division[] = [
+  {
+    id: "finance",
+    name: "Finance",
+    subtitle: "Accounts · Cash flow · R&D funding",
+    color: "text-amber-400",
+    borderColor: "border-amber-500/30",
+    bgColor: "bg-amber-500/5",
+    agents: ["ledger"],
+    subDivisions: [
+      {
+        parentAgentId: "ledger",
+        name: "R&D Sub-Division",
+        agents: ["archer"],
+      },
+    ],
+  },
+  {
+    id: "growth_intel",
+    name: "Growth & Intelligence",
+    subtitle: "Sales · Supply chain · Innovation",
+    color: "text-emerald-400",
+    borderColor: "border-emerald-500/30",
+    bgColor: "bg-emerald-500/5",
+    agents: ["vanguard", "sentinel"],
+  },
+  {
+    id: "distribution",
+    name: "Distribution",
+    subtitle: "APEAX trade channel",
+    color: "text-violet-400",
+    borderColor: "border-violet-500/30",
+    bgColor: "bg-violet-500/5",
+    agents: ["shield"],
+  },
+  {
+    id: "legal_compliance",
+    name: "Legal & Compliance",
+    subtitle: "IMS · Legal · Risk",
+    color: "text-orange-400",
+    borderColor: "border-orange-500/30",
+    bgColor: "bg-orange-500/5",
+    agents: ["guardian", "blackstone"],
+  },
+  {
+    id: "digital_infra",
+    name: "Digital Infrastructure",
+    subtitle: "IT · Web · Integrations",
+    color: "text-cyan-400",
+    borderColor: "border-cyan-500/30",
+    bgColor: "bg-cyan-500/5",
+    agents: ["cipher"],
+  },
+  {
+    id: "resources",
+    name: "Human & AI Resources",
+    subtitle: "Onboarding · Training · Inductions",
+    color: "text-pink-400",
+    borderColor: "border-pink-500/30",
+    bgColor: "bg-pink-500/5",
+    agents: ["vesta"],
+  },
+];
+
+// Agents that sit in the shared resources strip below the main divisions
+const SHARED_RESOURCE_AGENT_IDS = ["meridian"];
 
 const AGENTS: AgentDef[] = [
   {
@@ -143,7 +235,7 @@ const AGENTS: AgentDef[] = [
     id: "guardian",
     name: "GUARDIAN",
     humanName: "Hanzel Guardian",
-    title: "Lead Auditor",
+    title: "IMS Manager",
     domain: "Compliance",
     icon: ShieldCheck,
     color: "text-orange-400",
@@ -152,6 +244,35 @@ const AGENTS: AgentDef[] = [
     description: "IMS audits (ISO 9001/14001/45001), document control, incidents, CAPAs, risk register.",
     capabilities: ["Internal audits", "Document control", "Incident management", "CAPA tracking", "Risk register"],
     link: "/dashboard/ims",
+  },
+  {
+    id: "blackstone",
+    name: "BLACKSTONE",
+    humanName: "William Blackstone",
+    title: "Legal Management",
+    domain: "Legal",
+    icon: Gavel,
+    color: "text-amber-300",
+    bgColor: "bg-amber-300/10",
+    borderColor: "border-amber-300/30",
+    description: "Internal legal review, contract analysis, compliance interpretation, risk flagging. Internal-only — ATHENA sends on behalf for external comms.",
+    capabilities: ["Contract review", "Compliance interpretation", "Legal research", "Risk flagging"],
+    emailSignatureNote: "Internal only — ATHENA sends on behalf",
+  },
+  {
+    id: "vesta",
+    name: "VESTA",
+    humanName: "Vesta Hearth",
+    title: "Human & AI Resources Manager",
+    domain: "People Ops",
+    icon: Users,
+    color: "text-pink-400",
+    bgColor: "bg-pink-500/10",
+    borderColor: "border-pink-500/30",
+    description: "Human staff onboarding, inductions, training, requals. AI agent onboarding, induction and protocol training for new agents as they come online.",
+    capabilities: ["Human onboarding", "Training & requals", "AI agent induction", "Role documentation"],
+    email: "resources@asi-australia.com.au",
+    emailSignatureNote: "Resources preset signature",
   },
   {
     id: "cipher",
@@ -310,14 +431,14 @@ export default function AgentHubPage() {
           <div className="flex items-center gap-2">
             <Users className="h-5 w-5 text-primary" />
             <span className="text-base font-semibold">ASI Organisation Chart</span>
-            <Badge variant="outline" className="text-[10px] h-4 px-1.5">1 director · 1 chief · {AGENTS.length} division heads</Badge>
+            <Badge variant="outline" className="text-[10px] h-4 px-1.5">{DIVISIONS.length} divisions · {AGENTS.length} agents</Badge>
           </div>
           {orgExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
         </button>
 
         {orgExpanded && (
           <CardContent className="pt-0 pb-6">
-            {/* DIRECTOR — top of chart (human leadership) */}
+            {/* DIRECTOR — human leadership, top of chart */}
             <div className="flex justify-center mb-3">
               <div className={cn("w-full max-w-sm rounded-xl border-2 p-3 text-center", DIRECTOR_DEF.borderColor, DIRECTOR_DEF.bgColor)}>
                 <div className="flex items-center justify-center gap-2">
@@ -347,7 +468,7 @@ export default function AgentHubPage() {
               </div>
             </div>
 
-            {/* ATHENA → Division Heads connector */}
+            {/* ATHENA → Divisions connector */}
             <div className="flex justify-center mb-3">
               <div className="w-px h-6 bg-border/60" />
             </div>
@@ -355,87 +476,248 @@ export default function AgentHubPage() {
               <div className="h-px bg-border/60" />
             </div>
 
-            {/* Division Head Cards (each reports to ATHENA) */}
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3">
-              {AGENTS.map((agent) => {
-                const Icon = agent.icon;
-                const headline = buildAgentHeadline(agent);
+            {/* Division columns — each a business unit with its own colour theme */}
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+              {DIVISIONS.map((division) => {
+                // Primary agents for this division
+                const primaryAgents = division.agents
+                  .map((id) => AGENTS.find((a) => a.id === id))
+                  .filter((a): a is AgentDef => Boolean(a));
+
                 return (
-                  <div key={agent.id} className={cn("flex flex-col rounded-xl border p-4 transition-all hover:scale-[1.02]", agent.borderColor, agent.bgColor)}>
-                    <div className="flex items-center gap-2 mb-2">
-                      <Icon className={cn("h-5 w-5 shrink-0", agent.color)} />
-                      <span className={cn("text-sm font-bold tracking-wide leading-tight", agent.color)}>{headline}</span>
+                  <div
+                    key={division.id}
+                    className={cn(
+                      "flex flex-col rounded-xl border-2 p-3",
+                      division.borderColor,
+                      division.bgColor
+                    )}
+                  >
+                    {/* Division header */}
+                    <div className="mb-3 pb-2 border-b border-border/30">
+                      <p className={cn("text-xs font-bold uppercase tracking-widest", division.color)}>
+                        {division.name}
+                      </p>
+                      <p className="text-[9px] text-muted-foreground italic mt-0.5">
+                        {division.subtitle}
+                      </p>
                     </div>
-                    <p className="text-xs font-medium mb-1">{agent.title}</p>
-                    <p className="text-[10px] text-muted-foreground mb-3">{agent.domain}{agent.stream ? ` · ${agent.stream}` : ""}</p>
-                    <div className="space-y-1 mb-3">
-                      {agent.capabilities.slice(0, 3).map((cap) => (
-                        <div key={cap} className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-                          <div className={cn("h-1 w-1 rounded-full", agent.color.replace("text-", "bg-"))} />
-                          {cap}
-                        </div>
-                      ))}
+
+                    {/* Primary agent cards in this division */}
+                    <div className="space-y-3">
+                      {primaryAgents.map((agent) => {
+                        const Icon = agent.icon;
+                        const headline = buildAgentHeadline(agent);
+
+                        // Any sub-divisions that nest under this agent
+                        const nestedSubs = (division.subDivisions || []).filter(
+                          (sub) => sub.parentAgentId === agent.id
+                        );
+
+                        return (
+                          <div key={agent.id}>
+                            {/* Agent card */}
+                            <div
+                              className={cn(
+                                "flex flex-col rounded-lg border p-3 transition-all hover:scale-[1.01]",
+                                agent.borderColor,
+                                agent.bgColor
+                              )}
+                            >
+                              <div className="flex items-start gap-2 mb-1.5">
+                                <Icon className={cn("h-4 w-4 shrink-0 mt-0.5", agent.color)} />
+                                <span className={cn("text-xs font-bold tracking-wide leading-tight", agent.color)}>
+                                  {headline}
+                                </span>
+                              </div>
+                              <p className="text-[10px] font-medium mb-2 leading-snug">
+                                {agent.title}
+                              </p>
+                              <div className="space-y-0.5 mb-2">
+                                {agent.capabilities.slice(0, 3).map((cap) => (
+                                  <div key={cap} className="flex items-center gap-1 text-[9px] text-muted-foreground">
+                                    <div className={cn("h-1 w-1 rounded-full", agent.color.replace("text-", "bg-"))} />
+                                    {cap}
+                                  </div>
+                                ))}
+                              </div>
+                              {agent.feedsTo && agent.feedsTo.length > 0 && (
+                                <div className="mb-2">
+                                  <p className="text-[8px] uppercase tracking-wider text-muted-foreground mb-0.5">
+                                    Feeds →
+                                  </p>
+                                  <div className="flex flex-wrap gap-1">
+                                    {agent.feedsTo.map((targetId) => {
+                                      const target = AGENTS.find((a) => a.id === targetId);
+                                      if (!target) return null;
+                                      return (
+                                        <span
+                                          key={targetId}
+                                          className={cn(
+                                            "rounded border border-dashed px-1 py-0.5 text-[8px] font-semibold",
+                                            target.borderColor,
+                                            target.color
+                                          )}
+                                        >
+                                          {buildAgentHeadline(target)}
+                                        </span>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              )}
+                              {(agent.email || agent.emailSignatureNote) && (
+                                <div className="mt-auto pt-1.5 border-t border-border/30">
+                                  {agent.email ? (
+                                    <p className={cn("text-[9px] font-medium truncate", agent.color)}>
+                                      {agent.email}
+                                    </p>
+                                  ) : (
+                                    <p className="text-[9px] font-medium text-muted-foreground italic">
+                                      Internal only
+                                    </p>
+                                  )}
+                                  {agent.emailSignatureNote && (
+                                    <p className="text-[8px] text-muted-foreground italic leading-snug">
+                                      {agent.emailSignatureNote}
+                                    </p>
+                                  )}
+                                </div>
+                              )}
+                              {agent.link && (
+                                <Link
+                                  href={agent.link}
+                                  className={cn("block mt-1.5 text-[9px] font-semibold hover:underline", agent.color)}
+                                >
+                                  Open workspace →
+                                </Link>
+                              )}
+                            </div>
+
+                            {/* Sub-division nested underneath this agent */}
+                            {nestedSubs.map((sub) => {
+                              const subAgents = sub.agents
+                                .map((id) => AGENTS.find((a) => a.id === id))
+                                .filter((a): a is AgentDef => Boolean(a));
+                              return (
+                                <div key={sub.name} className="ml-3 mt-2 pl-3 border-l-2 border-dashed border-border/40">
+                                  <p className="text-[8px] uppercase tracking-wider text-muted-foreground mb-1.5">
+                                    ↳ {sub.name}
+                                  </p>
+                                  <div className="space-y-2">
+                                    {subAgents.map((subAgent) => {
+                                      const SubIcon = subAgent.icon;
+                                      return (
+                                        <div
+                                          key={subAgent.id}
+                                          className={cn(
+                                            "flex flex-col rounded-lg border p-2.5",
+                                            subAgent.borderColor,
+                                            subAgent.bgColor
+                                          )}
+                                        >
+                                          <div className="flex items-start gap-2 mb-1">
+                                            <SubIcon className={cn("h-3.5 w-3.5 shrink-0 mt-0.5", subAgent.color)} />
+                                            <span className={cn("text-[11px] font-bold tracking-wide leading-tight", subAgent.color)}>
+                                              {buildAgentHeadline(subAgent)}
+                                            </span>
+                                          </div>
+                                          <p className="text-[9px] font-medium mb-1 leading-snug">
+                                            {subAgent.title}
+                                          </p>
+                                          {subAgent.email && (
+                                            <div className="mt-auto pt-1 border-t border-border/30">
+                                              <p className={cn("text-[9px] font-medium truncate", subAgent.color)}>
+                                                {subAgent.email}
+                                              </p>
+                                              {subAgent.emailSignatureNote && (
+                                                <p className="text-[8px] text-muted-foreground italic leading-snug">
+                                                  {subAgent.emailSignatureNote}
+                                                </p>
+                                              )}
+                                            </div>
+                                          )}
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        );
+                      })}
                     </div>
-                    {agent.feedsTo && agent.feedsTo.length > 0 && (
-                      <div className="mb-2">
-                        <p className="text-[9px] uppercase tracking-wider text-muted-foreground mb-0.5">Intel feed →</p>
-                        <div className="flex flex-wrap gap-1">
-                          {agent.feedsTo.map((targetId) => {
-                            const target = AGENTS.find((a) => a.id === targetId);
-                            if (!target) return null;
-                            return (
-                              <span
-                                key={targetId}
-                                className={cn(
-                                  "rounded border border-dashed px-1.5 py-0.5 text-[9px] font-semibold",
-                                  target.borderColor,
-                                  target.color
-                                )}
-                              >
-                                {buildAgentHeadline(target)}
-                              </span>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-                    {agent.email && (
-                      <div className="mt-auto pt-2 border-t border-border/30">
-                        <p className={cn("text-[10px] font-medium truncate", agent.color)}>{agent.email}</p>
-                        {agent.emailSignatureNote && (
-                          <p className="text-[9px] text-muted-foreground italic">{agent.emailSignatureNote}</p>
-                        )}
-                      </div>
-                    )}
-                    {agent.link && (
-                      <Link href={agent.link} className={cn("block mt-2 text-[10px] font-semibold hover:underline", agent.color)}>
-                        Open workspace →
-                      </Link>
-                    )}
                   </div>
                 );
               })}
             </div>
 
-            {/* Intel feed legend */}
-            <div className="mt-4 rounded-lg border border-dashed border-border/40 bg-muted/10 p-3">
-              <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5">Intelligence feed lines (dashed)</p>
-              <div className="flex flex-wrap gap-3 text-[11px] text-muted-foreground">
-                <span>
-                  <span className="font-semibold text-rose-400">MERIDIAN</span>
-                  {" → "}
-                  <span className="font-semibold text-emerald-400">DAVID SENTINEL</span> +{" "}
-                  <span className="font-semibold text-blue-400">PETER VANGUARD</span>
-                  <span className="ml-1 italic">(geopolitical + market intel)</span>
-                </span>
-                <span>
-                  <span className="font-semibold text-emerald-400">DAVID SENTINEL</span>
-                  {" → "}
-                  <span className="font-semibold text-violet-400">ANGELA SHIELD</span>
-                  <span className="ml-1 italic">(qualified trade leads)</span>
-                </span>
+            {/* Shared Resources strip — cross-functional agents serving multiple divisions */}
+            {SHARED_RESOURCE_AGENT_IDS.length > 0 && (
+              <div className="mt-6">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="h-px flex-1 bg-border/40" />
+                  <p className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                    Shared Intelligence Resources
+                  </p>
+                  <div className="h-px flex-1 bg-border/40" />
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {SHARED_RESOURCE_AGENT_IDS.map((agentId) => {
+                    const agent = AGENTS.find((a) => a.id === agentId);
+                    if (!agent) return null;
+                    const Icon = agent.icon;
+                    return (
+                      <div
+                        key={agent.id}
+                        className={cn(
+                          "flex flex-col rounded-xl border-2 border-dashed p-3",
+                          agent.borderColor,
+                          agent.bgColor
+                        )}
+                      >
+                        <div className="flex items-center gap-2 mb-2">
+                          <Icon className={cn("h-4 w-4 shrink-0", agent.color)} />
+                          <span className={cn("text-xs font-bold tracking-wide", agent.color)}>
+                            {buildAgentHeadline(agent)}
+                          </span>
+                        </div>
+                        <p className="text-[10px] font-medium mb-1">{agent.title}</p>
+                        <p className="text-[9px] text-muted-foreground mb-2 leading-snug">
+                          {agent.description}
+                        </p>
+                        {agent.feedsTo && agent.feedsTo.length > 0 && (
+                          <div className="mt-auto pt-2 border-t border-border/30">
+                            <p className="text-[9px] uppercase tracking-wider text-muted-foreground mb-1">
+                              Feeds intel to →
+                            </p>
+                            <div className="flex flex-wrap gap-1">
+                              {agent.feedsTo.map((targetId) => {
+                                const target = AGENTS.find((a) => a.id === targetId);
+                                if (!target) return null;
+                                return (
+                                  <span
+                                    key={targetId}
+                                    className={cn(
+                                      "rounded border border-dashed px-1.5 py-0.5 text-[9px] font-semibold",
+                                      target.borderColor,
+                                      target.color
+                                    )}
+                                  >
+                                    {buildAgentHeadline(target)}
+                                  </span>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
+            )}
 
             {/* Rules */}
             <div className="mt-6 grid gap-3 sm:grid-cols-3">
