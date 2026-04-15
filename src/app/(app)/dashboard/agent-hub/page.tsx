@@ -5,7 +5,7 @@ import Link from "next/link";
 import {
   Bot, Brain, Eye, Globe, Landmark, MessagesSquare,
   Scale, SendHorizonal, ShieldCheck, TrendingUp,
-  Users, ChevronDown, ChevronUp, Package,
+  Users, ChevronDown, ChevronUp, Package, Target,
 } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,22 +18,26 @@ import { cn } from "@/lib/utils";
 
 type AgentDef = {
   id: string;
-  name: string;
+  name: string;         // Codename, e.g. "LEDGER"
+  humanName?: string;   // Human correspondence name, e.g. "James Ledger"
   title: string;
   domain: string;
   icon: typeof Bot;
-  color: string;       // tailwind colour class
+  color: string;        // tailwind colour class
   bgColor: string;
   borderColor: string;
   stream?: string;
   description: string;
   capabilities: string[];
+  email?: string;       // Operating mailbox, e.g. "accountmanager@asi-australia.com.au"
+  emailSignatureNote?: string; // Additional note for shared mailboxes, e.g. "Sales Preset Signature"
   link?: string;
 };
 
 const ATHENA_DEF: AgentDef = {
   id: "athena",
   name: "ATHENA",
+  humanName: "Athena Pallas",
   title: "Chief of Staff",
   domain: "Executive Intelligence",
   icon: Brain,
@@ -48,20 +52,24 @@ const AGENTS: AgentDef[] = [
   {
     id: "vanguard",
     name: "VANGUARD",
-    title: "Supply Chain Growth Engine",
+    humanName: "Peter Vanguard",
+    title: "Innovation, Technology & Supply Chain Manager",
     domain: "External Intelligence",
     icon: Eye,
     color: "text-blue-400",
     bgColor: "bg-blue-500/10",
     borderColor: "border-blue-500/30",
     stream: "supply_chain",
-    description: "External OSINT scanning, supply chain lead qualification & full lifecycle, market mode assessment.",
+    description: "External OSINT scanning, supply chain lead qualification & full lifecycle, market mode assessment, innovation scouting.",
     capabilities: ["Daily OSINT scans (4 pillars)", "BANT-Plus scoring", "Supply chain pipeline", "Market mode assessment"],
+    email: "development@asi-australia.com.au",
+    emailSignatureNote: "Supplier preset signature",
   },
   {
     id: "sentinel",
     name: "SENTINEL",
-    title: "Sales Consultant",
+    humanName: "David Sentinel",
+    title: "Business Development & Sales Manager",
     domain: "Revenue",
     icon: TrendingUp,
     color: "text-emerald-400",
@@ -70,23 +78,44 @@ const AGENTS: AgentDef[] = [
     stream: "sales",
     description: "Sales lead qualification, client outreach, proposals, discovery, revenue conversion.",
     capabilities: ["Sales pipeline", "Lead qualification", "Outreach sequences", "Proposal support"],
+    email: "development@asi-australia.com.au",
+    emailSignatureNote: "Sales preset signature",
+  },
+  {
+    id: "archer",
+    name: "ARCHER",
+    humanName: "Sophie Archer",
+    title: "R&D & Grants Manager",
+    domain: "Innovation & Funding",
+    icon: Target,
+    color: "text-fuchsia-400",
+    bgColor: "bg-fuchsia-500/10",
+    borderColor: "border-fuchsia-500/30",
+    stream: "rnd_grants",
+    description: "R&D programme coordination, grant identification & applications, innovation funding pipeline, compliance reporting.",
+    capabilities: ["Grant pipeline", "R&D programme tracking", "Funding applications", "Compliance reporting"],
+    email: "development@asi-australia.com.au",
+    emailSignatureNote: "R&D preset signature",
   },
   {
     id: "ledger",
     name: "LEDGER",
-    title: "Accounts Team",
+    humanName: "James Ledger",
+    title: "CFO & Accounts Management",
     domain: "Finance",
     icon: Landmark,
     color: "text-amber-400",
     bgColor: "bg-amber-500/10",
     borderColor: "border-amber-500/30",
-    description: "Xero invoicing, job close-out, cost auditing, financial reporting, GST.",
-    capabilities: ["Xero invoicing", "Job close-out", "Cost auditing", "Financial reports"],
+    description: "Xero invoicing, job close-out, cost auditing, financial reporting, GST, cash flow forecasting, supplier payments, weekly CFO report to ATHENA.",
+    capabilities: ["Full Xero operations (46 endpoints)", "Job close-out", "Cash flow forecasting", "Weekly CFO report"],
+    email: "accountmanager@asi-australia.com.au",
     link: "/dashboard/crm",
   },
   {
     id: "guardian",
     name: "GUARDIAN",
+    humanName: "Hanzel Guardian",
     title: "Lead Auditor",
     domain: "Compliance",
     icon: ShieldCheck,
@@ -124,6 +153,7 @@ const AGENTS: AgentDef[] = [
   {
     id: "shield",
     name: "SHIELD",
+    humanName: "Angela Shield",
     title: "APEAX Distribution Agent",
     domain: "Trade Channel Ops",
     icon: Package,
@@ -266,6 +296,9 @@ export default function AgentHubPage() {
                   <Brain className={cn("h-6 w-6", ATHENA_DEF.color)} />
                   <span className={cn("text-lg font-bold", ATHENA_DEF.color)}>{ATHENA_DEF.name}</span>
                 </div>
+                {ATHENA_DEF.humanName && (
+                  <p className="text-xs text-muted-foreground mb-1">{ATHENA_DEF.humanName}</p>
+                )}
                 <p className="text-sm font-medium">{ATHENA_DEF.title}</p>
                 <p className="text-xs text-muted-foreground mt-1">{ATHENA_DEF.domain}</p>
               </div>
@@ -282,18 +315,21 @@ export default function AgentHubPage() {
             </div>
 
             {/* Agent cards grid */}
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3">
               {AGENTS.map((agent) => {
                 const Icon = agent.icon;
                 return (
-                  <div key={agent.id} className={cn("rounded-xl border p-4 transition-all hover:scale-[1.02]", agent.borderColor, agent.bgColor)}>
+                  <div key={agent.id} className={cn("flex flex-col rounded-xl border p-4 transition-all hover:scale-[1.02]", agent.borderColor, agent.bgColor)}>
                     <div className="flex items-center gap-2 mb-2">
                       <Icon className={cn("h-5 w-5", agent.color)} />
                       <span className={cn("text-sm font-bold", agent.color)}>{agent.name}</span>
+                      {agent.humanName && (
+                        <span className="text-[10px] text-muted-foreground ml-auto">{agent.humanName}</span>
+                      )}
                     </div>
                     <p className="text-xs font-medium mb-1">{agent.title}</p>
                     <p className="text-[10px] text-muted-foreground mb-3">{agent.domain}{agent.stream ? ` · ${agent.stream}` : ""}</p>
-                    <div className="space-y-1">
+                    <div className="space-y-1 mb-3">
                       {agent.capabilities.slice(0, 3).map((cap) => (
                         <div key={cap} className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
                           <div className={cn("h-1 w-1 rounded-full", agent.color.replace("text-", "bg-"))} />
@@ -301,8 +337,16 @@ export default function AgentHubPage() {
                         </div>
                       ))}
                     </div>
+                    {agent.email && (
+                      <div className="mt-auto pt-2 border-t border-border/30">
+                        <p className={cn("text-[10px] font-medium truncate", agent.color)}>{agent.email}</p>
+                        {agent.emailSignatureNote && (
+                          <p className="text-[9px] text-muted-foreground italic">{agent.emailSignatureNote}</p>
+                        )}
+                      </div>
+                    )}
                     {agent.link && (
-                      <Link href={agent.link} className={cn("block mt-3 text-[10px] font-semibold hover:underline", agent.color)}>
+                      <Link href={agent.link} className={cn("block mt-2 text-[10px] font-semibold hover:underline", agent.color)}>
                         Open workspace →
                       </Link>
                     )}

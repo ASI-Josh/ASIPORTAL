@@ -2,15 +2,31 @@
 
 import { useEffect, useState } from "react";
 import { collection, onSnapshot } from "firebase/firestore";
-import { Brain, Shield, TrendingUp, DollarSign, Globe, Monitor, Package } from "lucide-react";
+import { Brain, Shield, TrendingUp, DollarSign, Globe, Monitor, Package, Target } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { db } from "@/lib/firebaseClient";
 import { COLLECTIONS } from "@/lib/collections";
 
-const AGENTS = [
+type AgentOverviewDef = {
+  name: string;
+  humanName?: string;
+  role: string;
+  division: string;
+  icon: typeof Brain;
+  color: string;
+  borderColor: string;
+  bgGlow: string;
+  description: string;
+  email?: string;
+  emailSignatureNote?: string;
+  isChief?: boolean;
+};
+
+const AGENTS: AgentOverviewDef[] = [
   {
     name: "ATHENA",
+    humanName: "Athena Pallas",
     role: "Chief of Staff",
     division: "Orchestration",
     icon: Brain,
@@ -22,37 +38,59 @@ const AGENTS = [
   },
   {
     name: "VANGUARD",
-    role: "Supply Chain",
-    division: "Procurement & Logistics",
+    humanName: "Peter Vanguard",
+    role: "Innovation, Technology & Supply Chain Manager",
+    division: "Innovation & Supply Chain",
     icon: TrendingUp,
     color: "text-blue-400",
     borderColor: "border-blue-500/30",
     bgGlow: "from-blue-500/10 via-blue-500/5 to-transparent",
-    description: "OSINT scanning, market intelligence, supply chain risk monitoring",
+    description: "OSINT scanning, market intelligence, innovation scouting, supply chain risk monitoring",
+    email: "development@asi-australia.com.au",
+    emailSignatureNote: "Supplier preset signature",
   },
   {
     name: "SENTINEL",
-    role: "Sales",
+    humanName: "David Sentinel",
+    role: "Business Development & Sales Manager",
     division: "Revenue & CRM",
     icon: TrendingUp,
     color: "text-emerald-400",
     borderColor: "border-emerald-500/30",
     bgGlow: "from-emerald-500/10 via-emerald-500/5 to-transparent",
     description: "Lead management, pipeline tracking, outreach automation, BANT scoring",
+    email: "development@asi-australia.com.au",
+    emailSignatureNote: "Sales preset signature",
+  },
+  {
+    name: "ARCHER",
+    humanName: "Sophie Archer",
+    role: "R&D & Grants Manager",
+    division: "Innovation & Funding",
+    icon: Target,
+    color: "text-fuchsia-400",
+    borderColor: "border-fuchsia-500/30",
+    bgGlow: "from-fuchsia-500/10 via-fuchsia-500/5 to-transparent",
+    description: "R&D programme coordination, grant identification & applications, innovation funding pipeline, compliance reporting",
+    email: "development@asi-australia.com.au",
+    emailSignatureNote: "R&D preset signature",
   },
   {
     name: "LEDGER",
-    role: "Accounts",
-    division: "Finance & Procurement",
+    humanName: "James Ledger",
+    role: "CFO & Accounts Management",
+    division: "Finance",
     icon: DollarSign,
     color: "text-amber-400",
     borderColor: "border-amber-500/30",
     bgGlow: "from-amber-500/10 via-amber-500/5 to-transparent",
-    description: "Xero invoicing, purchase orders, stock reordering, goods received",
+    description: "Xero invoicing, purchase orders, stock reordering, goods received, cash flow forecasting, weekly CFO report",
+    email: "accountmanager@asi-australia.com.au",
   },
   {
     name: "GUARDIAN",
-    role: "IMS",
+    humanName: "Hanzel Guardian",
+    role: "IMS Lead Auditor",
     division: "Quality, Safety & Compliance",
     icon: Shield,
     color: "text-red-400",
@@ -82,6 +120,7 @@ const AGENTS = [
   },
   {
     name: "SHIELD",
+    humanName: "Angela Shield",
     role: "APEAX Distribution",
     division: "Trade Channel Operations",
     icon: Package,
@@ -216,6 +255,9 @@ export function AgentOverview() {
                   {chief.role}
                 </Badge>
               </div>
+              {chief.humanName && (
+                <p className="text-xs text-muted-foreground mt-1 italic">{chief.humanName}</p>
+              )}
               <p className="text-sm text-muted-foreground mt-1 max-w-md mx-auto">{chief.description}</p>
               <p className="text-xs text-muted-foreground mt-2">
                 {AGENTS.length - 1} divisions reporting ·
@@ -246,16 +288,27 @@ export function AgentOverview() {
                 <agent.icon className="h-5 w-5" />
               </div>
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <StatusDot status={getHeartbeat(agent.name).status} />
                   <span className={`font-headline font-bold ${agent.color}`}>{agent.name}</span>
-                  <Badge variant="secondary" className="text-xs">
-                    {agent.role}
-                  </Badge>
+                  {agent.humanName && (
+                    <span className="text-[10px] text-muted-foreground italic">· {agent.humanName}</span>
+                  )}
                 </div>
-                <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                <Badge variant="secondary" className="text-[10px] mt-1">
+                  {agent.role}
+                </Badge>
+                <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
                   {agent.description}
                 </p>
+                {agent.email && (
+                  <div className="mt-2 pt-2 border-t border-border/30">
+                    <p className={`text-[10px] font-medium truncate ${agent.color}`}>{agent.email}</p>
+                    {agent.emailSignatureNote && (
+                      <p className="text-[9px] text-muted-foreground italic">{agent.emailSignatureNote}</p>
+                    )}
+                  </div>
+                )}
                 <div className="flex items-center gap-2 mt-1.5 text-[10px] text-muted-foreground">
                   <span className="capitalize">{getHeartbeat(agent.name).status}</span>
                   <span>·</span>

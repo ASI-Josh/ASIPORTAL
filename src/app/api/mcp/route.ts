@@ -2763,7 +2763,7 @@ const TOOLS: McpTool[] = [
     inputSchema: {
       type: "object",
       properties: {
-        agentId: { type: "string", enum: ["athena", "vanguard", "sentinel", "ledger", "guardian", "cipher", "meridian", "shield"], description: "Canonical agent identifier." },
+        agentId: { type: "string", enum: ["athena", "vanguard", "sentinel", "archer", "ledger", "guardian", "cipher", "meridian", "shield"], description: "Canonical agent identifier." },
         status: { type: "string", enum: ["online", "busy", "idle", "error"], description: "Current operational status. 'busy' = actively running a workflow, 'idle' = reachable but not running anything, 'error' = last run failed." },
         activity: { type: "string", description: "Optional human-readable description of current activity (e.g. 'Running weekly OSINT scan')." },
         metadata: { type: "object", description: "Optional metadata (task count, queue depth, etc)." },
@@ -6152,7 +6152,7 @@ async function handleGetExecutiveReports(args: Record<string, unknown>) {
 
 // ─── Agent Heartbeat handlers ────────────────────────────────────────────────
 
-const KNOWN_AGENTS = ["athena", "vanguard", "sentinel", "ledger", "guardian", "cipher", "meridian", "shield"];
+const KNOWN_AGENTS = ["athena", "vanguard", "sentinel", "archer", "ledger", "guardian", "cipher", "meridian", "shield"];
 
 async function handleAgentHeartbeat(args: Record<string, unknown>) {
   const agentId = String(args.agentId || "").toLowerCase();

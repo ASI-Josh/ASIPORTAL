@@ -99,8 +99,8 @@ export const AGENT_MAILBOXES = {
   development: {
     address: "development@asi-australia.com.au",
     displayName: "ASI Development",
-    authorisedAgents: ["SENTINEL", "VANGUARD", "RND_AGENT"],
-    description: "Sales, pipeline, R&D and grants management correspondence",
+    authorisedAgents: ["SENTINEL", "VANGUARD", "ARCHER"],
+    description: "Sales (David Sentinel), innovation/supply chain (Peter Vanguard), R&D & grants (Sophie Archer) correspondence",
   },
 } as const;
 
