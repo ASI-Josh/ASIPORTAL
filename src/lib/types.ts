@@ -2824,3 +2824,60 @@ export interface RndOpportunity {
   updatedAt: Timestamp;
   notes?: string;
 }
+
+// ─── Grant Programme Watchlist ───────────────────────────────────────────
+// Separate from grantApplications. This is Sophie's watchlist of grant
+// programmes she's tracking for when rounds open — independent of
+// actual applications pursued.
+
+export type GrantProgrammeFrequency =
+  | "continuous"      // Always open (e.g. RDTI)
+  | "annual"          // One round per year
+  | "biannual"        // Two rounds per year
+  | "quarterly"       // Four rounds per year
+  | "irregular"       // Ad-hoc rounds as announced
+  | "one_off";        // Single round, not recurring
+
+export type GrantProgrammeLevel =
+  | "federal"         // Commonwealth programmes
+  | "state"           // State / territory government
+  | "local"           // Local council
+  | "industry"        // Industry body
+  | "private";        // Private foundations
+
+export interface GrantProgramme {
+  id: string;
+  programmeName: string;        // e.g. "R&D Tax Incentive"
+  programmeBody: string;        // e.g. "AusIndustry"
+  level: GrantProgrammeLevel;
+  jurisdiction?: string;        // "Australia", "Victoria", "NSW" etc.
+
+  description: string;
+  programmeUrl?: string;
+
+  // Typical funding
+  fundingType: GrantFundingType;
+  typicalValueMin?: number;
+  typicalValueMax?: number;
+
+  // Timing
+  frequency: GrantProgrammeFrequency;
+  nextRoundOpensAt?: string;    // ISO date — when Sophie expects the next round
+  typicalDeadlineLead?: string; // Free text: "~6 weeks between open and close"
+
+  // Fit assessment
+  fitScore?: number;            // 1-5 — how well this fits ASI's R&D profile
+  eligibilityNotes?: string;
+  applicabilityNotes?: string;  // Which ASI R&D areas this supports
+
+  // Status
+  isActive: boolean;            // Sophie still watching this?
+  tags?: string[];              // e.g. ["export", "cleantech", "manufacturing"]
+
+  // Audit
+  createdAt: Timestamp;
+  createdBy: string;
+  updatedAt: Timestamp;
+  lastCheckedAt?: Timestamp;    // When Sophie last verified programme status
+  notes?: string;
+}

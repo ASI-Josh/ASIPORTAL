@@ -3105,6 +3105,103 @@ const TOOLS: McpTool[] = [
       required: ["opportunityId", "domain"],
     },
   },
+  // ─── Grant Programme Watchlist ────────────────────────────────────────────
+  {
+    name: "create_grant_programme",
+    description:
+      "Register a grant programme in Sophie's watchlist (separate from actual grant applications). Use for tracking programmes Sophie should monitor (e.g. RDTI, EMDG, state innovation grants) so she knows when rounds open.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        programmeName: { type: "string" },
+        programmeBody: { type: "string" },
+        level: { type: "string", enum: ["federal", "state", "local", "industry", "private"] },
+        jurisdiction: { type: "string", description: "e.g. 'Australia', 'Victoria'." },
+        description: { type: "string" },
+        programmeUrl: { type: "string" },
+        fundingType: { type: "string", enum: ["grant", "tax_offset", "rebate", "loan", "equity_match"] },
+        typicalValueMin: { type: "number" },
+        typicalValueMax: { type: "number" },
+        frequency: { type: "string", enum: ["continuous", "annual", "biannual", "quarterly", "irregular", "one_off"] },
+        nextRoundOpensAt: { type: "string", description: "ISO date." },
+        typicalDeadlineLead: { type: "string" },
+        fitScore: { type: "number", description: "1-5 — how well this fits ASI's R&D profile." },
+        eligibilityNotes: { type: "string" },
+        applicabilityNotes: { type: "string" },
+        tags: { type: "array", items: { type: "string" } },
+        notes: { type: "string" },
+      },
+      required: ["programmeName", "programmeBody", "level", "description", "fundingType", "frequency"],
+    },
+  },
+  {
+    name: "get_grant_programmes",
+    description:
+      "List grant programmes from Sophie's watchlist. Filter by level, active status, or return only programmes with upcoming rounds in the next N days.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        level: { type: "string", enum: ["federal", "state", "local", "industry", "private"] },
+        isActive: { type: "boolean", description: "Default true — only active programmes." },
+        upcomingWithinDays: { type: "number", description: "If set, filter to programmes with nextRoundOpensAt within N days." },
+        limit: { type: "number", description: "Default 100." },
+      },
+    },
+  },
+  {
+    name: "update_grant_programme",
+    description: "Update a grant programme in the watchlist. Typically used when Sophie confirms the next round date or marks a programme inactive.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        programmeId: { type: "string" },
+        isActive: { type: "boolean" },
+        nextRoundOpensAt: { type: "string" },
+        fitScore: { type: "number" },
+        eligibilityNotes: { type: "string" },
+        applicabilityNotes: { type: "string" },
+        notes: { type: "string" },
+        markAsChecked: { type: "boolean", description: "If true, set lastCheckedAt to now." },
+      },
+      required: ["programmeId"],
+    },
+  },
+  {
+    name: "delete_grant_programme",
+    description: "Remove a grant programme from the watchlist (admin operation).",
+    inputSchema: {
+      type: "object",
+      properties: { programmeId: { type: "string" } },
+      required: ["programmeId"],
+    },
+  },
+  {
+    name: "push_archer_weekly_report",
+    description:
+      "Submit Sophie Archer's weekly R&D & Grants report for ATHENA compilation. Matches LEDGER's weekly CFO report pattern — pushed every Friday. ATHENA reads via get_department_reports for the company weekly.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        weekEnding: { type: "string", description: "ISO date of the Friday this report covers." },
+        summary: { type: "string", description: "1-2 paragraph overview of the R&D / Grants week." },
+        rndMetrics: {
+          type: "object",
+          description: "Metrics snapshot: activeProjects, projectsByPhase, totalSpendToDate, pendingApprovals, etc.",
+        },
+        grantMetrics: {
+          type: "object",
+          description: "Metrics snapshot: applicationsInFlight, awardedYtd, potentialInFlight, upcomingDeadlines, overdueCompliance.",
+        },
+        highlights: { type: "array", items: { type: "string" }, description: "Notable wins or progress." },
+        risks: { type: "array", items: { type: "string" }, description: "Issues flagged this week." },
+        recommendations: { type: "array", items: { type: "string" }, description: "What Sophie recommends to ATHENA/Director." },
+        newOpportunitiesLogged: { type: "number", description: "Count of new opportunities in the log this week." },
+        opportunitiesConverted: { type: "number", description: "Count of opportunities graduated to projects this week." },
+        rawData: { type: "object", description: "Optional supporting data for the report." },
+      },
+      required: ["weekEnding", "summary"],
+    },
+  },
   // ─── Agent heartbeat (live status tracking) ─────────────────────────────────
   {
     name: "agent_heartbeat",
@@ -5418,6 +5515,139 @@ async function handleConvertOpportunityToProject(args: Record<string, unknown>) 
   };
 }
 
+// ─── Grant Programme Watchlist handlers ──────────────────────────────────────
+
+async function handleCreateGrantProgramme(args: Record<string, unknown>) {
+  if (!args.programmeName) throw new Error("programmeName is required.");
+  if (!args.programmeBody) throw new Error("programmeBody is required.");
+  if (!args.level) throw new Error("level is required.");
+  if (!args.description) throw new Error("description is required.");
+  if (!args.fundingType) throw new Error("fundingType is required.");
+  if (!args.frequency) throw new Error("frequency is required.");
+
+  const db = admin.firestore();
+  const now = admin.firestore.FieldValue.serverTimestamp();
+
+  const payload = stripUndefined({
+    programmeName: String(args.programmeName),
+    programmeBody: String(args.programmeBody),
+    level: String(args.level),
+    jurisdiction: typeof args.jurisdiction === "string" ? args.jurisdiction : undefined,
+    description: String(args.description),
+    programmeUrl: typeof args.programmeUrl === "string" ? args.programmeUrl : undefined,
+    fundingType: String(args.fundingType),
+    typicalValueMin: typeof args.typicalValueMin === "number" ? args.typicalValueMin : undefined,
+    typicalValueMax: typeof args.typicalValueMax === "number" ? args.typicalValueMax : undefined,
+    frequency: String(args.frequency),
+    nextRoundOpensAt: typeof args.nextRoundOpensAt === "string" ? args.nextRoundOpensAt : undefined,
+    typicalDeadlineLead: typeof args.typicalDeadlineLead === "string" ? args.typicalDeadlineLead : undefined,
+    fitScore: typeof args.fitScore === "number" ? args.fitScore : undefined,
+    eligibilityNotes: typeof args.eligibilityNotes === "string" ? args.eligibilityNotes : undefined,
+    applicabilityNotes: typeof args.applicabilityNotes === "string" ? args.applicabilityNotes : undefined,
+    isActive: true,
+    tags: Array.isArray(args.tags) ? args.tags : undefined,
+    notes: typeof args.notes === "string" ? args.notes : undefined,
+    createdAt: now,
+    createdBy: "ARCHER",
+    updatedAt: now,
+  });
+
+  const ref = await db.collection(COLLECTIONS.RND_GRANT_PROGRAMMES).add(payload);
+  const doc = await ref.get();
+  return serializeDoc(doc.id, doc.data()!);
+}
+
+async function handleGetGrantProgrammes(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  let q: admin.firestore.Query = db.collection(COLLECTIONS.RND_GRANT_PROGRAMMES);
+
+  // Default: active only (unless explicitly set false)
+  const isActive = typeof args.isActive === "boolean" ? args.isActive : true;
+  q = q.where("isActive", "==", isActive);
+
+  if (typeof args.level === "string") q = q.where("level", "==", args.level);
+
+  const limit = typeof args.limit === "number" ? Math.min(Math.max(1, args.limit), 200) : 100;
+  q = q.limit(limit);
+
+  const snap = await q.get();
+  let results = snap.docs.map((d) => serializeDoc(d.id, d.data()));
+
+  // Upcoming filter (client-side because of index simplicity)
+  if (typeof args.upcomingWithinDays === "number") {
+    const cutoff = new Date(Date.now() + args.upcomingWithinDays * 86400_000).toISOString().split("T")[0];
+    const today = new Date().toISOString().split("T")[0];
+    results = results.filter((p) =>
+      typeof p.nextRoundOpensAt === "string" &&
+      p.nextRoundOpensAt >= today &&
+      p.nextRoundOpensAt <= cutoff
+    );
+  }
+
+  return results;
+}
+
+async function handleUpdateGrantProgramme(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const id = String(args.programmeId);
+  const ref = db.collection(COLLECTIONS.RND_GRANT_PROGRAMMES).doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) throw new Error(`Grant programme '${id}' not found.`);
+
+  const updates: Record<string, unknown> = { updatedAt: admin.firestore.FieldValue.serverTimestamp() };
+
+  if (typeof args.isActive === "boolean") updates.isActive = args.isActive;
+  if (typeof args.nextRoundOpensAt === "string") updates.nextRoundOpensAt = args.nextRoundOpensAt;
+  if (typeof args.fitScore === "number") updates.fitScore = args.fitScore;
+  if (typeof args.eligibilityNotes === "string") updates.eligibilityNotes = args.eligibilityNotes;
+  if (typeof args.applicabilityNotes === "string") updates.applicabilityNotes = args.applicabilityNotes;
+  if (typeof args.notes === "string") updates.notes = args.notes;
+  if (args.markAsChecked === true) updates.lastCheckedAt = admin.firestore.FieldValue.serverTimestamp();
+
+  await ref.update(updates);
+  const updated = await ref.get();
+  return serializeDoc(updated.id, updated.data()!);
+}
+
+async function handleDeleteGrantProgramme(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const id = String(args.programmeId);
+  await db.collection(COLLECTIONS.RND_GRANT_PROGRAMMES).doc(id).delete();
+  return { ok: true, programmeId: id };
+}
+
+// ─── Archer Weekly Report ──────────────────────────────────────────────────
+
+async function handlePushArcherWeeklyReport(args: Record<string, unknown>) {
+  const weekEnding = String(args.weekEnding);
+  if (!weekEnding) throw new Error("weekEnding is required.");
+  if (!args.summary) throw new Error("summary is required.");
+
+  const db = admin.firestore();
+  const docId = `archer_${weekEnding}`;
+
+  const report = stripUndefined({
+    summary: String(args.summary),
+    rndMetrics: (args.rndMetrics || {}) as Record<string, unknown>,
+    grantMetrics: (args.grantMetrics || {}) as Record<string, unknown>,
+    highlights: Array.isArray(args.highlights) ? args.highlights : [],
+    risks: Array.isArray(args.risks) ? args.risks : [],
+    recommendations: Array.isArray(args.recommendations) ? args.recommendations : [],
+    newOpportunitiesLogged: typeof args.newOpportunitiesLogged === "number" ? args.newOpportunitiesLogged : 0,
+    opportunitiesConverted: typeof args.opportunitiesConverted === "number" ? args.opportunitiesConverted : 0,
+    rawData: args.rawData as Record<string, unknown> | undefined,
+  });
+
+  await db.collection(COLLECTIONS.DEPARTMENT_REPORTS).doc(docId).set({
+    department: "archer",
+    weekEnding,
+    report,
+    submittedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+
+  return { ok: true, reportId: docId, department: "archer", weekEnding };
+}
+
 // ─── Contact Lookup handler ─────────────────────────────────────────────────
 
 async function handleContactLookup(args: Record<string, unknown>) {
@@ -7589,6 +7819,12 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
     case "get_opportunities_awaiting_review": return handleGetOpportunitiesAwaitingReview(args);
     case "review_rnd_opportunity":            return handleReviewRndOpportunity(args);
     case "convert_opportunity_to_project":    return handleConvertOpportunityToProject(args);
+    // Grant Programme Watchlist
+    case "create_grant_programme":            return handleCreateGrantProgramme(args);
+    case "get_grant_programmes":              return handleGetGrantProgrammes(args);
+    case "update_grant_programme":            return handleUpdateGrantProgramme(args);
+    case "delete_grant_programme":            return handleDeleteGrantProgramme(args);
+    case "push_archer_weekly_report":         return handlePushArcherWeeklyReport(args);
     // Contact Lookup
     case "contact_lookup":              return handleContactLookup(args);
     // Email Templates

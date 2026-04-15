@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
+import ArcherWorkspace from "@/components/agent-hub/archer-workspace";
 
 // ─── Agent org chart data ─────────────────────────────────────────────────────
 
@@ -734,6 +735,21 @@ export default function AgentHubPage() {
           </CardContent>
         )}
       </Card>
+
+      {/* ─── Agent Workspaces ─────────────────────────────────────────── */}
+      {/* Individual agent operational workspaces live here. When Vesta,  */}
+      {/* Blackstone, or new agents get their own workspaces, they slot   */}
+      {/* into this section alongside Archer's.                           */}
+      <div className="space-y-4">
+        <div className="flex items-center gap-2">
+          <div className="h-px flex-1 bg-border/40" />
+          <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold">
+            Agent Workspaces
+          </p>
+          <div className="h-px flex-1 bg-border/40" />
+        </div>
+        <ArcherWorkspace />
+      </div>
 
       {/* ATHENA Chat */}
       <Card className="bg-card/50 backdrop-blur-lg border-violet-500/20 overflow-hidden">

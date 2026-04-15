@@ -78,6 +78,7 @@ export const COLLECTIONS = {
   GRANT_APPLICATIONS: "grantApplications",
   RND_OPPORTUNITY_LOG: "rndOpportunityLog",
   RND_COUNTERS: "rndCounters",
+  RND_GRANT_PROGRAMMES: "rndGrantProgrammes",
 } as const;
 
 /**

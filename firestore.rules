@@ -373,6 +373,15 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    match /rndGrantProgrammes/{programmeId} {
+      // Sophie's grant programme watchlist — reference data, staff
+      // readable, writable for catalogue maintenance.
+      allow read: if isStaff();
+      allow create: if isStaff();
+      allow update: if isStaff();
+      allow delete: if isAdmin();
+    }
+
     // KPI Traceability Module (staff full access, clients can read own org data)
     match /fuelRecords/{docId} {
       allow read: if isStaff() || (signedIn() && resource.data.organizationId == userOrgId());
