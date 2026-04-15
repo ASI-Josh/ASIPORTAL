@@ -383,11 +383,15 @@ export interface AgentEmailAuditEntry {
 export async function logAgentEmailAction(
   entry: Omit<AgentEmailAuditEntry, "createdAt">
 ): Promise<string> {
-  const doc = {
-    ...entry,
-    createdAt: admin.firestore.FieldValue.serverTimestamp(),
-  };
-  const ref = await admin.firestore().collection(COLLECTIONS.AGENT_EMAIL_AUDIT).add(doc);
+  // Firestore rejects documents containing undefined values — strip them out.
+  // Any optional field the caller didn't set just gets omitted from the doc.
+  const clean: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(entry)) {
+    if (value !== undefined) clean[key] = value;
+  }
+  clean.createdAt = admin.firestore.FieldValue.serverTimestamp();
+
+  const ref = await admin.firestore().collection(COLLECTIONS.AGENT_EMAIL_AUDIT).add(clean);
   return ref.id;
 }
 
