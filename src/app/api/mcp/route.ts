@@ -30,6 +30,9 @@ import {
   xeroCreateManualJournal, xeroCreateQuote, xeroListQuotes, xeroUpdateQuote,
   xeroListTrackingCategories, xeroCreateTrackingCategory, xeroAddTrackingOption,
   xeroCreateContact, xeroUpdateContact,
+  xeroGetBankStatementLines, xeroGetBankAccountBalance,
+  xeroGetHistory, xeroAddHistoryNote,
+  xeroAttachFile, xeroListAttachments,
   xeroCreatePurchaseOrder, xeroSendPurchaseOrder, xeroGetPurchaseOrder,
   xeroListItems, xeroGetItem,
 } from "@/lib/xero";
@@ -1793,6 +1796,105 @@ const TOOLS: McpTool[] = [
         },
       },
       required: ["contactId"],
+    },
+  },
+  {
+    name: "xero_get_bank_statement_lines",
+    description:
+      "Fetch all transaction (statement) lines for a bank account over a date range. Use for bank reconciliation — ATHENA can pull the statement and match lines against existing invoices/bills. Reads from Xero's imported bank feed data.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        bankAccountName: { type: "string", description: "Bank account name (must exist in Xero as a BANK type account)." },
+        dateFrom: { type: "string", description: "ISO date — lines on/after this date." },
+        dateTo: { type: "string", description: "ISO date — lines on/before this date." },
+        status: { type: "string", description: "Filter by status (e.g. 'AUTHORISED')." },
+        limit: { type: "number", description: "Max lines (default 50, max 100)." },
+      },
+      required: ["bankAccountName"],
+    },
+  },
+  {
+    name: "xero_get_bank_account_balance",
+    description:
+      "Get the running balance summary for a bank account as of a specific date. Returns Xero's Bank Summary report data for cash position verification.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        bankAccountName: { type: "string" },
+        date: { type: "string", description: "As-at date ISO. Defaults to today." },
+      },
+      required: ["bankAccountName"],
+    },
+  },
+  {
+    name: "xero_get_history",
+    description:
+      "Read the full history and notes trail for any Xero object (invoice, bill, contact, quote, etc.). Returns system events, user changes, and manually-added notes chronologically. Use for audit trails.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        endpoint: {
+          type: "string",
+          enum: ["Invoices", "CreditNotes", "BankTransactions", "Contacts", "PurchaseOrders", "Quotes", "ManualJournals", "Payments", "Receipts", "ExpenseClaims", "Overpayments", "Prepayments"],
+          description: "Which Xero object type.",
+        },
+        objectId: { type: "string", description: "Xero object ID (UUID)." },
+      },
+      required: ["endpoint", "objectId"],
+    },
+  },
+  {
+    name: "xero_add_history_note",
+    description:
+      "Add a manual note to the history of any Xero object. Shows up in the object's history panel as a user entry. Use to record context, decisions, or audit notes on invoices/bills/contacts.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        endpoint: {
+          type: "string",
+          enum: ["Invoices", "CreditNotes", "BankTransactions", "Contacts", "PurchaseOrders", "Quotes", "ManualJournals", "Payments", "Receipts", "ExpenseClaims", "Overpayments", "Prepayments"],
+          description: "Which Xero object type.",
+        },
+        objectId: { type: "string", description: "Xero object ID (UUID)." },
+        details: { type: "string", description: "The note text to add." },
+      },
+      required: ["endpoint", "objectId", "details"],
+    },
+  },
+  {
+    name: "xero_attach_file",
+    description:
+      "Attach a file to any Xero object (invoice, bill, contact, quote, etc.). The file must be provided as base64-encoded content. Use for attaching supplier invoices to bills, contracts to contacts, supporting docs to journals.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        endpoint: {
+          type: "string",
+          enum: ["Invoices", "CreditNotes", "BankTransactions", "Contacts", "PurchaseOrders", "Quotes", "ManualJournals", "Receipts"],
+          description: "Which Xero object type.",
+        },
+        objectId: { type: "string", description: "Xero object ID (UUID)." },
+        fileName: { type: "string", description: "File name (including extension)." },
+        fileContentBase64: { type: "string", description: "File contents encoded as base64." },
+        contentType: { type: "string", description: "MIME type (default 'application/pdf')." },
+      },
+      required: ["endpoint", "objectId", "fileName", "fileContentBase64"],
+    },
+  },
+  {
+    name: "xero_list_attachments",
+    description: "List all attachments on a Xero object.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        endpoint: {
+          type: "string",
+          enum: ["Invoices", "CreditNotes", "BankTransactions", "Contacts", "PurchaseOrders", "Quotes", "ManualJournals", "Receipts"],
+        },
+        objectId: { type: "string", description: "Xero object ID." },
+      },
+      required: ["endpoint", "objectId"],
     },
   },
   // ─── Portal Stock & Procurement tools ───────────────────────────────────────
@@ -5130,6 +5232,82 @@ async function handleXeroUpdateContact(args: Record<string, unknown>) {
   });
 }
 
+const VALID_HISTORY_ENDPOINTS = [
+  "Invoices", "CreditNotes", "BankTransactions", "Contacts",
+  "PurchaseOrders", "Quotes", "ManualJournals", "Payments",
+  "Receipts", "ExpenseClaims", "Overpayments", "Prepayments",
+] as const;
+
+const VALID_ATTACHMENT_ENDPOINTS = [
+  "Invoices", "CreditNotes", "BankTransactions", "Contacts",
+  "PurchaseOrders", "Quotes", "ManualJournals", "Receipts",
+] as const;
+
+async function handleXeroGetBankStatementLines(args: Record<string, unknown>) {
+  return xeroGetBankStatementLines({
+    bankAccountName: String(args.bankAccountName),
+    dateFrom: typeof args.dateFrom === "string" ? args.dateFrom : undefined,
+    dateTo: typeof args.dateTo === "string" ? args.dateTo : undefined,
+    status: typeof args.status === "string" ? args.status : undefined,
+    limit: typeof args.limit === "number" ? args.limit : undefined,
+  });
+}
+
+async function handleXeroGetBankAccountBalance(args: Record<string, unknown>) {
+  return xeroGetBankAccountBalance({
+    bankAccountName: String(args.bankAccountName),
+    date: typeof args.date === "string" ? args.date : undefined,
+  });
+}
+
+async function handleXeroGetHistory(args: Record<string, unknown>) {
+  const endpoint = args.endpoint as string;
+  if (!VALID_HISTORY_ENDPOINTS.includes(endpoint as typeof VALID_HISTORY_ENDPOINTS[number])) {
+    throw new Error(`Invalid endpoint '${endpoint}'. Must be one of: ${VALID_HISTORY_ENDPOINTS.join(", ")}.`);
+  }
+  return xeroGetHistory(endpoint as typeof VALID_HISTORY_ENDPOINTS[number], String(args.objectId));
+}
+
+async function handleXeroAddHistoryNote(args: Record<string, unknown>) {
+  const endpoint = args.endpoint as string;
+  if (!VALID_HISTORY_ENDPOINTS.includes(endpoint as typeof VALID_HISTORY_ENDPOINTS[number])) {
+    throw new Error(`Invalid endpoint '${endpoint}'. Must be one of: ${VALID_HISTORY_ENDPOINTS.join(", ")}.`);
+  }
+  return xeroAddHistoryNote(
+    endpoint as typeof VALID_HISTORY_ENDPOINTS[number],
+    String(args.objectId),
+    String(args.details)
+  );
+}
+
+async function handleXeroAttachFile(args: Record<string, unknown>) {
+  const endpoint = args.endpoint as string;
+  if (!VALID_ATTACHMENT_ENDPOINTS.includes(endpoint as typeof VALID_ATTACHMENT_ENDPOINTS[number])) {
+    throw new Error(`Invalid endpoint '${endpoint}'. Must be one of: ${VALID_ATTACHMENT_ENDPOINTS.join(", ")}.`);
+  }
+  const base64 = String(args.fileContentBase64 || "");
+  if (!base64) throw new Error("fileContentBase64 is required.");
+  const fileBytes = new Uint8Array(Buffer.from(base64, "base64"));
+  return xeroAttachFile(
+    endpoint as typeof VALID_ATTACHMENT_ENDPOINTS[number],
+    String(args.objectId),
+    String(args.fileName),
+    fileBytes,
+    typeof args.contentType === "string" ? args.contentType : "application/pdf",
+  );
+}
+
+async function handleXeroListAttachments(args: Record<string, unknown>) {
+  const endpoint = args.endpoint as string;
+  if (!VALID_ATTACHMENT_ENDPOINTS.includes(endpoint as typeof VALID_ATTACHMENT_ENDPOINTS[number])) {
+    throw new Error(`Invalid endpoint '${endpoint}'. Must be one of: ${VALID_ATTACHMENT_ENDPOINTS.join(", ")}.`);
+  }
+  return xeroListAttachments(
+    endpoint as typeof VALID_ATTACHMENT_ENDPOINTS[number],
+    String(args.objectId),
+  );
+}
+
 // ─── Portal Stock & Procurement handlers ──────────────────────────────────────
 
 async function handleGetStockItems(args: Record<string, unknown>) {
@@ -6303,6 +6481,12 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
     case "xero_add_tracking_option":   return handleXeroAddTrackingOption(args);
     case "xero_create_contact":        return handleXeroCreateContact(args);
     case "xero_update_contact":        return handleXeroUpdateContact(args);
+    case "xero_get_bank_statement_lines": return handleXeroGetBankStatementLines(args);
+    case "xero_get_bank_account_balance": return handleXeroGetBankAccountBalance(args);
+    case "xero_get_history":           return handleXeroGetHistory(args);
+    case "xero_add_history_note":      return handleXeroAddHistoryNote(args);
+    case "xero_attach_file":           return handleXeroAttachFile(args);
+    case "xero_list_attachments":      return handleXeroListAttachments(args);
     // Portal Stock & Procurement
     case "get_stock_items":            return handleGetStockItems(args);
     case "update_stock_item":          return handleUpdateStockItem(args);

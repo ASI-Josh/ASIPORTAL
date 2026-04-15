@@ -1495,6 +1495,177 @@ export async function xeroCreateBatchPayment(batch: {
   };
 }
 
+// ─── Bank Statements (reconciliation) ───────────────────────────────────────
+
+/**
+ * Fetch statement lines for a specific bank account over a date range.
+ * Use for reconciliation workflows — ATHENA can pull the statement and
+ * match against existing invoices/bills via xero_list_invoices.
+ *
+ * Note: This uses the standard Accounting API /BankTransactions endpoint
+ * filtered by the bank account. For richer reconciliation status data
+ * (matched/unmatched flags) Xero's separate Finance API is needed, which
+ * requires different OAuth scopes.
+ */
+export async function xeroGetBankStatementLines(options: {
+  bankAccountName: string;
+  dateFrom?: string;
+  dateTo?: string;
+  status?: string;        // e.g. "AUTHORISED"
+  limit?: number;
+}): Promise<unknown> {
+  // Look up the bank account
+  const accountsResult = await xeroApi("GET",
+    `/Accounts?where=Name=="${encodeURIComponent(options.bankAccountName)}"%26%26Type=="BANK"`
+  ) as { Accounts?: Array<{ AccountID: string; Name: string; Code: string }> };
+
+  const bankAccount = accountsResult.Accounts?.[0];
+  if (!bankAccount) {
+    throw new Error(`Bank account '${options.bankAccountName}' not found or not a BANK type.`);
+  }
+
+  // Fetch transactions filtered by that bank account
+  let path = "/BankTransactions?page=1";
+  const wheres: string[] = [`BankAccount.AccountID==Guid("${bankAccount.AccountID}")`];
+  if (options.status) wheres.push(`Status=="${options.status}"`);
+  if (options.dateFrom) wheres.push(`Date>=DateTime(${options.dateFrom.replace(/-/g, ",")})`);
+  if (options.dateTo) wheres.push(`Date<=DateTime(${options.dateTo.replace(/-/g, ",")})`);
+  path += `&where=${encodeURIComponent(wheres.join("&&"))}`;
+  if (options.limit) path += `&pageSize=${Math.min(options.limit, 100)}`;
+
+  const transactions = await xeroApi("GET", path);
+
+  return {
+    bankAccount: {
+      accountId: bankAccount.AccountID,
+      code: bankAccount.Code,
+      name: bankAccount.Name,
+    },
+    ...(transactions as Record<string, unknown>),
+  };
+}
+
+/**
+ * Get the running balance for a bank account as of a specific date by
+ * reading the Bank Summary report for that single account over the period.
+ */
+export async function xeroGetBankAccountBalance(options: {
+  bankAccountName: string;
+  date?: string;   // As-at date, ISO. Defaults to today.
+}): Promise<unknown> {
+  // Use the Bank Summary report which gives cash-in/out/balance per bank account
+  const date = options.date || new Date().toISOString().split("T")[0];
+  const report = await xeroApi("GET", `/Reports/BankSummary?fromDate=${date}&toDate=${date}`);
+  return {
+    bankAccountName: options.bankAccountName,
+    date,
+    report,
+  };
+}
+
+// ─── History & Notes ─────────────────────────────────────────────────────────
+
+type XeroHistoryEndpoint =
+  | "Invoices"
+  | "CreditNotes"
+  | "BankTransactions"
+  | "Contacts"
+  | "PurchaseOrders"
+  | "Quotes"
+  | "ManualJournals"
+  | "Payments"
+  | "Receipts"
+  | "ExpenseClaims"
+  | "Overpayments"
+  | "Prepayments";
+
+/**
+ * Read the history and notes trail for any Xero object. Returns a
+ * chronological list of system events, user changes, and manually-added
+ * notes. Useful for audit trails on invoices, bills, contacts, etc.
+ */
+export async function xeroGetHistory(
+  endpoint: XeroHistoryEndpoint,
+  objectId: string
+): Promise<unknown> {
+  return xeroApi("GET", `/${endpoint}/${objectId}/History`);
+}
+
+/**
+ * Add a note to the history of a Xero object. Appears as a manual entry
+ * in the object's history panel alongside system events.
+ */
+export async function xeroAddHistoryNote(
+  endpoint: XeroHistoryEndpoint,
+  objectId: string,
+  details: string
+): Promise<unknown> {
+  return xeroApi("PUT", `/${endpoint}/${objectId}/History`, {
+    HistoryRecords: [{
+      Details: details,
+    }],
+  });
+}
+
+// ─── Generic Attachments ─────────────────────────────────────────────────────
+
+type XeroAttachmentEndpoint =
+  | "Invoices"
+  | "CreditNotes"
+  | "BankTransactions"
+  | "Contacts"
+  | "PurchaseOrders"
+  | "Quotes"
+  | "ManualJournals"
+  | "Receipts";
+
+/**
+ * Attach a file to any Xero object by endpoint + ID. Generic version of
+ * xeroAttachFileToInvoice — works for bills, contacts, quotes, etc.
+ */
+export async function xeroAttachFile(
+  endpoint: XeroAttachmentEndpoint,
+  objectId: string,
+  fileName: string,
+  fileBytes: Uint8Array,
+  contentType = "application/pdf"
+): Promise<{ attachmentId: string; fileName: string }> {
+  const tokens = await getValidTokens();
+  const url = `${XERO_API_BASE}/${endpoint}/${objectId}/Attachments/${encodeURIComponent(fileName)}`;
+
+  const res = await fetch(url, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${tokens.accessToken}`,
+      "xero-tenant-id": tokens.tenantId,
+      "Content-Type": contentType,
+      "Content-Length": String(fileBytes.length),
+    },
+    body: Buffer.from(fileBytes),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Xero attachment upload failed (${res.status}): ${text}`);
+  }
+
+  const data = await res.json() as { Attachments?: Array<{ AttachmentID: string; FileName: string }> };
+  return {
+    attachmentId: data.Attachments?.[0]?.AttachmentID || "",
+    fileName: data.Attachments?.[0]?.FileName || fileName,
+  };
+}
+
+/**
+ * List all attachments on a Xero object.
+ */
+export async function xeroListAttachments(
+  endpoint: XeroAttachmentEndpoint,
+  objectId: string
+): Promise<unknown> {
+  return xeroApi("GET", `/${endpoint}/${objectId}/Attachments`);
+}
+
 // ─── Items / Inventory ────────────────────────────────────────────────────────
 
 export async function xeroListItems(searchTerm?: string): Promise<unknown> {
