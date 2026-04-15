@@ -37,10 +37,18 @@ import {
   xeroListItems, xeroGetItem,
 } from "@/lib/xero";
 import {
-  buildGmailAuthUrl, getGmailAccessToken, gmailGetProfile,
-  gmailListMessages, gmailGetMessage, gmailGetThread,
-  gmailSendMessage, gmailCreateDraft, gmailListDrafts, gmailSendDraft,
-  gmailListLabels, gmailModifyLabels, gmailTrashMessage,
+  buildGmailAuthUrl,
+  gmailGetProfileForAccount,
+  gmailListMessagesForAccount,
+  gmailGetMessageForAccount,
+  gmailGetThreadForAccount,
+  gmailSendMessageForAccount,
+  gmailCreateDraftForAccount,
+  gmailListDraftsForAccount,
+  gmailSendDraftForAccount,
+  gmailListLabelsForAccount,
+  gmailModifyLabelsForAccount,
+  gmailTrashMessageForAccount,
 } from "@/lib/server/gmail";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -2557,28 +2565,52 @@ const TOOLS: McpTool[] = [
     },
   },
 
-  // ─── Gmail tools ───────────────────────────────────────────────────────────
+  // ─── Gmail tools (multi-account) ───────────────────────────────────────────
+  //
+  // All Gmail tools accept an optional `from_account` parameter that
+  // selects the mailbox the operation runs against:
+  //   - "default" (or omit): Joshua's personal mailbox via OAuth
+  //   - "accountmanager": LEDGER mailbox (accountmanager@asi-australia.com.au,
+  //      human name "James Ledger") — service account delegation
+  //   - "development": Sales/pipeline/R&D mailbox
+  //      (development@asi-australia.com.au) — service account delegation
+  //
+  // All send/draft/modify/trash actions are logged to the agentEmailAudit
+  // Firestore collection for full traceability. Pass agent_identity
+  // (e.g. "LEDGER", "SENTINEL") so the audit log captures which agent
+  // initiated the action.
   {
     name: "gmail_connect",
-    description: "Get the Gmail OAuth authorization URL. The user must open this URL in a browser to grant access. Only needed once.",
+    description: "Get the Gmail OAuth authorization URL for the DEFAULT (Joshua's personal) account only. Agent mailboxes use service account delegation and do NOT need OAuth — no gmail_connect call needed for them.",
     inputSchema: { type: "object", properties: {}, required: [] },
   },
   {
     name: "gmail_status",
-    description: "Check Gmail connection status — shows connected email address and token health.",
-    inputSchema: { type: "object", properties: {}, required: [] },
-  },
-  {
-    name: "gmail_get_profile",
-    description: "Get the connected Gmail account profile (email address, total messages, threads).",
-    inputSchema: { type: "object", properties: {}, required: [] },
-  },
-  {
-    name: "gmail_search",
-    description: "Search Gmail inbox using Gmail search syntax. Returns message IDs and snippets. Examples: 'is:unread', 'from:josh', 'subject:invoice after:2026/04/01', 'has:attachment'.",
+    description: "Check Gmail connection status for a specific mailbox. Defaults to Joshua's account if from_account is omitted.",
     inputSchema: {
       type: "object",
       properties: {
+        from_account: { type: "string", description: "Mailbox key: 'default' (Joshua), 'accountmanager' (LEDGER), 'development' (Sales/R&D). Defaults to 'default'." },
+      },
+    },
+  },
+  {
+    name: "gmail_get_profile",
+    description: "Get the profile (email address, total messages, threads) for a specific Gmail mailbox.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        from_account: { type: "string", description: "Mailbox key: 'default', 'accountmanager', 'development'. Defaults to 'default'." },
+      },
+    },
+  },
+  {
+    name: "gmail_search",
+    description: "Search a Gmail mailbox using Gmail search syntax. Returns message IDs and snippets. Examples: 'is:unread', 'from:josh', 'subject:invoice after:2026/04/01', 'has:attachment'.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        from_account: { type: "string", description: "Mailbox to search: 'default', 'accountmanager', 'development'. Defaults to 'default'." },
         query: { type: "string", description: "Gmail search query (same syntax as Gmail search bar)" },
         max_results: { type: "number", description: "Max messages to return (default 20, max 100)" },
         page_token: { type: "string", description: "Pagination token from previous search" },
@@ -2588,10 +2620,11 @@ const TOOLS: McpTool[] = [
   },
   {
     name: "gmail_read_message",
-    description: "Read a specific email message by ID. Returns full headers, body text, and metadata.",
+    description: "Read a specific email message by ID from a mailbox. Returns full headers, body text, and metadata.",
     inputSchema: {
       type: "object",
       properties: {
+        from_account: { type: "string", description: "Mailbox the message lives in. Defaults to 'default'." },
         message_id: { type: "string", description: "Gmail message ID (from gmail_search results)" },
       },
       required: ["message_id"],
@@ -2603,6 +2636,7 @@ const TOOLS: McpTool[] = [
     inputSchema: {
       type: "object",
       properties: {
+        from_account: { type: "string", description: "Mailbox the thread lives in. Defaults to 'default'." },
         thread_id: { type: "string", description: "Gmail thread ID" },
       },
       required: ["thread_id"],
@@ -2610,10 +2644,12 @@ const TOOLS: McpTool[] = [
   },
   {
     name: "gmail_send",
-    description: "Send an email directly from the connected Gmail account. Use for operational emails, client communications, follow-ups.",
+    description: "Send an email from a specific mailbox. Use 'accountmanager' for LEDGER (signs as 'James Ledger'), 'development' for sales/R&D correspondence, or omit from_account for Joshua's personal account. All sends are audit-logged to agentEmailAudit with the agent_identity (pass your agent name e.g. 'LEDGER').",
     inputSchema: {
       type: "object",
       properties: {
+        from_account: { type: "string", description: "Sending mailbox: 'default', 'accountmanager' (LEDGER/James Ledger), 'development' (Sales/R&D)." },
+        agent_identity: { type: "string", description: "Name of the agent sending (e.g. 'LEDGER', 'SENTINEL', 'VANGUARD'). Recorded in the audit log." },
         to: { type: "string", description: "Recipient email address(es), comma-separated for multiple" },
         subject: { type: "string", description: "Email subject line" },
         body: { type: "string", description: "Plain text email body" },
@@ -2628,10 +2664,12 @@ const TOOLS: McpTool[] = [
   },
   {
     name: "gmail_create_draft",
-    description: "Create an email draft for review before sending. Drafts can be reviewed and sent via gmail_send_draft.",
+    description: "Create an email draft in a specific mailbox for review before sending. Logged to the audit trail.",
     inputSchema: {
       type: "object",
       properties: {
+        from_account: { type: "string", description: "Mailbox to draft from: 'default', 'accountmanager', 'development'." },
+        agent_identity: { type: "string", description: "Name of the agent drafting (audit log)." },
         to: { type: "string", description: "Recipient email address(es)" },
         subject: { type: "string", description: "Email subject line" },
         body: { type: "string", description: "Plain text email body" },
@@ -2643,20 +2681,23 @@ const TOOLS: McpTool[] = [
   },
   {
     name: "gmail_list_drafts",
-    description: "List email drafts in the connected Gmail account.",
+    description: "List email drafts in a specific mailbox.",
     inputSchema: {
       type: "object",
       properties: {
+        from_account: { type: "string", description: "Mailbox to list drafts for." },
         max_results: { type: "number", description: "Max drafts to return (default 10)" },
       },
     },
   },
   {
     name: "gmail_send_draft",
-    description: "Send a previously created draft.",
+    description: "Send a previously created draft from a specific mailbox.",
     inputSchema: {
       type: "object",
       properties: {
+        from_account: { type: "string", description: "Mailbox the draft lives in." },
+        agent_identity: { type: "string", description: "Name of the agent sending (audit log)." },
         draft_id: { type: "string", description: "Draft ID to send" },
       },
       required: ["draft_id"],
@@ -2664,15 +2705,22 @@ const TOOLS: McpTool[] = [
   },
   {
     name: "gmail_list_labels",
-    description: "List all Gmail labels (folders) in the connected account.",
-    inputSchema: { type: "object", properties: {}, required: [] },
-  },
-  {
-    name: "gmail_modify_labels",
-    description: "Add or remove labels from a message (move to folder, mark as read/unread, star, archive).",
+    description: "List all Gmail labels (folders) in a specific mailbox.",
     inputSchema: {
       type: "object",
       properties: {
+        from_account: { type: "string", description: "Mailbox to list labels for." },
+      },
+    },
+  },
+  {
+    name: "gmail_modify_labels",
+    description: "Add or remove labels from a message (move to folder, mark read/unread, star, archive). Audit-logged.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        from_account: { type: "string", description: "Mailbox the message lives in." },
+        agent_identity: { type: "string", description: "Name of the agent performing the action (audit log)." },
         message_id: { type: "string", description: "Message ID to modify" },
         add_labels: { type: "array", items: { type: "string" }, description: "Label IDs to add (e.g. 'STARRED', 'IMPORTANT', 'UNREAD')" },
         remove_labels: { type: "array", items: { type: "string" }, description: "Label IDs to remove (e.g. 'UNREAD' to mark as read, 'INBOX' to archive)" },
@@ -2682,13 +2730,30 @@ const TOOLS: McpTool[] = [
   },
   {
     name: "gmail_trash",
-    description: "Move an email to trash.",
+    description: "Move an email to trash. Audit-logged.",
     inputSchema: {
       type: "object",
       properties: {
+        from_account: { type: "string", description: "Mailbox the message lives in." },
+        agent_identity: { type: "string", description: "Name of the agent performing the action (audit log)." },
         message_id: { type: "string", description: "Message ID to trash" },
       },
       required: ["message_id"],
+    },
+  },
+  {
+    name: "agent_email_audit",
+    description:
+      "Query the agent email audit trail. Returns a chronological list of every email action (send, draft, send_draft, modify_labels, trash) taken by any agent mailbox, with full metadata including recipient, subject, body preview, agent identity, and success/error status. Use for compliance, traceability, or debugging agent email behaviour. Filter by accountKey, agentIdentity, action, or success status.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        accountKey: { type: "string", description: "Filter by mailbox key: 'default', 'accountmanager', 'development'." },
+        agentIdentity: { type: "string", description: "Filter by agent name (e.g. 'LEDGER')." },
+        action: { type: "string", enum: ["send", "draft", "send_draft", "modify_labels", "trash"], description: "Filter by action type." },
+        success: { type: "boolean", description: "Filter by success (true) or failures only (false)." },
+        limit: { type: "number", description: "Max entries (default 50, max 500)." },
+      },
     },
   },
   // ─── Agent heartbeat (live status tracking) ─────────────────────────────────
@@ -6668,8 +6733,8 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
 
     // Gmail
     case "gmail_connect":       return handleGmailConnect();
-    case "gmail_status":        return handleGmailStatus();
-    case "gmail_get_profile":   return handleGmailGetProfile();
+    case "gmail_status":        return handleGmailStatus(args);
+    case "gmail_get_profile":   return handleGmailGetProfile(args);
     case "gmail_search":        return handleGmailSearch(args);
     case "gmail_read_message":  return handleGmailReadMessage(args);
     case "gmail_read_thread":   return handleGmailReadThread(args);
@@ -6677,9 +6742,10 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
     case "gmail_create_draft":  return handleGmailCreateDraft(args);
     case "gmail_list_drafts":   return handleGmailListDrafts(args);
     case "gmail_send_draft":    return handleGmailSendDraft(args);
-    case "gmail_list_labels":   return handleGmailListLabels();
+    case "gmail_list_labels":   return handleGmailListLabels(args);
     case "gmail_modify_labels": return handleGmailModifyLabels(args);
     case "gmail_trash":         return handleGmailTrash(args);
+    case "agent_email_audit":   return handleAgentEmailAudit(args);
 
     default:
       throw new Error(`Unknown tool: ${name}`);
@@ -8249,39 +8315,46 @@ async function handleGmailConnect() {
   const { randomBytes } = await import("crypto");
   const state = randomBytes(16).toString("hex");
   const url = buildGmailAuthUrl(state);
-  return { authUrl: url, instructions: "Open this URL in a browser to authorize Gmail access. After authorization, you'll be redirected back and Gmail tools will be fully operational." };
+  return { authUrl: url, instructions: "Open this URL in a browser to authorize Gmail access for Joshua's personal account. Agent mailboxes (accountmanager, development) use service account delegation and do NOT need OAuth." };
 }
 
-async function handleGmailStatus() {
+function getFromAccount(args: Record<string, unknown>): string {
+  const v = args.from_account;
+  return typeof v === "string" && v.trim() ? v.trim() : "default";
+}
+
+function getAgentIdentity(args: Record<string, unknown>): string | undefined {
+  const v = args.agent_identity;
+  return typeof v === "string" && v.trim() ? v.trim() : undefined;
+}
+
+async function handleGmailStatus(args: Record<string, unknown>) {
+  const fromAccount = getFromAccount(args);
   try {
-    const token = await getGmailAccessToken("default");
-    const profile = await gmailGetProfile(token) as { emailAddress?: string; messagesTotal?: number; threadsTotal?: number };
-    return { connected: true, email: profile.emailAddress, messagesTotal: profile.messagesTotal, threadsTotal: profile.threadsTotal };
+    const profile = await gmailGetProfileForAccount(fromAccount) as { emailAddress?: string; messagesTotal?: number; threadsTotal?: number };
+    return { connected: true, fromAccount, email: profile.emailAddress, messagesTotal: profile.messagesTotal, threadsTotal: profile.threadsTotal };
   } catch (err) {
-    return { connected: false, error: err instanceof Error ? err.message : "Not connected" };
+    return { connected: false, fromAccount, error: err instanceof Error ? err.message : "Not connected" };
   }
 }
 
-async function handleGmailGetProfile() {
-  const token = await getGmailAccessToken("default");
-  return gmailGetProfile(token);
+async function handleGmailGetProfile(args: Record<string, unknown>) {
+  return gmailGetProfileForAccount(getFromAccount(args));
 }
 
 async function handleGmailSearch(args: Record<string, unknown>) {
-  const token = await getGmailAccessToken("default");
+  const fromAccount = getFromAccount(args);
   const query = String(args.query || "");
   const maxResults = Math.min(Number(args.max_results) || 20, 100);
   const pageToken = args.page_token ? String(args.page_token) : undefined;
 
-  const list = await gmailListMessages(token, { query, maxResults, pageToken });
+  const list = await gmailListMessagesForAccount(fromAccount, { query, maxResults, pageToken });
   const messages = (list.messages || []) as { id: string; threadId: string }[];
 
-  // Fetch snippets for each message
   const results = await Promise.all(
     messages.slice(0, maxResults).map(async (m) => {
       try {
-        const msg = await gmailGetMessage(token, m.id, "metadata");
-        return msg;
+        return await gmailGetMessageForAccount(fromAccount, m.id, "metadata");
       } catch {
         return { id: m.id, threadId: m.threadId, error: "Failed to fetch" };
       }
@@ -8289,6 +8362,7 @@ async function handleGmailSearch(args: Record<string, unknown>) {
   );
 
   return {
+    fromAccount,
     messages: results,
     count: results.length,
     nextPageToken: list.nextPageToken || null,
@@ -8297,18 +8371,15 @@ async function handleGmailSearch(args: Record<string, unknown>) {
 }
 
 async function handleGmailReadMessage(args: Record<string, unknown>) {
-  const token = await getGmailAccessToken("default");
-  return gmailGetMessage(token, String(args.message_id));
+  return gmailGetMessageForAccount(getFromAccount(args), String(args.message_id));
 }
 
 async function handleGmailReadThread(args: Record<string, unknown>) {
-  const token = await getGmailAccessToken("default");
-  return gmailGetThread(token, String(args.thread_id));
+  return gmailGetThreadForAccount(getFromAccount(args), String(args.thread_id));
 }
 
 async function handleGmailSend(args: Record<string, unknown>) {
-  const token = await getGmailAccessToken("default");
-  return gmailSendMessage(token, {
+  return gmailSendMessageForAccount(getFromAccount(args), {
     to: String(args.to),
     subject: String(args.subject),
     body: String(args.body),
@@ -8317,48 +8388,70 @@ async function handleGmailSend(args: Record<string, unknown>) {
     replyTo: args.reply_to ? String(args.reply_to) : undefined,
     inReplyTo: args.in_reply_to ? String(args.in_reply_to) : undefined,
     threadId: args.thread_id ? String(args.thread_id) : undefined,
+    agentIdentity: getAgentIdentity(args),
   });
 }
 
 async function handleGmailCreateDraft(args: Record<string, unknown>) {
-  const token = await getGmailAccessToken("default");
-  return gmailCreateDraft(token, {
+  return gmailCreateDraftForAccount(getFromAccount(args), {
     to: String(args.to),
     subject: String(args.subject),
     body: String(args.body),
     cc: args.cc ? String(args.cc) : undefined,
     bcc: args.bcc ? String(args.bcc) : undefined,
+    agentIdentity: getAgentIdentity(args),
   });
 }
 
 async function handleGmailListDrafts(args: Record<string, unknown>) {
-  const token = await getGmailAccessToken("default");
-  return gmailListDrafts(token, Number(args.max_results) || 10);
+  return gmailListDraftsForAccount(getFromAccount(args), Number(args.max_results) || 10);
 }
 
 async function handleGmailSendDraft(args: Record<string, unknown>) {
-  const token = await getGmailAccessToken("default");
-  return gmailSendDraft(token, String(args.draft_id));
+  return gmailSendDraftForAccount(
+    getFromAccount(args),
+    String(args.draft_id),
+    getAgentIdentity(args),
+  );
 }
 
-async function handleGmailListLabels() {
-  const token = await getGmailAccessToken("default");
-  return gmailListLabels(token);
+async function handleGmailListLabels(args: Record<string, unknown>) {
+  return gmailListLabelsForAccount(getFromAccount(args));
 }
 
 async function handleGmailModifyLabels(args: Record<string, unknown>) {
-  const token = await getGmailAccessToken("default");
-  return gmailModifyLabels(
-    token,
+  return gmailModifyLabelsForAccount(
+    getFromAccount(args),
     String(args.message_id),
     (args.add_labels as string[]) || [],
     (args.remove_labels as string[]) || [],
+    getAgentIdentity(args),
   );
 }
 
 async function handleGmailTrash(args: Record<string, unknown>) {
-  const token = await getGmailAccessToken("default");
-  return gmailTrashMessage(token, String(args.message_id));
+  return gmailTrashMessageForAccount(
+    getFromAccount(args),
+    String(args.message_id),
+    getAgentIdentity(args),
+  );
+}
+
+async function handleAgentEmailAudit(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  let q: admin.firestore.Query = db.collection(COLLECTIONS.AGENT_EMAIL_AUDIT)
+    .orderBy("createdAt", "desc");
+
+  if (typeof args.accountKey === "string") q = q.where("accountKey", "==", args.accountKey);
+  if (typeof args.agentIdentity === "string") q = q.where("agentIdentity", "==", args.agentIdentity);
+  if (typeof args.action === "string") q = q.where("action", "==", args.action);
+  if (typeof args.success === "boolean") q = q.where("success", "==", args.success);
+
+  const limit = typeof args.limit === "number" ? Math.min(Math.max(1, args.limit), 500) : 50;
+  q = q.limit(limit);
+
+  const snap = await q.get();
+  return snap.docs.map((d) => serializeDoc(d.id, d.data()));
 }
 
 // ─── JSON-RPC helpers ─────────────────────────────────────────────────────────

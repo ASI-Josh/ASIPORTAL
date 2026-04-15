@@ -206,6 +206,38 @@
         { "fieldPath": "status", "order": "ASCENDING" },
         { "fieldPath": "docNumber", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "agentEmailAudit",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "accountKey", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "agentEmailAudit",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "agentIdentity", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "agentEmailAudit",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "action", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "agentEmailAudit",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "success", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []
