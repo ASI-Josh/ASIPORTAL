@@ -825,6 +825,233 @@ export async function xeroCreateBill(bill: {
   };
 }
 
+// ─── Accounts (Chart of Accounts) ────────────────────────────────────────────
+
+export async function xeroListAccounts(options?: {
+  type?: string;        // e.g. "BANK", "REVENUE", "EXPENSE", "CURRLIAB"
+  status?: string;      // "ACTIVE" | "ARCHIVED"
+  name?: string;        // Partial name match
+}): Promise<unknown> {
+  let path = "/Accounts";
+  const wheres: string[] = [];
+  if (options?.type) wheres.push(`Type=="${options.type}"`);
+  if (options?.status) wheres.push(`Status=="${options.status}"`);
+  if (options?.name) wheres.push(`Name.Contains("${options.name}")`);
+  if (wheres.length > 0) path += `?where=${encodeURIComponent(wheres.join("&&"))}`;
+  return xeroApi("GET", path);
+}
+
+// ─── Bank Transactions, Transfers & Batch Payments ──────────────────────────
+
+/**
+ * Create a spend or receive money bank transaction. Use for direct bank
+ * entries that aren't tied to an invoice or bill (e.g. bank fees,
+ * interest received, owner drawings, cash sales).
+ */
+export async function xeroCreateBankTransaction(tx: {
+  type: "SPEND" | "RECEIVE"; // SPEND = money out, RECEIVE = money in
+  contactName: string;       // Payee or payer
+  bankAccountName: string;   // Bank account name (must exist in Xero)
+  date: string;              // ISO date
+  reference?: string;
+  lineItems: Array<{
+    description: string;
+    quantity: number;
+    unitAmount: number;
+    accountCode?: string;    // Revenue/expense account to hit
+    taxType?: string;
+    itemCode?: string;
+  }>;
+  status?: "AUTHORISED" | "DELETED";
+}): Promise<{
+  bankTransactionId: string;
+  status: string;
+  total: number;
+  type: string;
+}> {
+  // Look up bank account
+  const accountsResult = await xeroApi("GET",
+    `/Accounts?where=Name=="${encodeURIComponent(tx.bankAccountName)}"`
+  ) as { Accounts?: Array<{ AccountID: string; Type: string }> };
+  const bankAccount = accountsResult.Accounts?.[0];
+  if (!bankAccount) throw new Error(`Bank account '${tx.bankAccountName}' not found in Xero.`);
+
+  // Find or create contact
+  const contactResult = await xeroApi("GET",
+    `/Contacts?where=Name=="${encodeURIComponent(tx.contactName)}"`
+  ) as { Contacts?: Array<{ ContactID: string }> };
+
+  let contactId: string;
+  if (contactResult.Contacts && contactResult.Contacts.length > 0) {
+    contactId = contactResult.Contacts[0].ContactID;
+  } else {
+    const newContact = await xeroApi("POST", "/Contacts", {
+      Contacts: [{ Name: tx.contactName }],
+    }) as { Contacts: Array<{ ContactID: string }> };
+    contactId = newContact.Contacts[0].ContactID;
+  }
+
+  const isSpend = tx.type === "SPEND";
+  const defaultAccount = isSpend ? "310" : "200";
+  const defaultTax = isSpend ? "INPUT" : "OUTPUT";
+
+  const payload = {
+    BankTransactions: [{
+      Type: tx.type,
+      Contact: { ContactID: contactId },
+      BankAccount: { AccountID: bankAccount.AccountID },
+      Date: tx.date,
+      LineAmountTypes: "Exclusive",
+      Status: tx.status || "AUTHORISED",
+      ...(tx.reference ? { Reference: tx.reference } : {}),
+      LineItems: tx.lineItems.map((li) => ({
+        Description: li.description,
+        Quantity: li.quantity,
+        UnitAmount: li.unitAmount,
+        AccountCode: li.accountCode || defaultAccount,
+        TaxType: li.taxType || defaultTax,
+        ...(li.itemCode ? { ItemCode: li.itemCode } : {}),
+      })),
+    }],
+  };
+
+  const result = await xeroApi("POST", "/BankTransactions", payload) as {
+    BankTransactions: Array<{
+      BankTransactionID: string;
+      Status: string;
+      Total: number;
+      Type: string;
+    }>;
+  };
+
+  const created = result.BankTransactions[0];
+  return {
+    bankTransactionId: created.BankTransactionID,
+    status: created.Status,
+    total: created.Total,
+    type: created.Type,
+  };
+}
+
+export async function xeroListBankTransactions(options?: {
+  bankAccountName?: string;
+  type?: "SPEND" | "RECEIVE";
+  status?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  limit?: number;
+}): Promise<unknown> {
+  let path = "/BankTransactions?page=1";
+  const wheres: string[] = [];
+  if (options?.type) wheres.push(`Type=="${options.type}"`);
+  if (options?.status) wheres.push(`Status=="${options.status}"`);
+  if (options?.bankAccountName) wheres.push(`BankAccount.Name=="${options.bankAccountName}"`);
+  if (options?.dateFrom) wheres.push(`Date>=DateTime(${options.dateFrom.replace(/-/g, ",")})`);
+  if (options?.dateTo) wheres.push(`Date<=DateTime(${options.dateTo.replace(/-/g, ",")})`);
+  if (wheres.length > 0) path += `&where=${encodeURIComponent(wheres.join("&&"))}`;
+  if (options?.limit) path += `&pageSize=${Math.min(options.limit, 100)}`;
+  return xeroApi("GET", path);
+}
+
+/**
+ * Record a transfer between two bank accounts.
+ */
+export async function xeroCreateBankTransfer(transfer: {
+  fromAccountName: string;
+  toAccountName: string;
+  amount: number;
+  date: string;
+  reference?: string;
+}): Promise<{ bankTransferId: string; amount: number; date: string }> {
+  const accountsResult = await xeroApi("GET",
+    `/Accounts?where=Type=="BANK"`
+  ) as { Accounts?: Array<{ AccountID: string; Name: string }> };
+
+  const accounts = accountsResult.Accounts || [];
+  const from = accounts.find(a => a.Name === transfer.fromAccountName);
+  const to = accounts.find(a => a.Name === transfer.toAccountName);
+  if (!from) throw new Error(`From account '${transfer.fromAccountName}' not found.`);
+  if (!to) throw new Error(`To account '${transfer.toAccountName}' not found.`);
+
+  const result = await xeroApi("PUT", "/BankTransfers", {
+    BankTransfers: [{
+      FromBankAccount: { AccountID: from.AccountID },
+      ToBankAccount: { AccountID: to.AccountID },
+      Amount: transfer.amount,
+      Date: transfer.date,
+      ...(transfer.reference ? { Reference: transfer.reference } : {}),
+    }],
+  }) as {
+    BankTransfers: Array<{ BankTransferID: string; Amount: number; Date: string }>;
+  };
+
+  const created = result.BankTransfers[0];
+  return {
+    bankTransferId: created.BankTransferID,
+    amount: created.Amount,
+    date: created.Date,
+  };
+}
+
+/**
+ * Create a batch payment: pay multiple authorised bills/invoices in one
+ * go from a single bank account. Each payment targets an invoice and an
+ * optional line-level reference.
+ */
+export async function xeroCreateBatchPayment(batch: {
+  bankAccountName: string;
+  date: string;
+  reference?: string;
+  narrative?: string;
+  payments: Array<{
+    invoiceId: string;
+    amount: number;
+    reference?: string;
+  }>;
+}): Promise<{
+  batchPaymentId: string;
+  status: string;
+  totalAmount: number;
+  paymentCount: number;
+}> {
+  const accountsResult = await xeroApi("GET",
+    `/Accounts?where=Name=="${encodeURIComponent(batch.bankAccountName)}"`
+  ) as { Accounts?: Array<{ AccountID: string; Type: string }> };
+  const bankAccount = accountsResult.Accounts?.[0];
+  if (!bankAccount) throw new Error(`Bank account '${batch.bankAccountName}' not found in Xero.`);
+
+  const payload = {
+    BatchPayments: [{
+      Account: { AccountID: bankAccount.AccountID },
+      Date: batch.date,
+      ...(batch.reference ? { Reference: batch.reference } : {}),
+      ...(batch.narrative ? { Narrative: batch.narrative } : {}),
+      Payments: batch.payments.map((p) => ({
+        Invoice: { InvoiceID: p.invoiceId },
+        Amount: p.amount,
+        ...(p.reference ? { Reference: p.reference } : {}),
+      })),
+    }],
+  };
+
+  const result = await xeroApi("PUT", "/BatchPayments", payload) as {
+    BatchPayments: Array<{
+      BatchPaymentID: string;
+      Status: string;
+      TotalAmount: number;
+      Payments: unknown[];
+    }>;
+  };
+
+  const created = result.BatchPayments[0];
+  return {
+    batchPaymentId: created.BatchPaymentID,
+    status: created.Status,
+    totalAmount: created.TotalAmount,
+    paymentCount: created.Payments?.length || batch.payments.length,
+  };
+}
+
 // ─── Items / Inventory ────────────────────────────────────────────────────────
 
 export async function xeroListItems(searchTerm?: string): Promise<unknown> {

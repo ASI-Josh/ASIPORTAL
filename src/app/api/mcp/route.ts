@@ -24,6 +24,8 @@ import {
   xeroListContacts, xeroListInvoices, xeroGetConnectionStatus,
   xeroAttachFileToInvoice, xeroSetInvoiceRecipients, xeroCreateBill,
   xeroUpdateInvoice, xeroVoidInvoice, xeroCreateCreditNote, xeroRecordPayment,
+  xeroListAccounts, xeroCreateBankTransaction, xeroListBankTransactions,
+  xeroCreateBankTransfer, xeroCreateBatchPayment,
   xeroCreatePurchaseOrder, xeroSendPurchaseOrder, xeroGetPurchaseOrder,
   xeroListItems, xeroGetItem,
 } from "@/lib/xero";
@@ -1411,6 +1413,111 @@ const TOOLS: McpTool[] = [
         reference: { type: "string", description: "Optional payment reference." },
       },
       required: ["invoiceId", "accountName", "date", "amount"],
+    },
+  },
+  {
+    name: "xero_list_accounts",
+    description:
+      "List accounts from the Xero chart of accounts. Filter by type (BANK, REVENUE, EXPENSE, CURRLIAB, etc.), status (ACTIVE/ARCHIVED), or partial name match. Use to verify account codes before creating invoices/bills, or find bank accounts for payments and transfers.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        type: { type: "string", description: "Account type filter: BANK, REVENUE, EXPENSE, CURRLIAB, CURRENT, FIXED, INVENTORY, etc." },
+        status: { type: "string", enum: ["ACTIVE", "ARCHIVED"], description: "Filter by status." },
+        name: { type: "string", description: "Partial name match (e.g. 'Mastercard')." },
+      },
+    },
+  },
+  {
+    name: "xero_create_bank_transaction",
+    description:
+      "Create a SPEND (money out) or RECEIVE (money in) bank transaction directly against a bank account. Use for direct entries that aren't tied to an invoice/bill — e.g. bank fees, interest, cash sales, owner drawings, ad-hoc expenses. Status defaults to AUTHORISED.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        type: { type: "string", enum: ["SPEND", "RECEIVE"], description: "SPEND = money out, RECEIVE = money in." },
+        contactName: { type: "string", description: "Payee (for SPEND) or payer (for RECEIVE). Created in Xero if not found." },
+        bankAccountName: { type: "string", description: "Bank account name (must exist in Xero)." },
+        date: { type: "string", description: "Transaction date (ISO)." },
+        reference: { type: "string", description: "Optional reference." },
+        lineItems: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              description: { type: "string" },
+              quantity: { type: "number" },
+              unitAmount: { type: "number", description: "Amount ex-GST." },
+              accountCode: { type: "string", description: "Default '310' for SPEND, '200' for RECEIVE." },
+              taxType: { type: "string", description: "Default 'INPUT' for SPEND, 'OUTPUT' for RECEIVE." },
+              itemCode: { type: "string", description: "Optional Xero item code." },
+            },
+            required: ["description", "quantity", "unitAmount"],
+          },
+        },
+        status: { type: "string", enum: ["AUTHORISED", "DELETED"], description: "Default 'AUTHORISED'." },
+      },
+      required: ["type", "contactName", "bankAccountName", "date", "lineItems"],
+    },
+  },
+  {
+    name: "xero_list_bank_transactions",
+    description:
+      "List bank transactions with filters. Use for bank reconciliation workflows — find all SPEND/RECEIVE entries on a specific bank account in a date range.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        bankAccountName: { type: "string", description: "Filter by bank account name." },
+        type: { type: "string", enum: ["SPEND", "RECEIVE"], description: "Filter by direction." },
+        status: { type: "string", description: "Filter by status (AUTHORISED, DELETED, etc.)." },
+        dateFrom: { type: "string", description: "ISO date — transactions on/after this date." },
+        dateTo: { type: "string", description: "ISO date — transactions on/before this date." },
+        limit: { type: "number", description: "Max results (default 50, max 100)." },
+      },
+    },
+  },
+  {
+    name: "xero_create_bank_transfer",
+    description:
+      "Record a transfer between two bank accounts in Xero (e.g. moving funds from savings to operating, or owner contributions).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        fromAccountName: { type: "string", description: "Source bank account name." },
+        toAccountName: { type: "string", description: "Destination bank account name." },
+        amount: { type: "number", description: "Transfer amount." },
+        date: { type: "string", description: "Transfer date (ISO)." },
+        reference: { type: "string", description: "Optional reference." },
+      },
+      required: ["fromAccountName", "toAccountName", "amount", "date"],
+    },
+  },
+  {
+    name: "xero_create_batch_payment",
+    description:
+      "Create a batch payment: pay multiple authorised bills or invoices in one go from a single bank account. Each payment targets a specific invoice by ID. Use for end-of-month supplier runs or bulk customer refunds.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        bankAccountName: { type: "string", description: "Source bank account name." },
+        date: { type: "string", description: "Payment date (ISO)." },
+        reference: { type: "string", description: "Optional batch reference (e.g. 'March supplier run')." },
+        narrative: { type: "string", description: "Optional narrative shown on the batch payment." },
+        payments: {
+          type: "array",
+          description: "Array of individual payments, one per invoice/bill.",
+          items: {
+            type: "object",
+            properties: {
+              invoiceId: { type: "string", description: "Xero InvoiceID to pay." },
+              amount: { type: "number", description: "Payment amount (inc GST)." },
+              reference: { type: "string", description: "Optional per-payment reference." },
+            },
+            required: ["invoiceId", "amount"],
+          },
+        },
+      },
+      required: ["bankAccountName", "date", "payments"],
     },
   },
   // ─── Portal Stock & Procurement tools ───────────────────────────────────────
@@ -4519,6 +4626,67 @@ async function handleXeroRecordPayment(args: Record<string, unknown>) {
   });
 }
 
+async function handleXeroListAccounts(args: Record<string, unknown>) {
+  return xeroListAccounts({
+    type: typeof args.type === "string" ? args.type : undefined,
+    status: typeof args.status === "string" ? args.status : undefined,
+    name: typeof args.name === "string" ? args.name : undefined,
+  });
+}
+
+async function handleXeroCreateBankTransaction(args: Record<string, unknown>) {
+  const type = args.type as string;
+  if (type !== "SPEND" && type !== "RECEIVE") {
+    throw new Error("type must be 'SPEND' or 'RECEIVE'.");
+  }
+  const status = args.status as string | undefined;
+  return xeroCreateBankTransaction({
+    type,
+    contactName: String(args.contactName),
+    bankAccountName: String(args.bankAccountName),
+    date: String(args.date),
+    reference: typeof args.reference === "string" ? args.reference : undefined,
+    lineItems: (args.lineItems as Array<{
+      description: string; quantity: number; unitAmount: number;
+      accountCode?: string; taxType?: string; itemCode?: string;
+    }>) || [],
+    status: status === "DELETED" ? "DELETED" : "AUTHORISED",
+  });
+}
+
+async function handleXeroListBankTransactions(args: Record<string, unknown>) {
+  return xeroListBankTransactions({
+    bankAccountName: typeof args.bankAccountName === "string" ? args.bankAccountName : undefined,
+    type: args.type === "SPEND" || args.type === "RECEIVE" ? args.type : undefined,
+    status: typeof args.status === "string" ? args.status : undefined,
+    dateFrom: typeof args.dateFrom === "string" ? args.dateFrom : undefined,
+    dateTo: typeof args.dateTo === "string" ? args.dateTo : undefined,
+    limit: typeof args.limit === "number" ? args.limit : undefined,
+  });
+}
+
+async function handleXeroCreateBankTransfer(args: Record<string, unknown>) {
+  return xeroCreateBankTransfer({
+    fromAccountName: String(args.fromAccountName),
+    toAccountName: String(args.toAccountName),
+    amount: Number(args.amount),
+    date: String(args.date),
+    reference: typeof args.reference === "string" ? args.reference : undefined,
+  });
+}
+
+async function handleXeroCreateBatchPayment(args: Record<string, unknown>) {
+  return xeroCreateBatchPayment({
+    bankAccountName: String(args.bankAccountName),
+    date: String(args.date),
+    reference: typeof args.reference === "string" ? args.reference : undefined,
+    narrative: typeof args.narrative === "string" ? args.narrative : undefined,
+    payments: (args.payments as Array<{
+      invoiceId: string; amount: number; reference?: string;
+    }>) || [],
+  });
+}
+
 // ─── Portal Stock & Procurement handlers ──────────────────────────────────────
 
 async function handleGetStockItems(args: Record<string, unknown>) {
@@ -5674,6 +5842,11 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
     case "xero_void_invoice":          return handleXeroVoidInvoice(args);
     case "xero_create_credit_note":    return handleXeroCreateCreditNote(args);
     case "xero_record_payment":        return handleXeroRecordPayment(args);
+    case "xero_list_accounts":         return handleXeroListAccounts(args);
+    case "xero_create_bank_transaction": return handleXeroCreateBankTransaction(args);
+    case "xero_list_bank_transactions": return handleXeroListBankTransactions(args);
+    case "xero_create_bank_transfer":  return handleXeroCreateBankTransfer(args);
+    case "xero_create_batch_payment":  return handleXeroCreateBatchPayment(args);
     // Portal Stock & Procurement
     case "get_stock_items":            return handleGetStockItems(args);
     case "update_stock_item":          return handleUpdateStockItem(args);
