@@ -30,13 +30,16 @@ The approach uses **Google Workspace service account domain-wide delegation** �
 6. **Skip** the optional "Grant users access" step
 7. Click **Done**
 
-## Step 3 — Enable domain-wide delegation on the service account
+## Step 3 — Get the service account's Client ID for delegation
+
+> **Note:** Google's Cloud Console UI auto-enables domain-wide delegation capability as soon as you view the service account's advanced settings. There is no "Enable Domain-wide Delegation" button any more — just an informational Client ID that's ready to use.
 
 1. In the service accounts list, click your new `asi-agent-mailbox-delegation` account
 2. Go to the **Details** tab
 3. Expand **Advanced settings**
-4. Click **Enable Google Workspace Domain-wide Delegation**
-5. **Copy the OAuth Client ID** that appears — you'll need it in Step 5. It's a long number ending in `.apps.googleusercontent.com` or just a numeric string.
+4. You'll see a **Domain-wide delegation** section with a **Client ID** (a long numeric string like `112841073435876504066`). **Copy this Client ID** — you need it in Step 5.
+5. **DO NOT** click "Create Google Workspace Marketplace-compatible OAuth client" — that's a different (and riskier) feature for Marketplace app developers. We don't need it.
+6. You can optionally click "View Google Workspace Admin Console" to jump directly to the delegation authorisation page for Step 5.
 
 ## Step 4 — Create a JSON key for the service account
 
