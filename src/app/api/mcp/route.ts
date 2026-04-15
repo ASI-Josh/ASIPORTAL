@@ -2756,6 +2756,355 @@ const TOOLS: McpTool[] = [
       },
     },
   },
+  // ─── R&D & Grants Management (ARCHER / Sophie Archer) ──────────────────────
+  //
+  // Three linked collections power Sophie's domain: rndProjects,
+  // grantApplications, rndOpportunityLog. Approval chain for projects and
+  // grants is Archer → ATHENA → Director.
+  {
+    name: "create_rnd_project",
+    description:
+      "Create a new R&D project in Sophie Archer's programme register. Auto-generates a project number (RND-YYYY-NNNN). Default leadAgent is ARCHER. Project starts in 'scoping' phase with 'active' status. ATHENA and Director approvals are created as 'pending' on the project and must be approved separately before moving past scoping for projects with estimatedBudget > $50k.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        title: { type: "string" },
+        shortDescription: { type: "string", description: "1-liner for list views." },
+        domain: { type: "string", enum: ["product", "process", "platform", "capability", "research"] },
+        phase: { type: "string", enum: ["scoping", "feasibility", "design", "prototype", "pilot", "validation", "production", "on_hold", "archived"], description: "Default: scoping." },
+        priority: { type: "string", enum: ["low", "medium", "high", "critical"], description: "Default: medium." },
+        leadAgent: { type: "string", description: "Default: ARCHER." },
+        sponsorAgent: { type: "string" },
+        stakeholders: { type: "array", items: { type: "string" }, description: "Other agent codenames involved." },
+        relatedProducts: { type: "array", items: { type: "string" }, description: "APEAX product IDs e.g. ['grafshield']." },
+        modernisationPath: { type: "string", description: "Free text: which strategic pathway this supports." },
+        estimatedBudget: { type: "number" },
+        targetCompletionDate: { type: "string", description: "ISO date." },
+        deliverables: { type: "array", items: { type: "string" } },
+        sourcedFrom: {
+          type: "object",
+          properties: {
+            type: { type: "string", enum: ["opportunity_log", "grant_opportunity", "director_mandate", "management_meeting", "reactive", "gap_analysis"] },
+            reference: { type: "string", description: "Opportunity ID or meeting reference." },
+            note: { type: "string" },
+          },
+        },
+        notes: { type: "string" },
+      },
+      required: ["title", "shortDescription", "domain"],
+    },
+  },
+  {
+    name: "get_rnd_project",
+    description: "Get a single R&D project by ID.",
+    inputSchema: {
+      type: "object",
+      properties: { projectId: { type: "string" } },
+      required: ["projectId"],
+    },
+  },
+  {
+    name: "get_rnd_projects",
+    description: "List R&D projects from Sophie's register. Filter by phase, status, domain, or leadAgent.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        phase: { type: "string", enum: ["scoping", "feasibility", "design", "prototype", "pilot", "validation", "production", "on_hold", "archived"] },
+        status: { type: "string", enum: ["active", "on_hold", "completed", "cancelled"] },
+        domain: { type: "string", enum: ["product", "process", "platform", "capability", "research"] },
+        leadAgent: { type: "string" },
+        limit: { type: "number", description: "Default 50, max 200." },
+      },
+    },
+  },
+  {
+    name: "update_rnd_project",
+    description:
+      "Update an existing R&D project. Supports phase transitions, status changes, adding/replacing risks and KPIs, linking IMS document IDs, recording approvals, and updating budget. Phase/status changes append a statusLog entry automatically.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: { type: "string" },
+        phase: { type: "string", enum: ["scoping", "feasibility", "design", "prototype", "pilot", "validation", "production", "on_hold", "archived"] },
+        status: { type: "string", enum: ["active", "on_hold", "completed", "cancelled"] },
+        priority: { type: "string", enum: ["low", "medium", "high", "critical"] },
+        title: { type: "string" },
+        shortDescription: { type: "string" },
+        modernisationPath: { type: "string" },
+        estimatedBudget: { type: "number" },
+        targetCompletionDate: { type: "string" },
+        deliverables: { type: "array", items: { type: "string" } },
+        stakeholders: { type: "array", items: { type: "string" } },
+        relatedProducts: { type: "array", items: { type: "string" } },
+        kpis: {
+          type: "array",
+          description: "Full KPI list — replaces existing.",
+          items: { type: "object", properties: {
+            name: { type: "string" }, target: { type: "string" }, currentValue: { type: "string" }, unit: { type: "string" },
+          }, required: ["name", "target"] },
+        },
+        risks: {
+          type: "array",
+          description: "Full risk list — replaces existing.",
+          items: { type: "object", properties: {
+            risk: { type: "string" }, severity: { type: "string", enum: ["low", "medium", "high", "critical"] },
+            mitigation: { type: "string" }, owner: { type: "string" },
+          }, required: ["risk", "severity", "mitigation"] },
+        },
+        imsDocumentIds: { type: "array", items: { type: "string" }, description: "Manual links to existing IMS documents." },
+        imsComplianceStatus: { type: "string", enum: ["compliant", "non_conformance", "pending_audit"] },
+        changeNote: { type: "string", description: "Optional note for the statusLog entry." },
+        changedBy: { type: "string", description: "Agent name recording the change. Default: system." },
+      },
+      required: ["projectId"],
+    },
+  },
+  {
+    name: "record_rnd_project_approval",
+    description:
+      "Record an approval decision on an R&D project. Archer designs the proposal, then ATHENA reviews, then Director gives final go/no-go. Use approver='ATHENA' for ATHENA's review, approver='DIRECTOR' for the Director's final decision.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: { type: "string" },
+        approver: { type: "string", enum: ["ATHENA", "DIRECTOR"] },
+        decision: { type: "string", enum: ["approved", "rejected"] },
+        note: { type: "string" },
+        decidedBy: { type: "string", description: "Agent name / user making the decision." },
+      },
+      required: ["projectId", "approver", "decision"],
+    },
+  },
+  {
+    name: "log_rnd_project_spend",
+    description:
+      "Record actual spend against an R&D project budget. Adds to actualSpendToDate. Use for tracking run-rate against estimatedBudget.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: { type: "string" },
+        amount: { type: "number", description: "Incremental spend to add (AUD)." },
+        note: { type: "string" },
+      },
+      required: ["projectId", "amount"],
+    },
+  },
+  // ─── Grants Pipeline ───────────────────────────────────────────────────────
+  {
+    name: "create_grant_application",
+    description:
+      "Create a new grant application in Sophie's grants pipeline. Auto-generates a grant number (GRT-YYYY-NNNN). Default stage is 'monitoring' unless otherwise specified. Approval chain is Archer → ATHENA → Director.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        programmeName: { type: "string", description: "e.g. 'R&D Tax Incentive (RDTI)'." },
+        programmeBody: { type: "string", description: "e.g. 'AusIndustry', 'Victorian Gov'." },
+        programmeUrl: { type: "string" },
+        roundName: { type: "string" },
+        stage: { type: "string", enum: ["monitoring", "scoping", "drafting", "internal_review", "submitted", "under_review", "interview_stage", "approved", "rejected", "withdrawn", "acquitted"], description: "Default: monitoring." },
+        fundingType: { type: "string", enum: ["grant", "tax_offset", "rebate", "loan", "equity_match"] },
+        awardValue: { type: "number", description: "Potential / estimated award value." },
+        linkedRndProjectIds: { type: "array", items: { type: "string" }, description: "R&D project IDs this grant would fund." },
+        roundOpensAt: { type: "string", description: "ISO date — when applications open." },
+        submissionDeadline: { type: "string", description: "ISO date — hard deadline." },
+        expectedDecisionDate: { type: "string" },
+        acquittalDueDate: { type: "string" },
+        notes: { type: "string" },
+      },
+      required: ["programmeName", "programmeBody", "fundingType"],
+    },
+  },
+  {
+    name: "get_grant_application",
+    description: "Get a single grant application by ID.",
+    inputSchema: {
+      type: "object",
+      properties: { grantId: { type: "string" } },
+      required: ["grantId"],
+    },
+  },
+  {
+    name: "get_grant_applications",
+    description: "List grant applications. Filter by stage, programmeBody, fundingType, or awarded status.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        stage: { type: "string", enum: ["monitoring", "scoping", "drafting", "internal_review", "submitted", "under_review", "interview_stage", "approved", "rejected", "withdrawn", "acquitted"] },
+        programmeBody: { type: "string" },
+        fundingType: { type: "string", enum: ["grant", "tax_offset", "rebate", "loan", "equity_match"] },
+        awardedOnly: { type: "boolean", description: "If true, only return grants in approved or acquitted stage." },
+        limit: { type: "number", description: "Default 50, max 200." },
+      },
+    },
+  },
+  {
+    name: "update_grant_application",
+    description:
+      "Update a grant application — move through stages, update requirements, link projects, update dates. Stage changes append to statusLog.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        grantId: { type: "string" },
+        stage: { type: "string", enum: ["monitoring", "scoping", "drafting", "internal_review", "submitted", "under_review", "interview_stage", "approved", "rejected", "withdrawn", "acquitted"] },
+        awardValue: { type: "number" },
+        awardedAmount: { type: "number", description: "Set when stage moves to approved." },
+        requirements: {
+          type: "array",
+          description: "Full requirements list — replaces existing.",
+          items: {
+            type: "object",
+            properties: {
+              requirement: { type: "string" },
+              status: { type: "string", enum: ["pending", "in_progress", "complete", "blocked"] },
+              dueDate: { type: "string" },
+              notes: { type: "string" },
+            },
+            required: ["requirement", "status"],
+          },
+        },
+        linkedRndProjectIds: { type: "array", items: { type: "string" } },
+        submissionDeadline: { type: "string" },
+        expectedDecisionDate: { type: "string" },
+        acquittalDueDate: { type: "string" },
+        draftDocumentIds: { type: "array", items: { type: "string" } },
+        submittedDocumentIds: { type: "array", items: { type: "string" } },
+        changeNote: { type: "string" },
+        changedBy: { type: "string" },
+      },
+      required: ["grantId"],
+    },
+  },
+  {
+    name: "record_grant_internal_approval",
+    description:
+      "Record an approval decision on a grant application. Archer proposes, ATHENA reviews, Director decides. Use approver='ATHENA' or approver='DIRECTOR'.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        grantId: { type: "string" },
+        approver: { type: "string", enum: ["ATHENA", "DIRECTOR"] },
+        decision: { type: "string", enum: ["approved", "rejected"] },
+        note: { type: "string" },
+        decidedBy: { type: "string" },
+      },
+      required: ["grantId", "approver", "decision"],
+    },
+  },
+  {
+    name: "log_grant_compliance_event",
+    description:
+      "Track post-award compliance events for an awarded grant: submit a required report, mark a milestone achieved, or flag overdue. Use for acquittal tracking on approved grants.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        grantId: { type: "string" },
+        eventType: { type: "string", enum: ["report_submitted", "milestone_achieved", "milestone_missed", "report_accepted", "compliance_flag"] },
+        referenceName: { type: "string", description: "Name of the report or milestone being updated." },
+        note: { type: "string" },
+      },
+      required: ["grantId", "eventType", "referenceName"],
+    },
+  },
+  {
+    name: "get_grants_dashboard",
+    description:
+      "Summary dashboard for the grants pipeline: total awarded YTD, applications in flight (by stage), upcoming submission deadlines (next 30 days), overdue compliance events, recent grant activity. Single-call overview for Sophie's weekly briefing.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  // ─── R&D Opportunity Log ───────────────────────────────────────────────────
+  {
+    name: "log_rnd_opportunity",
+    description:
+      "Drop a signal into Sophie's R&D opportunity log. Any agent can log an opportunity (SENTINEL from client patterns, VANGUARD from supplier innovations, GUARDIAN from audit findings, etc.). Auto-generates an opportunity number (OPP-YYYY-NNNN). Starts in 'new' status, awaiting Archer's review.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        title: { type: "string" },
+        description: { type: "string", description: "Full context on what was observed." },
+        type: { type: "string", enum: ["client_pattern", "supplier_innovation", "market_gap", "technology_signal", "regulatory_change", "internal_gap"] },
+        sourcedBy: { type: "string", description: "Agent codename logging the signal: SENTINEL, VANGUARD, GUARDIAN, ATHENA, etc." },
+        sourceContext: { type: "string", description: "e.g. 'Weekly management meeting 2026-04-16'." },
+        sourceReferences: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              type: { type: "string", enum: ["lead", "osint_scan", "meeting", "audit_finding", "external_report", "other"] },
+              id: { type: "string" },
+              note: { type: "string" },
+            },
+            required: ["type"],
+          },
+        },
+        notes: { type: "string" },
+      },
+      required: ["title", "description", "type", "sourcedBy"],
+    },
+  },
+  {
+    name: "get_rnd_opportunities",
+    description: "List R&D opportunities from Sophie's log. Filter by status, type, or source agent.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        status: { type: "string", enum: ["new", "under_review", "accepted", "parked", "rejected", "converted"] },
+        type: { type: "string", enum: ["client_pattern", "supplier_innovation", "market_gap", "technology_signal", "regulatory_change", "internal_gap"] },
+        sourcedBy: { type: "string", description: "Filter by the agent that logged the opportunity." },
+        limit: { type: "number", description: "Default 50, max 200." },
+      },
+    },
+  },
+  {
+    name: "get_opportunities_awaiting_review",
+    description:
+      "Sophie's inbox — opportunities in 'new' or 'under_review' status, sorted newest first. Plus parked items whose parkedUntil date is today or earlier (ready for revisit). Use for Sophie's weekly triage workflow.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: { type: "number", description: "Default 50." },
+      },
+    },
+  },
+  {
+    name: "review_rnd_opportunity",
+    description:
+      "Sophie's review action on an opportunity. Scores it across 4 dimensions (strategic fit, technical feasibility, funding potential, impact size — 0-10 each) and sets the decision: accept, park (with parkedUntil date), or reject.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        opportunityId: { type: "string" },
+        decision: { type: "string", enum: ["accept", "park", "reject"] },
+        strategicFit: { type: "number", description: "0-10." },
+        technicalFeasibility: { type: "number" },
+        fundingPotential: { type: "number" },
+        impactSize: { type: "number" },
+        reviewNotes: { type: "string" },
+        parkedUntil: { type: "string", description: "ISO date if decision=park." },
+        rejectionReason: { type: "string", description: "If decision=reject." },
+        reviewedBy: { type: "string", description: "Default: ARCHER." },
+      },
+      required: ["opportunityId", "decision"],
+    },
+  },
+  {
+    name: "convert_opportunity_to_project",
+    description:
+      "Graduate an accepted opportunity into a new R&D project. Creates the project record (pre-populated from the opportunity), updates the opportunity status to 'converted' and sets its convertedToProjectId. The resulting project starts in scoping phase awaiting approval.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        opportunityId: { type: "string" },
+        title: { type: "string", description: "Project title. Defaults to opportunity title." },
+        shortDescription: { type: "string", description: "Defaults to opportunity description." },
+        domain: { type: "string", enum: ["product", "process", "platform", "capability", "research"] },
+        priority: { type: "string", enum: ["low", "medium", "high", "critical"] },
+        estimatedBudget: { type: "number" },
+        targetCompletionDate: { type: "string" },
+        leadAgent: { type: "string", description: "Default: ARCHER." },
+      },
+      required: ["opportunityId", "domain"],
+    },
+  },
   // ─── Agent heartbeat (live status tracking) ─────────────────────────────────
   {
     name: "agent_heartbeat",
@@ -4359,6 +4708,713 @@ async function handleGetLeadsRegisterStats(args: Record<string, unknown>) {
     supply_chain: buildStreamStats("supply_chain"),
     sales: buildStreamStats("sales"),
     trade_distribution: buildStreamStats("trade_distribution"),
+  };
+}
+
+// ─── R&D & Grants Management handlers (ARCHER / Sophie Archer) ───────────────
+
+/**
+ * Auto-number helper for R&D / Grants / Opportunity documents.
+ * Uses a per-year sequence stored in rndCounters collection, matching
+ * the pattern used by LD-/INC-/etc. auto-numbering elsewhere.
+ */
+async function nextRndNumber(prefix: "RND" | "GRT" | "OPP"): Promise<string> {
+  const year = new Date().getFullYear();
+  const db = admin.firestore();
+  const counterRef = db.collection(COLLECTIONS.RND_COUNTERS).doc(prefix.toLowerCase());
+  let num = 1;
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(counterRef);
+    const data = snap.data() as { seq?: number; year?: number } | undefined;
+    if (!snap.exists || data?.year !== year) {
+      tx.set(counterRef, { seq: 1, year });
+      num = 1;
+    } else {
+      num = (data?.seq || 0) + 1;
+      tx.update(counterRef, { seq: num });
+    }
+  });
+  return `${prefix}-${year}-${String(num).padStart(4, "0")}`;
+}
+
+/**
+ * Strip undefined values from an object before writing to Firestore.
+ * Firestore rejects documents containing undefined — this mirrors the
+ * pattern used in gmail audit logging.
+ */
+function stripUndefined<T extends Record<string, unknown>>(obj: T): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (v !== undefined) out[k] = v;
+  }
+  return out;
+}
+
+// ─── R&D Projects ────────────────────────────────────────────────────────────
+
+async function handleCreateRndProject(args: Record<string, unknown>) {
+  if (!args.title) throw new Error("title is required.");
+  if (!args.shortDescription) throw new Error("shortDescription is required.");
+  if (!args.domain) throw new Error("domain is required.");
+
+  const db = admin.firestore();
+  const projectNumber = await nextRndNumber("RND");
+  const now = admin.firestore.FieldValue.serverTimestamp();
+  const nowIso = new Date().toISOString();
+
+  const estimatedBudget = typeof args.estimatedBudget === "number" ? args.estimatedBudget : undefined;
+  const requiresDirectorApproval = estimatedBudget !== undefined && estimatedBudget > 50000;
+
+  const payload = stripUndefined({
+    projectNumber,
+    title: String(args.title),
+    shortDescription: String(args.shortDescription),
+    phase: typeof args.phase === "string" ? args.phase : "scoping",
+    status: "active",
+    priority: typeof args.priority === "string" ? args.priority : "medium",
+    leadAgent: typeof args.leadAgent === "string" ? args.leadAgent : "ARCHER",
+    sponsorAgent: typeof args.sponsorAgent === "string" ? args.sponsorAgent : undefined,
+    stakeholders: Array.isArray(args.stakeholders) ? args.stakeholders : undefined,
+    domain: String(args.domain),
+    relatedProducts: Array.isArray(args.relatedProducts) ? args.relatedProducts : undefined,
+    modernisationPath: typeof args.modernisationPath === "string" ? args.modernisationPath : undefined,
+    estimatedBudget,
+    actualSpendToDate: 0,
+    fundingSources: [],
+    approvals: {
+      athena: { decision: "pending", approver: "ATHENA" },
+      director: { decision: "pending", approver: "DIRECTOR" },
+    },
+    requiresDirectorApproval,
+    targetCompletionDate: typeof args.targetCompletionDate === "string" ? args.targetCompletionDate : undefined,
+    deliverables: Array.isArray(args.deliverables) ? args.deliverables : undefined,
+    kpis: [],
+    risks: [],
+    imsDocumentIds: [],
+    sourcedFrom: args.sourcedFrom && typeof args.sourcedFrom === "object" ? args.sourcedFrom : undefined,
+    statusLog: [{
+      phase: typeof args.phase === "string" ? args.phase : "scoping",
+      status: "active",
+      changedAt: nowIso,
+      changedBy: typeof args.leadAgent === "string" ? args.leadAgent : "ARCHER",
+      note: "Project created",
+    }],
+    notes: typeof args.notes === "string" ? args.notes : undefined,
+    createdAt: now,
+    createdBy: typeof args.leadAgent === "string" ? args.leadAgent : "ARCHER",
+    updatedAt: now,
+  });
+
+  const ref = await db.collection(COLLECTIONS.RND_PROJECTS).add(payload);
+  const doc = await ref.get();
+  return serializeDoc(doc.id, doc.data()!);
+}
+
+async function handleGetRndProject(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const snap = await db.collection(COLLECTIONS.RND_PROJECTS).doc(String(args.projectId)).get();
+  if (!snap.exists) throw new Error(`R&D project '${args.projectId}' not found.`);
+  return serializeDoc(snap.id, snap.data()!);
+}
+
+async function handleGetRndProjects(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  let q: admin.firestore.Query = db.collection(COLLECTIONS.RND_PROJECTS)
+    .orderBy("updatedAt", "desc");
+  if (typeof args.phase === "string") q = q.where("phase", "==", args.phase);
+  if (typeof args.status === "string") q = q.where("status", "==", args.status);
+  if (typeof args.domain === "string") q = q.where("domain", "==", args.domain);
+  if (typeof args.leadAgent === "string") q = q.where("leadAgent", "==", args.leadAgent);
+  const limit = typeof args.limit === "number" ? Math.min(Math.max(1, args.limit), 200) : 50;
+  q = q.limit(limit);
+  const snap = await q.get();
+  return snap.docs.map((d) => serializeDoc(d.id, d.data()));
+}
+
+async function handleUpdateRndProject(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const id = String(args.projectId);
+  const ref = db.collection(COLLECTIONS.RND_PROJECTS).doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) throw new Error(`R&D project '${id}' not found.`);
+  const existing = snap.data()!;
+
+  const updates: Record<string, unknown> = { updatedAt: admin.firestore.FieldValue.serverTimestamp() };
+
+  const stringFields = ["phase", "status", "priority", "title", "shortDescription", "modernisationPath", "targetCompletionDate", "imsComplianceStatus"];
+  for (const f of stringFields) {
+    if (typeof args[f] === "string") updates[f] = args[f];
+  }
+  if (typeof args.estimatedBudget === "number") {
+    updates.estimatedBudget = args.estimatedBudget;
+    updates.requiresDirectorApproval = args.estimatedBudget > 50000;
+  }
+  const arrayFields = ["deliverables", "stakeholders", "relatedProducts", "kpis", "risks", "imsDocumentIds"];
+  for (const f of arrayFields) {
+    if (Array.isArray(args[f])) updates[f] = args[f];
+  }
+
+  // Append to statusLog if phase or status changed
+  if (typeof args.phase === "string" || typeof args.status === "string") {
+    const statusLog = (existing.statusLog as unknown[]) || [];
+    statusLog.push(stripUndefined({
+      phase: typeof args.phase === "string" ? args.phase : undefined,
+      status: typeof args.status === "string" ? args.status : undefined,
+      changedAt: new Date().toISOString(),
+      changedBy: typeof args.changedBy === "string" ? args.changedBy : "system",
+      note: typeof args.changeNote === "string" ? args.changeNote : undefined,
+    }));
+    updates.statusLog = statusLog;
+  }
+
+  await ref.update(updates);
+  const updated = await ref.get();
+  return serializeDoc(updated.id, updated.data()!);
+}
+
+async function handleRecordRndProjectApproval(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const id = String(args.projectId);
+  const approver = args.approver as "ATHENA" | "DIRECTOR";
+  const decision = args.decision as "approved" | "rejected";
+
+  const ref = db.collection(COLLECTIONS.RND_PROJECTS).doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) throw new Error(`R&D project '${id}' not found.`);
+  const existing = snap.data()!;
+
+  const key = approver === "ATHENA" ? "athena" : "director";
+  const approvals = (existing.approvals as Record<string, unknown>) || {};
+  approvals[key] = stripUndefined({
+    decision,
+    approver,
+    decidedAt: new Date().toISOString(),
+    decidedBy: typeof args.decidedBy === "string" ? args.decidedBy : approver,
+    note: typeof args.note === "string" ? args.note : undefined,
+  });
+
+  const statusLog = (existing.statusLog as unknown[]) || [];
+  statusLog.push({
+    changedAt: new Date().toISOString(),
+    changedBy: typeof args.decidedBy === "string" ? args.decidedBy : approver,
+    note: `${approver} ${decision}${typeof args.note === "string" ? `: ${args.note}` : ""}`,
+  });
+
+  await ref.update({
+    approvals,
+    statusLog,
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+  const updated = await ref.get();
+  return serializeDoc(updated.id, updated.data()!);
+}
+
+async function handleLogRndProjectSpend(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const id = String(args.projectId);
+  const amount = Number(args.amount);
+  if (!Number.isFinite(amount) || amount <= 0) throw new Error("amount must be a positive number.");
+
+  const ref = db.collection(COLLECTIONS.RND_PROJECTS).doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) throw new Error(`R&D project '${id}' not found.`);
+  const existing = snap.data()!;
+  const current = typeof existing.actualSpendToDate === "number" ? existing.actualSpendToDate : 0;
+  const newTotal = current + amount;
+
+  const statusLog = (existing.statusLog as unknown[]) || [];
+  statusLog.push({
+    changedAt: new Date().toISOString(),
+    changedBy: "LEDGER",
+    note: `Spend logged: +$${amount.toFixed(2)} (total: $${newTotal.toFixed(2)})${typeof args.note === "string" ? ` — ${args.note}` : ""}`,
+  });
+
+  await ref.update({
+    actualSpendToDate: newTotal,
+    statusLog,
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+
+  return { projectId: id, amountAdded: amount, actualSpendToDate: newTotal };
+}
+
+// ─── Grants Pipeline ─────────────────────────────────────────────────────────
+
+async function handleCreateGrantApplication(args: Record<string, unknown>) {
+  if (!args.programmeName) throw new Error("programmeName is required.");
+  if (!args.programmeBody) throw new Error("programmeBody is required.");
+  if (!args.fundingType) throw new Error("fundingType is required.");
+
+  const db = admin.firestore();
+  const grantNumber = await nextRndNumber("GRT");
+  const now = admin.firestore.FieldValue.serverTimestamp();
+  const stage = typeof args.stage === "string" ? args.stage : "monitoring";
+
+  const payload = stripUndefined({
+    grantNumber,
+    programmeName: String(args.programmeName),
+    programmeBody: String(args.programmeBody),
+    programmeUrl: typeof args.programmeUrl === "string" ? args.programmeUrl : undefined,
+    roundName: typeof args.roundName === "string" ? args.roundName : undefined,
+    stage,
+    fundingType: String(args.fundingType),
+    awardValue: typeof args.awardValue === "number" ? args.awardValue : undefined,
+    linkedRndProjectIds: Array.isArray(args.linkedRndProjectIds) ? args.linkedRndProjectIds : [],
+    requirements: [],
+    roundOpensAt: typeof args.roundOpensAt === "string" ? args.roundOpensAt : undefined,
+    submissionDeadline: typeof args.submissionDeadline === "string" ? args.submissionDeadline : undefined,
+    expectedDecisionDate: typeof args.expectedDecisionDate === "string" ? args.expectedDecisionDate : undefined,
+    acquittalDueDate: typeof args.acquittalDueDate === "string" ? args.acquittalDueDate : undefined,
+    internalApprovals: {
+      athena: { decision: "pending", approver: "ATHENA" },
+      director: { decision: "pending", approver: "DIRECTOR" },
+    },
+    draftDocumentIds: [],
+    submittedDocumentIds: [],
+    compliance: { reportsRequired: [], milestonesRequired: [] },
+    statusLog: [{
+      stage,
+      changedAt: new Date().toISOString(),
+      changedBy: "ARCHER",
+      note: "Grant application created",
+    }],
+    notes: typeof args.notes === "string" ? args.notes : undefined,
+    createdAt: now,
+    createdBy: "ARCHER",
+    updatedAt: now,
+  });
+
+  const ref = await db.collection(COLLECTIONS.GRANT_APPLICATIONS).add(payload);
+  const doc = await ref.get();
+  return serializeDoc(doc.id, doc.data()!);
+}
+
+async function handleGetGrantApplication(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const snap = await db.collection(COLLECTIONS.GRANT_APPLICATIONS).doc(String(args.grantId)).get();
+  if (!snap.exists) throw new Error(`Grant application '${args.grantId}' not found.`);
+  return serializeDoc(snap.id, snap.data()!);
+}
+
+async function handleGetGrantApplications(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  let q: admin.firestore.Query = db.collection(COLLECTIONS.GRANT_APPLICATIONS)
+    .orderBy("updatedAt", "desc");
+  if (typeof args.stage === "string") q = q.where("stage", "==", args.stage);
+  if (typeof args.programmeBody === "string") q = q.where("programmeBody", "==", args.programmeBody);
+  if (typeof args.fundingType === "string") q = q.where("fundingType", "==", args.fundingType);
+  const limit = typeof args.limit === "number" ? Math.min(Math.max(1, args.limit), 200) : 50;
+  q = q.limit(limit);
+  const snap = await q.get();
+  let results = snap.docs.map((d) => serializeDoc(d.id, d.data()));
+  if (args.awardedOnly === true) {
+    results = results.filter((r) => r.stage === "approved" || r.stage === "acquitted");
+  }
+  return results;
+}
+
+async function handleUpdateGrantApplication(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const id = String(args.grantId);
+  const ref = db.collection(COLLECTIONS.GRANT_APPLICATIONS).doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) throw new Error(`Grant application '${id}' not found.`);
+  const existing = snap.data()!;
+
+  const updates: Record<string, unknown> = { updatedAt: admin.firestore.FieldValue.serverTimestamp() };
+
+  const stringFields = ["stage", "submissionDeadline", "expectedDecisionDate", "acquittalDueDate"];
+  for (const f of stringFields) {
+    if (typeof args[f] === "string") updates[f] = args[f];
+  }
+  if (typeof args.awardValue === "number") updates.awardValue = args.awardValue;
+  if (typeof args.awardedAmount === "number") updates.awardedAmount = args.awardedAmount;
+
+  const arrayFields = ["requirements", "linkedRndProjectIds", "draftDocumentIds", "submittedDocumentIds"];
+  for (const f of arrayFields) {
+    if (Array.isArray(args[f])) updates[f] = args[f];
+  }
+
+  // Auto-set submittedAt when stage moves to submitted
+  if (args.stage === "submitted" && !existing.submittedAt) {
+    updates.submittedAt = admin.firestore.FieldValue.serverTimestamp();
+  }
+  // Auto-set decisionReceivedAt when stage moves to approved/rejected
+  if ((args.stage === "approved" || args.stage === "rejected") && !existing.decisionReceivedAt) {
+    updates.decisionReceivedAt = admin.firestore.FieldValue.serverTimestamp();
+  }
+
+  // Append to statusLog if stage changed
+  if (typeof args.stage === "string" && args.stage !== existing.stage) {
+    const statusLog = (existing.statusLog as unknown[]) || [];
+    statusLog.push(stripUndefined({
+      stage: args.stage,
+      changedAt: new Date().toISOString(),
+      changedBy: typeof args.changedBy === "string" ? args.changedBy : "system",
+      note: typeof args.changeNote === "string" ? args.changeNote : undefined,
+    }));
+    updates.statusLog = statusLog;
+  }
+
+  await ref.update(updates);
+  const updated = await ref.get();
+  return serializeDoc(updated.id, updated.data()!);
+}
+
+async function handleRecordGrantInternalApproval(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const id = String(args.grantId);
+  const approver = args.approver as "ATHENA" | "DIRECTOR";
+  const decision = args.decision as "approved" | "rejected";
+
+  const ref = db.collection(COLLECTIONS.GRANT_APPLICATIONS).doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) throw new Error(`Grant application '${id}' not found.`);
+  const existing = snap.data()!;
+
+  const key = approver === "ATHENA" ? "athena" : "director";
+  const internalApprovals = (existing.internalApprovals as Record<string, unknown>) || {};
+  internalApprovals[key] = stripUndefined({
+    decision,
+    approver,
+    decidedAt: new Date().toISOString(),
+    decidedBy: typeof args.decidedBy === "string" ? args.decidedBy : approver,
+    note: typeof args.note === "string" ? args.note : undefined,
+  });
+
+  const statusLog = (existing.statusLog as unknown[]) || [];
+  statusLog.push({
+    stage: String(existing.stage || "scoping"),
+    changedAt: new Date().toISOString(),
+    changedBy: typeof args.decidedBy === "string" ? args.decidedBy : approver,
+    note: `${approver} ${decision}${typeof args.note === "string" ? `: ${args.note}` : ""}`,
+  });
+
+  await ref.update({
+    internalApprovals,
+    statusLog,
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+  const updated = await ref.get();
+  return serializeDoc(updated.id, updated.data()!);
+}
+
+async function handleLogGrantComplianceEvent(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const id = String(args.grantId);
+  const eventType = String(args.eventType);
+  const refName = String(args.referenceName);
+
+  const ref = db.collection(COLLECTIONS.GRANT_APPLICATIONS).doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) throw new Error(`Grant application '${id}' not found.`);
+  const existing = snap.data()!;
+
+  const compliance = (existing.compliance as Record<string, unknown>) || { reportsRequired: [], milestonesRequired: [] };
+  const reports = (compliance.reportsRequired as Array<Record<string, unknown>>) || [];
+  const milestones = (compliance.milestonesRequired as Array<Record<string, unknown>>) || [];
+
+  if (eventType === "report_submitted" || eventType === "report_accepted") {
+    const idx = reports.findIndex((r) => r.reportType === refName);
+    const now = new Date().toISOString();
+    if (idx >= 0) {
+      reports[idx].status = eventType === "report_submitted" ? "submitted" : "accepted";
+      if (eventType === "report_submitted") reports[idx].submittedAt = now;
+    } else {
+      reports.push({
+        reportType: refName,
+        dueDate: now.split("T")[0],
+        status: eventType === "report_submitted" ? "submitted" : "accepted",
+        submittedAt: eventType === "report_submitted" ? now : undefined,
+      });
+    }
+  } else if (eventType === "milestone_achieved" || eventType === "milestone_missed") {
+    const idx = milestones.findIndex((m) => m.milestone === refName);
+    const now = new Date().toISOString();
+    if (idx >= 0) {
+      milestones[idx].status = eventType === "milestone_achieved" ? "achieved" : "missed";
+      if (eventType === "milestone_achieved") milestones[idx].achievedAt = now;
+    } else {
+      milestones.push({
+        milestone: refName,
+        dueDate: now.split("T")[0],
+        status: eventType === "milestone_achieved" ? "achieved" : "missed",
+        achievedAt: eventType === "milestone_achieved" ? now : undefined,
+      });
+    }
+  }
+
+  compliance.reportsRequired = reports;
+  compliance.milestonesRequired = milestones;
+
+  const statusLog = (existing.statusLog as unknown[]) || [];
+  statusLog.push({
+    stage: String(existing.stage || "approved"),
+    changedAt: new Date().toISOString(),
+    changedBy: "ARCHER",
+    note: `Compliance: ${eventType} — ${refName}${typeof args.note === "string" ? ` (${args.note})` : ""}`,
+  });
+
+  await ref.update({
+    compliance,
+    statusLog,
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+  const updated = await ref.get();
+  return serializeDoc(updated.id, updated.data()!);
+}
+
+async function handleGetGrantsDashboard() {
+  const db = admin.firestore();
+  const snap = await db.collection(COLLECTIONS.GRANT_APPLICATIONS).get();
+  const grants = snap.docs.map((d) => ({ id: d.id, ...d.data() })) as Array<Record<string, unknown>>;
+
+  const currentYear = new Date().getFullYear();
+  const today = new Date().toISOString().split("T")[0];
+  const thirtyDaysOut = new Date(Date.now() + 30 * 86400_000).toISOString().split("T")[0];
+
+  const byStage: Record<string, number> = {};
+  let totalAwardedYtd = 0;
+  let totalPotentialInFlight = 0;
+  const upcomingDeadlines: Array<Record<string, unknown>> = [];
+  const overdueCompliance: Array<Record<string, unknown>> = [];
+
+  for (const g of grants) {
+    const stage = String(g.stage || "monitoring");
+    byStage[stage] = (byStage[stage] || 0) + 1;
+
+    // Awarded YTD
+    if ((stage === "approved" || stage === "acquitted") && g.decisionReceivedAt) {
+      const decided = g.decisionReceivedAt as { toMillis?: () => number } | undefined;
+      if (decided?.toMillis && new Date(decided.toMillis()).getFullYear() === currentYear) {
+        if (typeof g.awardedAmount === "number") totalAwardedYtd += g.awardedAmount;
+      }
+    }
+
+    // Potential in flight
+    const inFlight = ["scoping", "drafting", "internal_review", "submitted", "under_review", "interview_stage"];
+    if (inFlight.includes(stage) && typeof g.awardValue === "number") {
+      totalPotentialInFlight += g.awardValue;
+    }
+
+    // Upcoming submission deadlines (next 30 days)
+    if (typeof g.submissionDeadline === "string" && g.submissionDeadline >= today && g.submissionDeadline <= thirtyDaysOut) {
+      upcomingDeadlines.push({
+        grantId: g.id,
+        grantNumber: g.grantNumber,
+        programmeName: g.programmeName,
+        submissionDeadline: g.submissionDeadline,
+        stage,
+      });
+    }
+
+    // Overdue compliance
+    const compliance = g.compliance as { reportsRequired?: Array<Record<string, unknown>>; milestonesRequired?: Array<Record<string, unknown>> } | undefined;
+    if (compliance) {
+      for (const r of compliance.reportsRequired || []) {
+        if (r.status === "pending" && typeof r.dueDate === "string" && r.dueDate < today) {
+          overdueCompliance.push({
+            grantId: g.id,
+            grantNumber: g.grantNumber,
+            type: "report",
+            item: r.reportType,
+            dueDate: r.dueDate,
+          });
+        }
+      }
+      for (const m of compliance.milestonesRequired || []) {
+        if (m.status === "pending" && typeof m.dueDate === "string" && m.dueDate < today) {
+          overdueCompliance.push({
+            grantId: g.id,
+            grantNumber: g.grantNumber,
+            type: "milestone",
+            item: m.milestone,
+            dueDate: m.dueDate,
+          });
+        }
+      }
+    }
+  }
+
+  upcomingDeadlines.sort((a, b) => String(a.submissionDeadline).localeCompare(String(b.submissionDeadline)));
+
+  return {
+    totalApplications: grants.length,
+    byStage,
+    totalAwardedYtd,
+    totalPotentialInFlight,
+    upcomingDeadlines,
+    overdueCompliance,
+    generatedAt: new Date().toISOString(),
+  };
+}
+
+// ─── R&D Opportunity Log ─────────────────────────────────────────────────────
+
+async function handleLogRndOpportunity(args: Record<string, unknown>) {
+  if (!args.title) throw new Error("title is required.");
+  if (!args.description) throw new Error("description is required.");
+  if (!args.type) throw new Error("type is required.");
+  if (!args.sourcedBy) throw new Error("sourcedBy is required.");
+
+  const db = admin.firestore();
+  const opportunityNumber = await nextRndNumber("OPP");
+  const now = admin.firestore.FieldValue.serverTimestamp();
+
+  const payload = stripUndefined({
+    opportunityNumber,
+    title: String(args.title),
+    description: String(args.description),
+    type: String(args.type),
+    sourcedBy: String(args.sourcedBy),
+    sourceContext: typeof args.sourceContext === "string" ? args.sourceContext : undefined,
+    sourceReferences: Array.isArray(args.sourceReferences) ? args.sourceReferences : undefined,
+    status: "new",
+    notes: typeof args.notes === "string" ? args.notes : undefined,
+    createdAt: now,
+    createdBy: String(args.sourcedBy),
+    updatedAt: now,
+  });
+
+  const ref = await db.collection(COLLECTIONS.RND_OPPORTUNITY_LOG).add(payload);
+  const doc = await ref.get();
+  return serializeDoc(doc.id, doc.data()!);
+}
+
+async function handleGetRndOpportunities(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  let q: admin.firestore.Query = db.collection(COLLECTIONS.RND_OPPORTUNITY_LOG)
+    .orderBy("createdAt", "desc");
+  if (typeof args.status === "string") q = q.where("status", "==", args.status);
+  if (typeof args.type === "string") q = q.where("type", "==", args.type);
+  if (typeof args.sourcedBy === "string") q = q.where("sourcedBy", "==", args.sourcedBy);
+  const limit = typeof args.limit === "number" ? Math.min(Math.max(1, args.limit), 200) : 50;
+  q = q.limit(limit);
+  const snap = await q.get();
+  return snap.docs.map((d) => serializeDoc(d.id, d.data()));
+}
+
+async function handleGetOpportunitiesAwaitingReview(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const limit = typeof args.limit === "number" ? Math.min(Math.max(1, args.limit), 200) : 50;
+  const today = new Date().toISOString().split("T")[0];
+
+  // New + under_review queue
+  const pendingSnap = await db.collection(COLLECTIONS.RND_OPPORTUNITY_LOG)
+    .where("status", "in", ["new", "under_review"])
+    .orderBy("createdAt", "desc")
+    .limit(limit)
+    .get();
+  const pending = pendingSnap.docs.map((d) => serializeDoc(d.id, d.data()));
+
+  // Parked opportunities ready for revisit
+  const parkedSnap = await db.collection(COLLECTIONS.RND_OPPORTUNITY_LOG)
+    .where("status", "==", "parked")
+    .limit(limit)
+    .get();
+  const readyForRevisit = parkedSnap.docs
+    .map((d) => serializeDoc(d.id, d.data()))
+    .filter((o) => typeof o.parkedUntil === "string" && o.parkedUntil <= today);
+
+  return {
+    pending,
+    readyForRevisit,
+    pendingCount: pending.length,
+    revisitCount: readyForRevisit.length,
+  };
+}
+
+async function handleReviewRndOpportunity(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const id = String(args.opportunityId);
+  const decision = args.decision as "accept" | "park" | "reject";
+
+  const ref = db.collection(COLLECTIONS.RND_OPPORTUNITY_LOG).doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) throw new Error(`Opportunity '${id}' not found.`);
+
+  const updates: Record<string, unknown> = {
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  };
+
+  // Score (if any dimension provided)
+  const hasAnyScore = ["strategicFit", "technicalFeasibility", "fundingPotential", "impactSize"]
+    .some((f) => typeof args[f] === "number");
+  if (hasAnyScore) {
+    const strategicFit = typeof args.strategicFit === "number" ? args.strategicFit : 0;
+    const technicalFeasibility = typeof args.technicalFeasibility === "number" ? args.technicalFeasibility : 0;
+    const fundingPotential = typeof args.fundingPotential === "number" ? args.fundingPotential : 0;
+    const impactSize = typeof args.impactSize === "number" ? args.impactSize : 0;
+    const overall = (strategicFit + technicalFeasibility + fundingPotential + impactSize) / 4;
+    updates.reviewScore = stripUndefined({
+      strategicFit,
+      technicalFeasibility,
+      fundingPotential,
+      impactSize,
+      overall: Math.round(overall * 10) / 10,
+      reviewedAt: new Date().toISOString(),
+      reviewedBy: typeof args.reviewedBy === "string" ? args.reviewedBy : "ARCHER",
+      reviewNotes: typeof args.reviewNotes === "string" ? args.reviewNotes : undefined,
+    });
+  }
+
+  // Decision
+  if (decision === "accept") {
+    updates.status = "accepted";
+  } else if (decision === "park") {
+    updates.status = "parked";
+    if (typeof args.parkedUntil === "string") updates.parkedUntil = args.parkedUntil;
+  } else if (decision === "reject") {
+    updates.status = "rejected";
+    if (typeof args.rejectionReason === "string") updates.rejectionReason = args.rejectionReason;
+  }
+
+  await ref.update(updates);
+  const updated = await ref.get();
+  return serializeDoc(updated.id, updated.data()!);
+}
+
+async function handleConvertOpportunityToProject(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const oppId = String(args.opportunityId);
+  const oppRef = db.collection(COLLECTIONS.RND_OPPORTUNITY_LOG).doc(oppId);
+  const oppSnap = await oppRef.get();
+  if (!oppSnap.exists) throw new Error(`Opportunity '${oppId}' not found.`);
+  const opp = oppSnap.data()!;
+
+  // Create the project, prefilled from the opportunity
+  const projectArgs: Record<string, unknown> = {
+    title: typeof args.title === "string" ? args.title : String(opp.title),
+    shortDescription: typeof args.shortDescription === "string"
+      ? args.shortDescription
+      : String(opp.description).slice(0, 200),
+    domain: String(args.domain),
+    priority: typeof args.priority === "string" ? args.priority : "medium",
+    estimatedBudget: typeof args.estimatedBudget === "number" ? args.estimatedBudget : undefined,
+    targetCompletionDate: typeof args.targetCompletionDate === "string" ? args.targetCompletionDate : undefined,
+    leadAgent: typeof args.leadAgent === "string" ? args.leadAgent : "ARCHER",
+    sourcedFrom: {
+      type: "opportunity_log",
+      reference: oppId,
+      note: `Converted from opportunity ${opp.opportunityNumber}`,
+    },
+    notes: `Converted from opportunity ${opp.opportunityNumber} (${opp.title}). Original signal from ${opp.sourcedBy}.`,
+  };
+
+  const project = await handleCreateRndProject(projectArgs);
+  const projectId = (project as { id: string }).id;
+
+  // Update the opportunity
+  await oppRef.update({
+    status: "converted",
+    convertedToProjectId: projectId,
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+
+  return {
+    opportunityId: oppId,
+    projectId,
+    project,
   };
 }
 
@@ -6514,6 +7570,25 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
     case "get_leads_register_weekly_shortlist": return handleGetLeadsRegisterWeeklyShortlist(args);
     case "get_leads_register_active_pursuits":  return handleGetLeadsRegisterActivePursuits(args);
     case "get_leads_register_stats":    return handleGetLeadsRegisterStats(args);
+    // R&D & Grants Management (ARCHER / Sophie Archer)
+    case "create_rnd_project":                return handleCreateRndProject(args);
+    case "get_rnd_project":                   return handleGetRndProject(args);
+    case "get_rnd_projects":                  return handleGetRndProjects(args);
+    case "update_rnd_project":                return handleUpdateRndProject(args);
+    case "record_rnd_project_approval":       return handleRecordRndProjectApproval(args);
+    case "log_rnd_project_spend":             return handleLogRndProjectSpend(args);
+    case "create_grant_application":          return handleCreateGrantApplication(args);
+    case "get_grant_application":             return handleGetGrantApplication(args);
+    case "get_grant_applications":            return handleGetGrantApplications(args);
+    case "update_grant_application":          return handleUpdateGrantApplication(args);
+    case "record_grant_internal_approval":    return handleRecordGrantInternalApproval(args);
+    case "log_grant_compliance_event":        return handleLogGrantComplianceEvent(args);
+    case "get_grants_dashboard":              return handleGetGrantsDashboard();
+    case "log_rnd_opportunity":               return handleLogRndOpportunity(args);
+    case "get_rnd_opportunities":             return handleGetRndOpportunities(args);
+    case "get_opportunities_awaiting_review": return handleGetOpportunitiesAwaitingReview(args);
+    case "review_rnd_opportunity":            return handleReviewRndOpportunity(args);
+    case "convert_opportunity_to_project":    return handleConvertOpportunityToProject(args);
     // Contact Lookup
     case "contact_lookup":              return handleContactLookup(args);
     // Email Templates

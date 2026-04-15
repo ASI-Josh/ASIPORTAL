@@ -73,7 +73,7 @@ const AGENTS: AgentOverviewDef[] = [
     color: "text-fuchsia-400",
     borderColor: "border-fuchsia-500/30",
     bgGlow: "from-fuchsia-500/10 via-fuchsia-500/5 to-transparent",
-    description: "R&D programme coordination, grant identification & applications, innovation funding pipeline. Reports via James Ledger.",
+    description: "R&D project register, grants pipeline, opportunity log. Intake from management meetings. Reports via James Ledger.",
     email: "development@asi-australia.com.au",
     emailSignatureNote: "R&D preset signature",
   },

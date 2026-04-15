@@ -336,6 +336,43 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    match /rndProjects/{projectId} {
+      // R&D project register — Sophie Archer's domain. Staff can read
+      // and create; updates allowed by staff (includes GUARDIAN audit
+      // updates). Deletion restricted to admin for data integrity.
+      allow read: if isStaff();
+      allow create: if isStaff();
+      allow update: if isStaff();
+      allow delete: if isAdmin();
+    }
+
+    match /grantApplications/{grantId} {
+      // Grant applications pipeline — commercially sensitive but staff
+      // need visibility for cross-agent coordination (LEDGER for budget,
+      // ATHENA for review, GUARDIAN for compliance).
+      allow read: if isStaff();
+      allow create: if isStaff();
+      allow update: if isStaff();
+      allow delete: if isAdmin();
+    }
+
+    match /rndOpportunityLog/{opportunityId} {
+      // Opportunity signals dropped by any agent for Sophie to review.
+      // Staff read/write so SENTINEL, VANGUARD, GUARDIAN etc. can all
+      // contribute signals.
+      allow read: if isStaff();
+      allow create: if isStaff();
+      allow update: if isStaff();
+      allow delete: if isAdmin();
+    }
+
+    match /rndCounters/{counterId} {
+      // Auto-numbering counters for RND / GRT / OPP document IDs.
+      // Admin-only because they're system integrity artefacts.
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
     // KPI Traceability Module (staff full access, clients can read own org data)
     match /fuelRecords/{docId} {
       allow read: if isStaff() || (signedIn() && resource.data.organizationId == userOrgId());

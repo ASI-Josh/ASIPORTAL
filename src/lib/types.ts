@@ -2498,3 +2498,329 @@ export interface EmailTemplate {
   approvedBy?: string;
   approvedAt?: Timestamp;
 }
+
+// ============================================
+// R&D & GRANTS MANAGEMENT (SOPHIE ARCHER / ARCHER)
+// ============================================
+//
+// Three linked collections drive Sophie's domain:
+//   1. rndProjects          — the R&D project register
+//   2. grantApplications    — the grants pipeline (pursued grants)
+//   3. rndOpportunityLog    — signals dropped by other agents for Sophie to review
+//
+// Approval chain for projects and grants: Archer designs the proposal,
+// ATHENA reviews, Director (Josh) gives final go/no-go. Same two-gate
+// chain is used for any budget sign-off.
+
+export type RndProjectPhase =
+  | "scoping"
+  | "feasibility"
+  | "design"
+  | "prototype"
+  | "pilot"
+  | "validation"
+  | "production"
+  | "on_hold"
+  | "archived";
+
+export type RndProjectStatus = "active" | "on_hold" | "completed" | "cancelled";
+
+export type RndProjectPriority = "low" | "medium" | "high" | "critical";
+
+export type RndProjectDomain =
+  | "product"       // Net-new product R&D (e.g. a new film formulation)
+  | "process"       // Operational process improvement (e.g. installation method)
+  | "platform"      // Software / portal / data platform work
+  | "capability"    // Organisational capability (team skills, infrastructure)
+  | "research";     // Pure research / horizon-scanning without immediate deliverable
+
+export interface RndProjectFundingSource {
+  sourceType: "self_funded" | "grant" | "partner" | "client";
+  reference?: string;  // Grant application ID, partner name, client reference
+  amount: number;
+  notes?: string;
+}
+
+export interface RndProjectKpi {
+  name: string;
+  target: string;
+  currentValue?: string;
+  unit?: string;
+}
+
+export interface RndProjectRisk {
+  risk: string;
+  severity: "low" | "medium" | "high" | "critical";
+  mitigation: string;
+  owner?: string;
+}
+
+export interface RndProjectApproval {
+  decision: "pending" | "approved" | "rejected";
+  approver: "ATHENA" | "DIRECTOR";
+  decidedAt?: Timestamp;
+  decidedBy?: string;
+  note?: string;
+}
+
+export interface RndProjectSourceRef {
+  type:
+    | "opportunity_log"
+    | "grant_opportunity"
+    | "director_mandate"
+    | "management_meeting"
+    | "reactive"
+    | "gap_analysis";
+  reference?: string;
+  note?: string;
+}
+
+export interface RndProjectStatusLogEntry {
+  phase?: RndProjectPhase;
+  status?: RndProjectStatus;
+  changedAt: Timestamp;
+  changedBy: string;
+  note?: string;
+}
+
+export interface RndProject {
+  id: string;
+  projectNumber: string;           // Auto-generated e.g. "RND-2026-0001"
+  title: string;
+  shortDescription: string;
+
+  // Lifecycle
+  phase: RndProjectPhase;
+  status: RndProjectStatus;
+  priority: RndProjectPriority;
+
+  // Ownership & stakeholders
+  leadAgent: string;               // Default "ARCHER"
+  sponsorAgent?: string;
+  stakeholders?: string[];
+
+  // Classification
+  domain: RndProjectDomain;
+  relatedProducts?: string[];      // e.g. ["grafshield", "optishield"]
+  modernisationPath?: string;
+
+  // Budget & funding
+  estimatedBudget?: number;
+  actualSpendToDate?: number;
+  fundingSources?: RndProjectFundingSource[];
+
+  // Approval (Archer designs → ATHENA → Director)
+  approvals?: {
+    athena?: RndProjectApproval;
+    director?: RndProjectApproval;
+  };
+  requiresDirectorApproval?: boolean; // True if budget > $50k or high-risk
+
+  // Timeline
+  startedAt?: Timestamp;
+  targetCompletionDate?: string;   // ISO
+  actualCompletionDate?: Timestamp;
+
+  // IMS linkage (manual only — created via GUARDIAN's normal doc control flow)
+  imsDocumentIds?: string[];
+  imsComplianceStatus?: "compliant" | "non_conformance" | "pending_audit";
+  lastGuardianAuditAt?: Timestamp;
+
+  // Outputs
+  deliverables?: string[];
+  kpis?: RndProjectKpi[];
+  risks?: RndProjectRisk[];
+
+  // Source
+  sourcedFrom?: RndProjectSourceRef;
+
+  // Audit
+  createdAt: Timestamp;
+  createdBy: string;
+  updatedAt: Timestamp;
+  statusLog: RndProjectStatusLogEntry[];
+
+  notes?: string;
+}
+
+// ─── Grants Pipeline ─────────────────────────────────────────────────────
+
+export type GrantApplicationStage =
+  | "monitoring"        // Aware of programme, watching for open rounds
+  | "scoping"           // Assessing fit and requirements
+  | "drafting"          // Writing the application
+  | "internal_review"   // ATHENA / Director review pending
+  | "submitted"         // Lodged with grantor
+  | "under_review"      // Grantor is reviewing
+  | "interview_stage"   // Grantor requested additional info/meeting
+  | "approved"          // Awarded
+  | "rejected"          // Declined
+  | "withdrawn"         // We pulled it
+  | "acquitted";        // All compliance obligations met, case closed
+
+export type GrantFundingType =
+  | "grant"
+  | "tax_offset"
+  | "rebate"
+  | "loan"
+  | "equity_match";
+
+export interface GrantRequirement {
+  requirement: string;
+  status: "pending" | "in_progress" | "complete" | "blocked";
+  dueDate?: string;
+  notes?: string;
+}
+
+export interface GrantApproval {
+  decision: "pending" | "approved" | "rejected";
+  approver: "ATHENA" | "DIRECTOR";
+  decidedAt?: Timestamp;
+  decidedBy?: string;
+  note?: string;
+}
+
+export interface GrantComplianceReport {
+  reportType: string;
+  dueDate: string;
+  status: "pending" | "submitted" | "accepted" | "overdue";
+  submittedAt?: Timestamp;
+  notes?: string;
+}
+
+export interface GrantComplianceMilestone {
+  milestone: string;
+  dueDate: string;
+  status: "pending" | "achieved" | "missed";
+  achievedAt?: Timestamp;
+  notes?: string;
+}
+
+export interface GrantStatusLogEntry {
+  stage: GrantApplicationStage;
+  changedAt: Timestamp;
+  changedBy: string;
+  note?: string;
+}
+
+export interface GrantApplication {
+  id: string;
+  grantNumber: string;              // Auto-generated e.g. "GRT-2026-0001"
+
+  // Programme details
+  programmeName: string;            // "R&D Tax Incentive (RDTI)"
+  programmeBody: string;            // "AusIndustry", "Vic Gov", etc.
+  programmeUrl?: string;
+  roundName?: string;
+
+  // Pipeline stage
+  stage: GrantApplicationStage;
+
+  // Financial
+  fundingType: GrantFundingType;
+  awardValue?: number;              // Potential or estimated
+  awardedAmount?: number;           // Actual once approved
+
+  // Linked R&D work
+  linkedRndProjectIds?: string[];
+
+  // Application workflow
+  requirements?: GrantRequirement[];
+
+  // Key dates
+  roundOpensAt?: string;            // ISO
+  submissionDeadline?: string;      // Hard deadline
+  expectedDecisionDate?: string;
+  submittedAt?: Timestamp;
+  decisionReceivedAt?: Timestamp;
+  acquittalDueDate?: string;
+
+  // Internal approval (Archer proposes → ATHENA review → Director final)
+  internalApprovals?: {
+    athena?: GrantApproval;
+    director?: GrantApproval;
+  };
+
+  // Documents (manual links into GUARDIAN's doc control)
+  draftDocumentIds?: string[];
+  submittedDocumentIds?: string[];
+
+  // Post-award compliance obligations
+  compliance?: {
+    reportsRequired?: GrantComplianceReport[];
+    milestonesRequired?: GrantComplianceMilestone[];
+  };
+
+  // Audit
+  createdAt: Timestamp;
+  createdBy: string;
+  updatedAt: Timestamp;
+  statusLog: GrantStatusLogEntry[];
+
+  notes?: string;
+}
+
+// ─── R&D Opportunity Log ─────────────────────────────────────────────────
+
+export type RndOpportunityType =
+  | "client_pattern"      // SENTINEL signal: "seeing a pattern across clients"
+  | "supplier_innovation" // VANGUARD signal: "supplier doing X we could leverage"
+  | "market_gap"          // "competitors doing X, we're not"
+  | "technology_signal"   // "emerging tech we should track"
+  | "regulatory_change"   // "new regulation creates R&D opportunity"
+  | "internal_gap";       // "capability gap we should close"
+
+export type RndOpportunityStatus =
+  | "new"
+  | "under_review"
+  | "accepted"   // Worth pursuing — typically graduates to converted
+  | "parked"     // Interesting but not now
+  | "rejected"   // Not a fit
+  | "converted"; // Became an R&D project
+
+export interface RndOpportunitySourceReference {
+  type: "lead" | "osint_scan" | "meeting" | "audit_finding" | "external_report" | "other";
+  id?: string;
+  note?: string;
+}
+
+export interface RndOpportunityScore {
+  strategicFit: number;         // 0-10
+  technicalFeasibility: number; // 0-10
+  fundingPotential: number;     // 0-10 (is there a grant that could fund this?)
+  impactSize: number;           // 0-10
+  overall: number;              // Computed or overridden
+  reviewedAt: Timestamp;
+  reviewedBy: string;
+  reviewNotes?: string;
+}
+
+export interface RndOpportunity {
+  id: string;
+  opportunityNumber: string;    // Auto-generated e.g. "OPP-2026-0001"
+
+  // What was spotted
+  title: string;
+  description: string;
+  type: RndOpportunityType;
+
+  // Origin
+  sourcedBy: string;            // Agent codename: "SENTINEL", "VANGUARD" etc.
+  sourceContext?: string;       // e.g. "Weekly management meeting 2026-04-16"
+  sourceReferences?: RndOpportunitySourceReference[];
+
+  // Archer's assessment
+  status: RndOpportunityStatus;
+  reviewScore?: RndOpportunityScore;
+
+  // Outcome
+  convertedToProjectId?: string;
+  parkedUntil?: string;         // ISO date if status=parked
+  rejectionReason?: string;
+
+  // Audit
+  createdAt: Timestamp;
+  createdBy: string;
+  updatedAt: Timestamp;
+  notes?: string;
+}

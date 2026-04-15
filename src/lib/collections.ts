@@ -73,6 +73,11 @@ export const COLLECTIONS = {
   // Secure server-side credentials (service account keys, API secrets)
   // kept out of env vars to avoid AWS Lambda 4KB ceiling.
   SECURE_CREDENTIALS: "secureCredentials",
+  // R&D & Grants Management (Sophie Archer's domain)
+  RND_PROJECTS: "rndProjects",
+  GRANT_APPLICATIONS: "grantApplications",
+  RND_OPPORTUNITY_LOG: "rndOpportunityLog",
+  RND_COUNTERS: "rndCounters",
 } as const;
 
 /**
