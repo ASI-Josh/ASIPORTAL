@@ -25,7 +25,7 @@ import {
   xeroAttachFileToInvoice, xeroSetInvoiceRecipients, xeroCreateBill,
   xeroUpdateInvoice, xeroVoidInvoice, xeroCreateCreditNote, xeroRecordPayment,
   xeroListAccounts, xeroCreateBankTransaction, xeroListBankTransactions,
-  xeroCreateBankTransfer, xeroCreateBatchPayment,
+  xeroCreateBankTransfer, xeroCreateBatchPayment, xeroGetReport,
   xeroCreatePurchaseOrder, xeroSendPurchaseOrder, xeroGetPurchaseOrder,
   xeroListItems, xeroGetItem,
 } from "@/lib/xero";
@@ -1518,6 +1518,43 @@ const TOOLS: McpTool[] = [
         },
       },
       required: ["bankAccountName", "date", "payments"],
+    },
+  },
+  {
+    name: "xero_get_report",
+    description:
+      "Fetch a standard financial report from Xero. Use for automated P&L pulls, aged receivables/payables runs, BAS prep, balance sheet snapshots, etc. Dates are ISO (YYYY-MM-DD). Not all params apply to every report — Xero ignores unused ones. ATHENA should use this for weekly/monthly financial reporting.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        reportType: {
+          type: "string",
+          enum: [
+            "ProfitAndLoss",
+            "BalanceSheet",
+            "TrialBalance",
+            "AgedReceivablesByContact",
+            "AgedPayablesByContact",
+            "BankSummary",
+            "BudgetSummary",
+            "ExecutiveSummary",
+            "BASReport",
+            "GSTReport",
+            "TenNinetyNine",
+          ],
+          description: "Which report to pull.",
+        },
+        fromDate: { type: "string", description: "Period start date ISO (for P&L, BAS, etc.)." },
+        toDate: { type: "string", description: "Period end date ISO." },
+        date: { type: "string", description: "As-at date ISO (for Balance Sheet, Aged Receivables/Payables, Trial Balance)." },
+        periods: { type: "number", description: "Number of comparison periods (1-12, for P&L and Balance Sheet)." },
+        timeframe: { type: "string", enum: ["MONTH", "QUARTER", "YEAR"], description: "Comparison timeframe when using periods." },
+        trackingCategoryId: { type: "string", description: "Optional tracking category filter." },
+        trackingOptionId: { type: "string", description: "Optional tracking option filter." },
+        standardLayout: { type: "boolean", description: "If true, use Xero's standard report layout instead of custom." },
+        paymentsOnly: { type: "boolean", description: "If true, cash-basis report (for BAS/GST on cash basis)." },
+      },
+      required: ["reportType"],
     },
   },
   // ─── Portal Stock & Procurement tools ───────────────────────────────────────
@@ -4687,6 +4724,32 @@ async function handleXeroCreateBatchPayment(args: Record<string, unknown>) {
   });
 }
 
+async function handleXeroGetReport(args: Record<string, unknown>) {
+  const validReportTypes = [
+    "ProfitAndLoss", "BalanceSheet", "TrialBalance",
+    "AgedReceivablesByContact", "AgedPayablesByContact",
+    "BankSummary", "BudgetSummary", "ExecutiveSummary",
+    "BASReport", "GSTReport", "TenNinetyNine",
+  ] as const;
+  const reportType = args.reportType as string;
+  if (!validReportTypes.includes(reportType as typeof validReportTypes[number])) {
+    throw new Error(`Invalid reportType '${reportType}'. Must be one of: ${validReportTypes.join(", ")}.`);
+  }
+  const timeframe = args.timeframe as string | undefined;
+  return xeroGetReport({
+    reportType: reportType as typeof validReportTypes[number],
+    fromDate: typeof args.fromDate === "string" ? args.fromDate : undefined,
+    toDate: typeof args.toDate === "string" ? args.toDate : undefined,
+    date: typeof args.date === "string" ? args.date : undefined,
+    periods: typeof args.periods === "number" ? args.periods : undefined,
+    timeframe: (timeframe === "MONTH" || timeframe === "QUARTER" || timeframe === "YEAR") ? timeframe : undefined,
+    trackingCategoryId: typeof args.trackingCategoryId === "string" ? args.trackingCategoryId : undefined,
+    trackingOptionId: typeof args.trackingOptionId === "string" ? args.trackingOptionId : undefined,
+    standardLayout: typeof args.standardLayout === "boolean" ? args.standardLayout : undefined,
+    paymentsOnly: typeof args.paymentsOnly === "boolean" ? args.paymentsOnly : undefined,
+  });
+}
+
 // ─── Portal Stock & Procurement handlers ──────────────────────────────────────
 
 async function handleGetStockItems(args: Record<string, unknown>) {
@@ -5847,6 +5910,7 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
     case "xero_list_bank_transactions": return handleXeroListBankTransactions(args);
     case "xero_create_bank_transfer":  return handleXeroCreateBankTransfer(args);
     case "xero_create_batch_payment":  return handleXeroCreateBatchPayment(args);
+    case "xero_get_report":            return handleXeroGetReport(args);
     // Portal Stock & Procurement
     case "get_stock_items":            return handleGetStockItems(args);
     case "update_stock_item":          return handleUpdateStockItem(args);

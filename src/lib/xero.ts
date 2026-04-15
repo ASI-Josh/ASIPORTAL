@@ -825,6 +825,58 @@ export async function xeroCreateBill(bill: {
   };
 }
 
+// ─── Reports ─────────────────────────────────────────────────────────────────
+
+export type XeroReportType =
+  | "ProfitAndLoss"
+  | "BalanceSheet"
+  | "TrialBalance"
+  | "AgedReceivablesByContact"
+  | "AgedPayablesByContact"
+  | "BankSummary"
+  | "BudgetSummary"
+  | "ExecutiveSummary"
+  | "BASReport"
+  | "GSTReport"
+  | "TenNinetyNine";
+
+/**
+ * Fetch a standard report from Xero. The Reports API is stable across
+ * all report types — ATHENA can use this for weekly/monthly financial
+ * pulls (P&L, aged receivables, balance sheet, etc.) and BAS prep.
+ *
+ * Dates should be ISO format (YYYY-MM-DD). Not all params apply to all
+ * reports — see Xero docs for per-report specifics. Unused params are
+ * ignored silently by Xero.
+ */
+export async function xeroGetReport(options: {
+  reportType: XeroReportType;
+  fromDate?: string;        // e.g. P&L period start
+  toDate?: string;          // e.g. P&L period end
+  date?: string;            // Balance Sheet / Aged Reports as-at date
+  periods?: number;         // Comparison periods (P&L, BS)
+  timeframe?: "MONTH" | "QUARTER" | "YEAR";
+  trackingCategoryId?: string;
+  trackingOptionId?: string;
+  standardLayout?: boolean;
+  paymentsOnly?: boolean;   // BAS / cash basis
+}): Promise<unknown> {
+  const params = new URLSearchParams();
+  if (options.fromDate) params.set("fromDate", options.fromDate);
+  if (options.toDate) params.set("toDate", options.toDate);
+  if (options.date) params.set("date", options.date);
+  if (options.periods !== undefined) params.set("periods", String(options.periods));
+  if (options.timeframe) params.set("timeframe", options.timeframe);
+  if (options.trackingCategoryId) params.set("trackingCategoryID", options.trackingCategoryId);
+  if (options.trackingOptionId) params.set("trackingOptionID", options.trackingOptionId);
+  if (options.standardLayout !== undefined) params.set("standardLayout", String(options.standardLayout));
+  if (options.paymentsOnly !== undefined) params.set("paymentsOnly", String(options.paymentsOnly));
+
+  const qs = params.toString();
+  const path = `/Reports/${options.reportType}${qs ? `?${qs}` : ""}`;
+  return xeroApi("GET", path);
+}
+
 // ─── Accounts (Chart of Accounts) ────────────────────────────────────────────
 
 export async function xeroListAccounts(options?: {
