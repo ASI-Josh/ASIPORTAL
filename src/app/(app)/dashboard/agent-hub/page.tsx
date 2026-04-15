@@ -5,7 +5,7 @@ import Link from "next/link";
 import {
   Bot, Brain, Eye, Globe, Landmark, MessagesSquare,
   Scale, SendHorizonal, ShieldCheck, TrendingUp,
-  Users, ChevronDown, ChevronUp, Package, Target,
+  Users, ChevronDown, ChevronUp, Package, Target, Crown,
 } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -32,6 +32,20 @@ type AgentDef = {
   email?: string;       // Operating mailbox, e.g. "accountmanager@asi-australia.com.au"
   emailSignatureNote?: string; // Additional note for shared mailboxes, e.g. "Sales Preset Signature"
   link?: string;
+  feedsTo?: string[];   // Agent IDs this one supplies intelligence to (dashed lines)
+};
+
+// ─── Director (human) — top of structure ──────────────────────────────────
+// Displayed above ATHENA in the org chart. Placeholder for the human
+// leadership layer; will expand into a full corp structure as ASI grows.
+const DIRECTOR_DEF = {
+  id: "director",
+  name: "JOSHUA HYDE",
+  title: "Director",
+  domain: "ASI Australia",
+  color: "text-yellow-300",
+  bgColor: "bg-yellow-500/10",
+  borderColor: "border-yellow-500/30",
 };
 
 const ATHENA_DEF: AgentDef = {
@@ -47,6 +61,18 @@ const ATHENA_DEF: AgentDef = {
   description: "Cross-department synthesis, daily ops briefs, weekly company reports, strategic decisions. Jim Collins frameworks.",
   capabilities: ["Morning briefs", "Weekly company reports", "Decision briefs", "Cross-department analysis", "Strategic pattern recognition"],
 };
+
+/**
+ * Build the display headline for an agent card. If the agent has a human
+ * first name we merge it with the codename (e.g. "JAMES LEDGER"); otherwise
+ * we use the codename alone (e.g. "CIPHER", "MERIDIAN").
+ */
+function buildAgentHeadline(agent: AgentDef): string {
+  if (!agent.humanName) return agent.name;
+  const firstName = agent.humanName.split(" ")[0];
+  if (!firstName) return agent.name;
+  return `${firstName.toUpperCase()} ${agent.name}`;
+}
 
 const AGENTS: AgentDef[] = [
   {
@@ -80,6 +106,7 @@ const AGENTS: AgentDef[] = [
     capabilities: ["Sales pipeline", "Lead qualification", "Outreach sequences", "Proposal support"],
     email: "development@asi-australia.com.au",
     emailSignatureNote: "Sales preset signature",
+    feedsTo: ["shield"],
   },
   {
     id: "archer",
@@ -147,8 +174,9 @@ const AGENTS: AgentDef[] = [
     color: "text-rose-400",
     bgColor: "bg-rose-500/10",
     borderColor: "border-rose-500/30",
-    description: "Geopolitical & institutional analysis.",
+    description: "Geopolitical & institutional analysis. Supplies intel to SENTINEL (sales) and VANGUARD (supply chain).",
     capabilities: ["Geopolitical analysis", "Institutional intelligence", "Policy impact assessment"],
+    feedsTo: ["sentinel", "vanguard"],
   },
   {
     id: "shield",
@@ -281,51 +309,62 @@ export default function AgentHubPage() {
         >
           <div className="flex items-center gap-2">
             <Users className="h-5 w-5 text-primary" />
-            <span className="text-base font-semibold">AI Organisation Chart</span>
-            <Badge variant="outline" className="text-[10px] h-4 px-1.5">{AGENTS.length + 1} agents</Badge>
+            <span className="text-base font-semibold">ASI Organisation Chart</span>
+            <Badge variant="outline" className="text-[10px] h-4 px-1.5">1 director · 1 chief · {AGENTS.length} division heads</Badge>
           </div>
           {orgExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
         </button>
 
         {orgExpanded && (
           <CardContent className="pt-0 pb-6">
-            {/* ATHENA — top of chart */}
-            <div className="flex justify-center mb-6">
-              <div className={cn("w-full max-w-md rounded-xl border-2 p-4 text-center", ATHENA_DEF.borderColor, ATHENA_DEF.bgColor)}>
-                <div className="flex items-center justify-center gap-2 mb-2">
-                  <Brain className={cn("h-6 w-6", ATHENA_DEF.color)} />
-                  <span className={cn("text-lg font-bold", ATHENA_DEF.color)}>{ATHENA_DEF.name}</span>
+            {/* DIRECTOR — top of chart (human leadership) */}
+            <div className="flex justify-center mb-3">
+              <div className={cn("w-full max-w-sm rounded-xl border-2 p-3 text-center", DIRECTOR_DEF.borderColor, DIRECTOR_DEF.bgColor)}>
+                <div className="flex items-center justify-center gap-2">
+                  <Crown className={cn("h-5 w-5", DIRECTOR_DEF.color)} />
+                  <span className={cn("text-base font-bold tracking-wide", DIRECTOR_DEF.color)}>{DIRECTOR_DEF.name}</span>
                 </div>
-                {ATHENA_DEF.humanName && (
-                  <p className="text-xs text-muted-foreground mb-1">{ATHENA_DEF.humanName}</p>
-                )}
+                <p className="text-xs text-muted-foreground mt-0.5">{DIRECTOR_DEF.title} · {DIRECTOR_DEF.domain}</p>
+              </div>
+            </div>
+
+            {/* Director → ATHENA connector */}
+            <div className="flex justify-center mb-3">
+              <div className="w-px h-6 bg-border/60" />
+            </div>
+
+            {/* ATHENA — Chief of Staff */}
+            <div className="flex justify-center mb-3">
+              <div className={cn("w-full max-w-md rounded-xl border-2 p-4 text-center", ATHENA_DEF.borderColor, ATHENA_DEF.bgColor)}>
+                <div className="flex items-center justify-center gap-2 mb-1">
+                  <Brain className={cn("h-6 w-6", ATHENA_DEF.color)} />
+                  <span className={cn("text-lg font-bold tracking-wide", ATHENA_DEF.color)}>
+                    {buildAgentHeadline(ATHENA_DEF)}
+                  </span>
+                </div>
                 <p className="text-sm font-medium">{ATHENA_DEF.title}</p>
                 <p className="text-xs text-muted-foreground mt-1">{ATHENA_DEF.domain}</p>
               </div>
             </div>
 
-            {/* Connector line */}
-            <div className="flex justify-center mb-6">
-              <div className="w-px h-8 bg-border/60" />
+            {/* ATHENA → Division Heads connector */}
+            <div className="flex justify-center mb-3">
+              <div className="w-px h-6 bg-border/60" />
             </div>
-
-            {/* Horizontal connector */}
-            <div className="hidden md:block mx-auto mb-6" style={{ maxWidth: "calc(100% - 60px)" }}>
+            <div className="hidden md:block mx-auto mb-4" style={{ maxWidth: "calc(100% - 60px)" }}>
               <div className="h-px bg-border/60" />
             </div>
 
-            {/* Agent cards grid */}
+            {/* Division Head Cards (each reports to ATHENA) */}
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3">
               {AGENTS.map((agent) => {
                 const Icon = agent.icon;
+                const headline = buildAgentHeadline(agent);
                 return (
                   <div key={agent.id} className={cn("flex flex-col rounded-xl border p-4 transition-all hover:scale-[1.02]", agent.borderColor, agent.bgColor)}>
                     <div className="flex items-center gap-2 mb-2">
-                      <Icon className={cn("h-5 w-5", agent.color)} />
-                      <span className={cn("text-sm font-bold", agent.color)}>{agent.name}</span>
-                      {agent.humanName && (
-                        <span className="text-[10px] text-muted-foreground ml-auto">{agent.humanName}</span>
-                      )}
+                      <Icon className={cn("h-5 w-5 shrink-0", agent.color)} />
+                      <span className={cn("text-sm font-bold tracking-wide leading-tight", agent.color)}>{headline}</span>
                     </div>
                     <p className="text-xs font-medium mb-1">{agent.title}</p>
                     <p className="text-[10px] text-muted-foreground mb-3">{agent.domain}{agent.stream ? ` · ${agent.stream}` : ""}</p>
@@ -337,6 +376,29 @@ export default function AgentHubPage() {
                         </div>
                       ))}
                     </div>
+                    {agent.feedsTo && agent.feedsTo.length > 0 && (
+                      <div className="mb-2">
+                        <p className="text-[9px] uppercase tracking-wider text-muted-foreground mb-0.5">Intel feed →</p>
+                        <div className="flex flex-wrap gap-1">
+                          {agent.feedsTo.map((targetId) => {
+                            const target = AGENTS.find((a) => a.id === targetId);
+                            if (!target) return null;
+                            return (
+                              <span
+                                key={targetId}
+                                className={cn(
+                                  "rounded border border-dashed px-1.5 py-0.5 text-[9px] font-semibold",
+                                  target.borderColor,
+                                  target.color
+                                )}
+                              >
+                                {buildAgentHeadline(target)}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
                     {agent.email && (
                       <div className="mt-auto pt-2 border-t border-border/30">
                         <p className={cn("text-[10px] font-medium truncate", agent.color)}>{agent.email}</p>
@@ -353,6 +415,26 @@ export default function AgentHubPage() {
                   </div>
                 );
               })}
+            </div>
+
+            {/* Intel feed legend */}
+            <div className="mt-4 rounded-lg border border-dashed border-border/40 bg-muted/10 p-3">
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5">Intelligence feed lines (dashed)</p>
+              <div className="flex flex-wrap gap-3 text-[11px] text-muted-foreground">
+                <span>
+                  <span className="font-semibold text-rose-400">MERIDIAN</span>
+                  {" → "}
+                  <span className="font-semibold text-emerald-400">DAVID SENTINEL</span> +{" "}
+                  <span className="font-semibold text-blue-400">PETER VANGUARD</span>
+                  <span className="ml-1 italic">(geopolitical + market intel)</span>
+                </span>
+                <span>
+                  <span className="font-semibold text-emerald-400">DAVID SENTINEL</span>
+                  {" → "}
+                  <span className="font-semibold text-violet-400">ANGELA SHIELD</span>
+                  <span className="ml-1 italic">(qualified trade leads)</span>
+                </span>
+              </div>
             </div>
 
             {/* Rules */}

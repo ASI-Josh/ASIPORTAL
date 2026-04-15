@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { collection, onSnapshot } from "firebase/firestore";
-import { Brain, Shield, TrendingUp, DollarSign, Globe, Monitor, Package, Target } from "lucide-react";
+import { Brain, Shield, TrendingUp, DollarSign, Globe, Monitor, Package, Target, Crown } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { db } from "@/lib/firebaseClient";
@@ -21,7 +21,23 @@ type AgentOverviewDef = {
   email?: string;
   emailSignatureNote?: string;
   isChief?: boolean;
+  feedsTo?: string[];
 };
+
+const DIRECTOR = {
+  name: "JOSHUA HYDE",
+  title: "Director",
+  color: "text-yellow-300",
+  borderColor: "border-yellow-500/30",
+  bgGlow: "from-yellow-500/10 via-yellow-500/5 to-transparent",
+};
+
+function buildOverviewHeadline(agent: AgentOverviewDef): string {
+  if (!agent.humanName) return agent.name;
+  const firstName = agent.humanName.split(" ")[0];
+  if (!firstName) return agent.name;
+  return `${firstName.toUpperCase()} ${agent.name}`;
+}
 
 const AGENTS: AgentOverviewDef[] = [
   {
@@ -61,6 +77,7 @@ const AGENTS: AgentOverviewDef[] = [
     description: "Lead management, pipeline tracking, outreach automation, BANT scoring",
     email: "development@asi-australia.com.au",
     emailSignatureNote: "Sales preset signature",
+    feedsTo: ["SHIELD"],
   },
   {
     name: "ARCHER",
@@ -116,7 +133,8 @@ const AGENTS: AgentOverviewDef[] = [
     color: "text-orange-400",
     borderColor: "border-orange-500/30",
     bgGlow: "from-orange-500/10 via-orange-500/5 to-transparent",
-    description: "Location analytics, route optimisation, regional coverage mapping",
+    description: "Location analytics, route optimisation, regional coverage mapping. Feeds intel to SENTINEL and VANGUARD.",
+    feedsTo: ["SENTINEL", "VANGUARD"],
   },
   {
     name: "SHIELD",
@@ -230,9 +248,31 @@ export function AgentOverview() {
   const chief = AGENTS.find((a) => a.isChief)!;
   const divisions = AGENTS.filter((a) => !a.isChief);
 
+  const chiefHeadline = buildOverviewHeadline(chief);
+
   return (
     <div className="space-y-4">
-      {/* ATHENA - Chief of Staff — Centred */}
+      {/* DIRECTOR — human leadership, above ATHENA */}
+      <Card className={`bg-card/40 backdrop-blur-lg ${DIRECTOR.borderColor} border overflow-hidden`}>
+        <div className={`px-4 py-2 bg-gradient-to-r ${DIRECTOR.bgGlow} border-b ${DIRECTOR.borderColor}`}>
+          <div className="flex items-center justify-center gap-2">
+            <Crown className={`h-4 w-4 ${DIRECTOR.color}`} />
+            <span className={`font-headline font-semibold text-xs ${DIRECTOR.color}`}>
+              Director
+            </span>
+          </div>
+        </div>
+        <CardContent className="py-3">
+          <div className="flex flex-col items-center text-center gap-1">
+            <span className={`font-headline font-bold text-lg tracking-wide ${DIRECTOR.color}`}>
+              {DIRECTOR.name}
+            </span>
+            <p className="text-[10px] text-muted-foreground">Executive leadership · ASI Australia</p>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* ATHENA — Chief of Staff */}
       <Card className={`bg-card/50 backdrop-blur-lg ${chief.borderColor} border overflow-hidden`}>
         <div className={`relative px-6 py-2.5 bg-gradient-to-r ${chief.bgGlow} border-b ${chief.borderColor}`}>
           <div className="flex items-center justify-center gap-2">
@@ -250,14 +290,13 @@ export function AgentOverview() {
             <div>
               <div className="flex items-center justify-center gap-2">
                 <StatusDot status={getHeartbeat(chief.name).status} />
-                <span className={`font-headline font-bold text-xl ${chief.color}`}>{chief.name}</span>
+                <span className={`font-headline font-bold text-xl tracking-wide ${chief.color}`}>
+                  {chiefHeadline}
+                </span>
                 <Badge className="bg-purple-500/20 text-purple-400 border-purple-500/30">
                   {chief.role}
                 </Badge>
               </div>
-              {chief.humanName && (
-                <p className="text-xs text-muted-foreground mt-1 italic">{chief.humanName}</p>
-              )}
               <p className="text-sm text-muted-foreground mt-1 max-w-md mx-auto">{chief.description}</p>
               <p className="text-xs text-muted-foreground mt-2">
                 {AGENTS.length - 1} divisions reporting ·
@@ -270,59 +309,82 @@ export function AgentOverview() {
 
       {/* Division Heads */}
       <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-        {divisions.map((agent) => (
-          <Card
-            key={agent.name}
-            className={`bg-card/50 backdrop-blur-lg ${agent.borderColor} border overflow-hidden`}
-          >
-            <div className={`px-4 py-2 bg-gradient-to-r ${agent.bgGlow} border-b ${agent.borderColor}`}>
-              <div className="flex items-center gap-2">
-                <agent.icon className={`h-3.5 w-3.5 ${agent.color}`} />
-                <span className={`font-headline font-semibold text-xs ${agent.color}`}>
-                  {agent.division}
-                </span>
+        {divisions.map((agent) => {
+          const headline = buildOverviewHeadline(agent);
+          return (
+            <Card
+              key={agent.name}
+              className={`bg-card/50 backdrop-blur-lg ${agent.borderColor} border overflow-hidden`}
+            >
+              <div className={`px-4 py-2 bg-gradient-to-r ${agent.bgGlow} border-b ${agent.borderColor}`}>
+                <div className="flex items-center gap-2">
+                  <agent.icon className={`h-3.5 w-3.5 ${agent.color}`} />
+                  <span className={`font-headline font-semibold text-xs ${agent.color}`}>
+                    {agent.division}
+                  </span>
+                </div>
               </div>
-            </div>
-            <CardContent className="flex items-start gap-3 py-4">
-              <div className={`rounded-lg bg-background/60 p-2.5 ${agent.color}`}>
-                <agent.icon className="h-5 w-5" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <StatusDot status={getHeartbeat(agent.name).status} />
-                  <span className={`font-headline font-bold ${agent.color}`}>{agent.name}</span>
-                  {agent.humanName && (
-                    <span className="text-[10px] text-muted-foreground italic">· {agent.humanName}</span>
+              <CardContent className="flex items-start gap-3 py-4">
+                <div className={`rounded-lg bg-background/60 p-2.5 ${agent.color}`}>
+                  <agent.icon className="h-5 w-5" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <StatusDot status={getHeartbeat(agent.name).status} />
+                    <span className={`font-headline font-bold tracking-wide ${agent.color}`}>
+                      {headline}
+                    </span>
+                  </div>
+                  <Badge variant="secondary" className="text-[10px] mt-1">
+                    {agent.role}
+                  </Badge>
+                  <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
+                    {agent.description}
+                  </p>
+                  {agent.feedsTo && agent.feedsTo.length > 0 && (
+                    <div className="mt-2">
+                      <p className="text-[9px] uppercase tracking-wider text-muted-foreground mb-0.5">
+                        Intel feed →
+                      </p>
+                      <div className="flex flex-wrap gap-1">
+                        {agent.feedsTo.map((targetName) => {
+                          const target = AGENTS.find((a) => a.name === targetName);
+                          if (!target) return null;
+                          return (
+                            <span
+                              key={targetName}
+                              className={`rounded border border-dashed px-1.5 py-0.5 text-[9px] font-semibold ${target.borderColor} ${target.color}`}
+                            >
+                              {buildOverviewHeadline(target)}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                  {agent.email && (
+                    <div className="mt-2 pt-2 border-t border-border/30">
+                      <p className={`text-[10px] font-medium truncate ${agent.color}`}>{agent.email}</p>
+                      {agent.emailSignatureNote && (
+                        <p className="text-[9px] text-muted-foreground italic">{agent.emailSignatureNote}</p>
+                      )}
+                    </div>
+                  )}
+                  <div className="flex items-center gap-2 mt-1.5 text-[10px] text-muted-foreground">
+                    <span className="capitalize">{getHeartbeat(agent.name).status}</span>
+                    <span>·</span>
+                    <span>Last active {formatLastActive(getHeartbeat(agent.name).lastActiveAt)}</span>
+                  </div>
+                  {getHeartbeat(agent.name).activity && (
+                    <p className="text-[10px] text-muted-foreground mt-0.5 italic truncate">
+                      {getHeartbeat(agent.name).activity}
+                    </p>
                   )}
                 </div>
-                <Badge variant="secondary" className="text-[10px] mt-1">
-                  {agent.role}
-                </Badge>
-                <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
-                  {agent.description}
-                </p>
-                {agent.email && (
-                  <div className="mt-2 pt-2 border-t border-border/30">
-                    <p className={`text-[10px] font-medium truncate ${agent.color}`}>{agent.email}</p>
-                    {agent.emailSignatureNote && (
-                      <p className="text-[9px] text-muted-foreground italic">{agent.emailSignatureNote}</p>
-                    )}
-                  </div>
-                )}
-                <div className="flex items-center gap-2 mt-1.5 text-[10px] text-muted-foreground">
-                  <span className="capitalize">{getHeartbeat(agent.name).status}</span>
-                  <span>·</span>
-                  <span>Last active {formatLastActive(getHeartbeat(agent.name).lastActiveAt)}</span>
-                </div>
-                {getHeartbeat(agent.name).activity && (
-                  <p className="text-[10px] text-muted-foreground mt-0.5 italic truncate">
-                    {getHeartbeat(agent.name).activity}
-                  </p>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        ))}
+              </CardContent>
+            </Card>
+          );
+        })}
       </div>
     </div>
   );
