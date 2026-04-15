@@ -1227,6 +1227,20 @@ export interface AgentActionLogEntry {
  */
 export type LeadMarketSegment = "heavy_vehicle" | "light_vehicle" | "trade";
 
+/**
+ * Supplier classification for supply_chain stream leads. Only used when
+ * streamType === "supply_chain". VANGUARD uses this to manage the supply
+ * ecosystem across primary/backup sourcing, strategic partnerships, R&D
+ * collaborators, distribution channels and transactional vendors.
+ */
+export type LeadSupplierType =
+  | "tier_1"             // Primary supplier, critical dependency
+  | "tier_2"             // Backup / second-source
+  | "strategic_partner"  // Long-term partnership, joint roadmap
+  | "research_partner"   // R&D collaboration (CSIRO, universities, APEAX R&D)
+  | "distributor"        // Wholesale / reseller channel partner
+  | "vendor";            // Transactional, non-strategic (consumables, tools)
+
 export interface Lead {
   id: string;
   leadNumber: string;                // e.g. "LD-2026-0001"
@@ -1237,6 +1251,10 @@ export interface Lead {
   // Market segment (sales stream only — used to route leads between
   // SENTINEL and MERCER). Other streams ignore this field.
   marketSegment?: LeadMarketSegment;
+
+  // Supplier type (supply_chain stream only — classifies VANGUARD's
+  // supplier ecosystem). Other streams ignore this field.
+  supplierType?: LeadSupplierType;
 
   // Company
   companyName: string;

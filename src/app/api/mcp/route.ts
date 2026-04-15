@@ -640,6 +640,8 @@ const TOOLS: McpTool[] = [
         grade: { type: "string", enum: ["A","B","C","D","E"], description: "Filter by lead grade." },
         sector: { type: "string", description: "Filter by sector (e.g. mass-transit, manufacturing)." },
         marketSegment: { type: "string", enum: ["heavy_vehicle", "light_vehicle", "trade"], description: "Sales stream sub-segment owner: 'heavy_vehicle' (SENTINEL), 'light_vehicle' or 'trade' (MERCER). Only meaningful when streamType=sales." },
+        supplierType: { type: "string", enum: ["tier_1", "tier_2", "strategic_partner", "research_partner", "distributor", "vendor"], description: "Supply chain classification. Only meaningful when streamType=supply_chain." },
+        tradePipelineGroup: { type: "string", enum: ["prospects", "in_application", "active_installers", "inactive"], description: "Trade distribution high-level group filter. Maps to pipeline stages: 'prospects' (identified/researched/qualified), 'in_application' (application_review/vetting/agreement_sent/agreement_signed), 'active_installers' (onboarded/first_order/active), 'inactive' (paused/terminated). Only meaningful when streamType=trade_distribution." },
         limit: { type: "number", description: "Max leads to return (default 50, max 200)." },
       },
     },
@@ -667,6 +669,7 @@ const TOOLS: McpTool[] = [
         company: { type: "string", description: "Company name." },
         streamType: { type: "string", enum: ["sales", "supply_chain", "trade_distribution"], description: "Stream type: 'sales' (SENTINEL/MERCER customer), 'supply_chain' (VANGUARD supplier/partner), or 'trade_distribution' (SHIELD trade installer for APEAX films). Default: sales." },
         marketSegment: { type: "string", enum: ["heavy_vehicle", "light_vehicle", "trade"], description: "Sales-stream sub-segment owner: 'heavy_vehicle' → SENTINEL (HV/Bus/Coach/Fleet), 'light_vehicle' or 'trade' → MERCER (Passenger/Trade). Only used when streamType=sales. Defaults to 'heavy_vehicle' if omitted on a sales lead." },
+        supplierType: { type: "string", enum: ["tier_1", "tier_2", "strategic_partner", "research_partner", "distributor", "vendor"], description: "Supplier classification for VANGUARD's supply chain stream. Only used when streamType=supply_chain. Defaults to 'vendor' if omitted." },
         sector: { type: "string", description: "Sector: mass-transit, manufacturing, wholesale-trade, structural, marine, other." },
         companyWebsite: { type: "string" },
         existingOrganizationId: { type: "string", description: "Link to existing org in portal if already a client." },
@@ -4076,6 +4079,29 @@ async function handleGetLeads(args: Record<string, unknown>) {
       return seg === args.marketSegment;
     });
   }
+  if (typeof args.supplierType === "string") {
+    // Supplier type filter — for supply_chain stream only.
+    // Leads without a supplierType default to 'vendor'.
+    leads = leads.filter((l) => {
+      if (String(l.streamType || "") !== "supply_chain") return false;
+      const st = typeof l.supplierType === "string" ? l.supplierType : "vendor";
+      return st === args.supplierType;
+    });
+  }
+  if (typeof args.tradePipelineGroup === "string") {
+    // Trade distribution high-level group filter — maps groups to stage sets.
+    const groupStageMap: Record<string, string[]> = {
+      prospects: ["identified", "researched", "qualified"],
+      in_application: ["application_review", "vetting", "agreement_sent", "agreement_signed"],
+      active_installers: ["onboarded", "first_order", "active"],
+      inactive: ["paused", "terminated"],
+    };
+    const allowedStages = groupStageMap[String(args.tradePipelineGroup)] || [];
+    leads = leads.filter((l) => {
+      if (String(l.streamType || "") !== "trade_distribution") return false;
+      return allowedStages.includes(String(l.stage || ""));
+    });
+  }
   return leads;
 }
 
@@ -4092,6 +4118,20 @@ async function handleGetPipelineStats(args: Record<string, unknown>) {
   // Sub-breakdown of sales stream by market segment / owner.
   // heavy_vehicle → SENTINEL, light_vehicle + trade → MERCER.
   const salesByMarketSegment: Record<string, number> = { heavy_vehicle: 0, light_vehicle: 0, trade: 0 };
+  // Sub-breakdown of supply_chain stream by supplier type (VANGUARD's classification).
+  const supplyByType: Record<string, number> = {
+    tier_1: 0, tier_2: 0, strategic_partner: 0, research_partner: 0, distributor: 0, vendor: 0,
+  };
+  // Trade distribution pipeline group breakdown (SHIELD's high-level view).
+  const tradeByGroup: Record<string, number> = {
+    prospects: 0, in_application: 0, active_installers: 0, inactive: 0, other: 0,
+  };
+  const TRADE_GROUP_STAGES: Record<string, string[]> = {
+    prospects: ["identified", "researched", "qualified"],
+    in_application: ["application_review", "vetting", "agreement_sent", "agreement_signed"],
+    active_installers: ["onboarded", "first_order", "active"],
+    inactive: ["paused", "terminated"],
+  };
   let totalValue = 0;
   let overdueFollowUps = 0;
   let total = 0;
@@ -4103,6 +4143,22 @@ async function handleGetPipelineStats(args: Record<string, unknown>) {
     if (st === "sales") {
       const seg = typeof l.marketSegment === "string" ? l.marketSegment : "heavy_vehicle";
       salesByMarketSegment[seg] = (salesByMarketSegment[seg] || 0) + 1;
+    }
+    if (st === "supply_chain") {
+      const sType = typeof l.supplierType === "string" ? l.supplierType : "vendor";
+      supplyByType[sType] = (supplyByType[sType] || 0) + 1;
+    }
+    if (st === "trade_distribution") {
+      const stageStr = String(l.stage || "");
+      let matched = false;
+      for (const [groupName, groupStages] of Object.entries(TRADE_GROUP_STAGES)) {
+        if (groupStages.includes(stageStr)) {
+          tradeByGroup[groupName] = (tradeByGroup[groupName] || 0) + 1;
+          matched = true;
+          break;
+        }
+      }
+      if (!matched) tradeByGroup.other = (tradeByGroup.other || 0) + 1;
     }
     if (streamFilter && st !== streamFilter) return;
     total++;
@@ -4151,6 +4207,8 @@ async function handleGetPipelineStats(args: Record<string, unknown>) {
     byStream,
     salesByMarketSegment,
     salesByOwner,
+    supplyByType,
+    tradeByGroup,
     streamFilter: streamFilter || "all",
     registerStats: {
       supply_chain: buildRegStats("supply_chain"),
@@ -4213,10 +4271,19 @@ async function handleCreateLead(args: Record<string, unknown>) {
     ? (marketSegmentRaw && validSegments.includes(marketSegmentRaw) ? marketSegmentRaw : "heavy_vehicle")
     : undefined;
 
+  // Supplier type: only relevant for supply_chain stream. Default to 'vendor'
+  // (least-strategic classification) if omitted. Ignored for non-supply-chain streams.
+  const supplierTypeRaw = args.supplierType as string | undefined;
+  const validSupplierTypes = ["tier_1", "tier_2", "strategic_partner", "research_partner", "distributor", "vendor"];
+  const supplierType = streamType === "supply_chain"
+    ? (supplierTypeRaw && validSupplierTypes.includes(supplierTypeRaw) ? supplierTypeRaw : "vendor")
+    : undefined;
+
   const payload = {
     leadNumber,
     streamType,
     ...(marketSegment ? { marketSegment } : {}),
+    ...(supplierType ? { supplierType } : {}),
     companyName: String(args.company),
     companyWebsite: args.companyWebsite as string | undefined,
     sector: String(args.sector || "other"),

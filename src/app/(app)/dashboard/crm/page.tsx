@@ -484,6 +484,14 @@ function PipelineView() {
   // "all" = both SENTINEL + MERCER, "heavy_vehicle" = SENTINEL only,
   // "light_vehicle" + "trade" = MERCER's specialties.
   const [salesOwnerFilter, setSalesOwnerFilter] = useState<"all" | "sentinel" | "mercer">("all");
+  // Supply-chain stream filter by supplier type (VANGUARD's ecosystem).
+  const [supplierTypeFilter, setSupplierTypeFilter] = useState<
+    "all" | "tier_1" | "tier_2" | "strategic_partner" | "research_partner" | "distributor" | "vendor"
+  >("all");
+  // Trade-distribution stream filter by pipeline stage group (SHIELD's view).
+  const [tradeGroupFilter, setTradeGroupFilter] = useState<
+    "all" | "prospects" | "in_application" | "active_installers" | "inactive"
+  >("all");
   const { toast } = useToast();
 
   const getToken = useCallback(async () => {
@@ -566,23 +574,48 @@ function PipelineView() {
     }
   };
 
-  // Filter by stream + search + (sales-only) market segment owner
+  // Trade distribution stage groupings — used by the trade pipeline filter.
+  const TRADE_GROUP_STAGES: Record<string, string[]> = useMemo(() => ({
+    prospects: ["identified", "researched", "qualified"],
+    in_application: ["application_review", "vetting", "agreement_sent", "agreement_signed"],
+    active_installers: ["onboarded", "first_order", "active"],
+    inactive: ["paused", "terminated"],
+  }), []);
+
+  // Filter by stream + search + stream-specific secondary filters
   const filtered = useMemo(() =>
     leads.filter((l) => {
       const streamMatch = (l.streamType || "sales") === stream;
       if (!streamMatch) return false;
       const searchMatch = !search || l.companyName.toLowerCase().includes(search.toLowerCase());
       if (!searchMatch) return false;
-      // Market segment filter only applies to sales stream
+
+      // Sales — market segment / owner filter
       if (stream === "sales" && salesOwnerFilter !== "all") {
         const leadWithSegment = l as Lead & { marketSegment?: "heavy_vehicle" | "light_vehicle" | "trade" };
         const seg = leadWithSegment.marketSegment || "heavy_vehicle"; // default existing sales leads to SENTINEL
         if (salesOwnerFilter === "sentinel" && seg !== "heavy_vehicle") return false;
         if (salesOwnerFilter === "mercer" && seg !== "light_vehicle" && seg !== "trade") return false;
       }
+
+      // Supply chain — supplier type filter
+      if (stream === "supply_chain" && supplierTypeFilter !== "all") {
+        const leadWithSupplier = l as Lead & {
+          supplierType?: "tier_1" | "tier_2" | "strategic_partner" | "research_partner" | "distributor" | "vendor";
+        };
+        const sType = leadWithSupplier.supplierType || "vendor";
+        if (sType !== supplierTypeFilter) return false;
+      }
+
+      // Trade distribution — pipeline stage group filter
+      if (stream === "trade_distribution" && tradeGroupFilter !== "all") {
+        const allowedStages = TRADE_GROUP_STAGES[tradeGroupFilter] || [];
+        if (!allowedStages.includes(String(l.stage || ""))) return false;
+      }
+
       return true;
     }),
-    [leads, stream, search, salesOwnerFilter]
+    [leads, stream, search, salesOwnerFilter, supplierTypeFilter, tradeGroupFilter, TRADE_GROUP_STAGES]
   );
 
   // Stats for current stream
@@ -614,6 +647,32 @@ function PipelineView() {
     const seg = (l as Lead & { marketSegment?: string }).marketSegment || "heavy_vehicle";
     return seg === "light_vehicle" || seg === "trade";
   }).length;
+
+  // Supply chain sub-counts by supplierType (VANGUARD's classification)
+  const supplyChainLeads = leads.filter((l) => l.streamType === "supply_chain");
+  const supplierCounts = {
+    tier_1: 0, tier_2: 0, strategic_partner: 0, research_partner: 0, distributor: 0, vendor: 0,
+  };
+  for (const l of supplyChainLeads) {
+    const sType = (l as Lead & { supplierType?: keyof typeof supplierCounts }).supplierType || "vendor";
+    if (sType in supplierCounts) supplierCounts[sType]++;
+  }
+
+  // Trade distribution sub-counts by pipeline group (SHIELD's high-level view)
+  const tradeLeads = leads.filter((l) => l.streamType === "trade_distribution");
+  const tradeGroupCounts = { prospects: 0, in_application: 0, active_installers: 0, inactive: 0, other: 0 };
+  for (const l of tradeLeads) {
+    const stageStr = String(l.stage || "");
+    let matched = false;
+    for (const [groupName, groupStages] of Object.entries(TRADE_GROUP_STAGES)) {
+      if (groupStages.includes(stageStr)) {
+        tradeGroupCounts[groupName as keyof typeof tradeGroupCounts]++;
+        matched = true;
+        break;
+      }
+    }
+    if (!matched) tradeGroupCounts.other++;
+  }
 
   return (
     <div className="flex flex-col gap-4 p-6">
@@ -727,6 +786,60 @@ function PipelineView() {
           >
             Emily Mercer (Passenger/Trade) <span className="ml-1 opacity-60">({mercerCount})</span>
           </button>
+        </div>
+      )}
+
+      {/* Supply chain supplier type filter (VANGUARD's ecosystem) */}
+      {stream === "supply_chain" && (
+        <div className="flex items-center gap-2 text-xs flex-wrap">
+          <span className="text-muted-foreground uppercase tracking-wider text-[10px] font-semibold">Supplier Type:</span>
+          {([
+            { key: "all",               label: "All Supply Chain", count: supplyCount },
+            { key: "tier_1",            label: "Tier 1 Primary",   count: supplierCounts.tier_1 },
+            { key: "tier_2",            label: "Tier 2 Backup",    count: supplierCounts.tier_2 },
+            { key: "strategic_partner", label: "Strategic Partner", count: supplierCounts.strategic_partner },
+            { key: "research_partner",  label: "Research Partner",  count: supplierCounts.research_partner },
+            { key: "distributor",       label: "Distributor",       count: supplierCounts.distributor },
+            { key: "vendor",            label: "Vendor",            count: supplierCounts.vendor },
+          ] as const).map((chip) => (
+            <button
+              key={chip.key}
+              onClick={() => setSupplierTypeFilter(chip.key)}
+              className={`rounded-full px-3 py-1 border transition-colors ${
+                supplierTypeFilter === chip.key
+                  ? "border-blue-400/60 bg-blue-500/10 text-blue-400"
+                  : "border-border/40 text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {chip.label} <span className="ml-1 opacity-60">({chip.count})</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Trade distribution pipeline group filter (SHIELD's high-level view) */}
+      {stream === "trade_distribution" && (
+        <div className="flex items-center gap-2 text-xs flex-wrap">
+          <span className="text-muted-foreground uppercase tracking-wider text-[10px] font-semibold">Installer Status:</span>
+          {([
+            { key: "all",               label: "All Trade",           count: tradeCount },
+            { key: "prospects",         label: "Prospects",           count: tradeGroupCounts.prospects },
+            { key: "in_application",    label: "In Application",      count: tradeGroupCounts.in_application },
+            { key: "active_installers", label: "Active Installers",   count: tradeGroupCounts.active_installers },
+            { key: "inactive",          label: "Inactive / Closed",   count: tradeGroupCounts.inactive },
+          ] as const).map((chip) => (
+            <button
+              key={chip.key}
+              onClick={() => setTradeGroupFilter(chip.key)}
+              className={`rounded-full px-3 py-1 border transition-colors ${
+                tradeGroupFilter === chip.key
+                  ? "border-violet-400/60 bg-violet-500/10 text-violet-400"
+                  : "border-border/40 text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {chip.label} <span className="ml-1 opacity-60">({chip.count})</span>
+            </button>
+          ))}
         </div>
       )}
 
