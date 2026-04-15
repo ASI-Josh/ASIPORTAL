@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useMemo, useRef, lazy, Suspense, type
 import Link from "next/link";
 import {
   PlusCircle, TrendingUp, Users, AlertTriangle, RefreshCw,
-  Flame, Filter, Search, Sparkles, Link2, ArrowRightLeft, Target,
+  Flame, Filter, Search, Sparkles, Link2, ArrowRightLeft, Target, Package,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -22,36 +22,43 @@ import { useAuth } from "@/contexts/AuthContext";
 import { VanguardReport as VanguardReportWidget } from "@/components/crm/vanguard-report";
 import type {
   Lead, PipelineStage, LeadSector, StreamType,
-  SalesPipelineStage, SupplyChainPipelineStage,
+  SalesPipelineStage, SupplyChainPipelineStage, TradeDistributionPipelineStage,
 } from "@/lib/types";
 import {
-  SALES_STAGES, SUPPLY_CHAIN_STAGES,
-  SALES_STAGE_LABELS, SUPPLY_CHAIN_STAGE_LABELS,
-  SALES_STAGE_COLORS, SUPPLY_CHAIN_STAGE_COLORS,
+  SALES_STAGES, SUPPLY_CHAIN_STAGES, TRADE_DISTRIBUTION_STAGES,
+  SALES_STAGE_LABELS, SUPPLY_CHAIN_STAGE_LABELS, TRADE_DISTRIBUTION_STAGE_LABELS,
+  SALES_STAGE_COLORS, SUPPLY_CHAIN_STAGE_COLORS, TRADE_DISTRIBUTION_STAGE_COLORS,
 } from "@/lib/types";
 
 // ─── Stage config (generated from types) ─────────────────────────────────────
 
 function stageConfig(stage: PipelineStage, stream: StreamType): { label: string; color: string; bg: string } {
   const colors: Record<string, { color: string; bg: string }> = {
-    zinc:   { color: "text-zinc-400",   bg: "bg-zinc-500/15" },
-    violet: { color: "text-violet-400", bg: "bg-violet-500/15" },
-    teal:   { color: "text-teal-400",   bg: "bg-teal-500/15" },
-    blue:   { color: "text-blue-400",   bg: "bg-blue-500/15" },
-    cyan:   { color: "text-cyan-400",   bg: "bg-cyan-500/15" },
-    indigo: { color: "text-indigo-400", bg: "bg-indigo-500/15" },
-    amber:  { color: "text-amber-400",  bg: "bg-amber-500/15" },
-    orange: { color: "text-orange-400", bg: "bg-orange-500/15" },
-    green:  { color: "text-green-400",  bg: "bg-green-500/15" },
-    red:    { color: "text-red-400",    bg: "bg-red-500/15" },
-    purple: { color: "text-purple-400", bg: "bg-purple-500/15" },
+    zinc:    { color: "text-zinc-400",    bg: "bg-zinc-500/15" },
+    violet:  { color: "text-violet-400",  bg: "bg-violet-500/15" },
+    teal:    { color: "text-teal-400",    bg: "bg-teal-500/15" },
+    blue:    { color: "text-blue-400",    bg: "bg-blue-500/15" },
+    cyan:    { color: "text-cyan-400",    bg: "bg-cyan-500/15" },
+    indigo:  { color: "text-indigo-400",  bg: "bg-indigo-500/15" },
+    amber:   { color: "text-amber-400",   bg: "bg-amber-500/15" },
+    orange:  { color: "text-orange-400",  bg: "bg-orange-500/15" },
+    green:   { color: "text-green-400",   bg: "bg-green-500/15" },
+    red:     { color: "text-red-400",     bg: "bg-red-500/15" },
+    purple:  { color: "text-purple-400",  bg: "bg-purple-500/15" },
+    fuchsia: { color: "text-fuchsia-400", bg: "bg-fuchsia-500/15" },
   };
-  const label = stream === "sales"
-    ? (SALES_STAGE_LABELS as Record<string, string>)[stage] || stage
-    : (SUPPLY_CHAIN_STAGE_LABELS as Record<string, string>)[stage] || stage;
-  const colorName = stream === "sales"
-    ? (SALES_STAGE_COLORS as Record<string, string>)[stage] || "zinc"
-    : (SUPPLY_CHAIN_STAGE_COLORS as Record<string, string>)[stage] || "zinc";
+  const labelLookup: Record<StreamType, Record<string, string>> = {
+    sales: SALES_STAGE_LABELS as Record<string, string>,
+    supply_chain: SUPPLY_CHAIN_STAGE_LABELS as Record<string, string>,
+    trade_distribution: TRADE_DISTRIBUTION_STAGE_LABELS as Record<string, string>,
+  };
+  const colorLookup: Record<StreamType, Record<string, string>> = {
+    sales: SALES_STAGE_COLORS as Record<string, string>,
+    supply_chain: SUPPLY_CHAIN_STAGE_COLORS as Record<string, string>,
+    trade_distribution: TRADE_DISTRIBUTION_STAGE_COLORS as Record<string, string>,
+  };
+  const label = labelLookup[stream]?.[stage] || stage;
+  const colorName = colorLookup[stream]?.[stage] || "zinc";
   const c = colors[colorName] || colors.zinc;
   return { label, ...c };
 }
@@ -65,17 +72,27 @@ const GRADE_CONFIG: Record<Lead["leadGrade"], { color: string; bg: string }> = {
 };
 
 function activeStages(stream: StreamType): PipelineStage[] {
-  if (stream === "sales") return SALES_STAGES.filter((s) => s !== "won" && s !== "lost" && s !== "nurture");
-  return SUPPLY_CHAIN_STAGES.filter((s) => s !== "onboarded" && s !== "inactive" && s !== "watchlist");
+  if (stream === "sales") {
+    return SALES_STAGES.filter((s) => s !== "won" && s !== "lost" && s !== "nurture");
+  }
+  if (stream === "supply_chain") {
+    return SUPPLY_CHAIN_STAGES.filter((s) => s !== "onboarded" && s !== "inactive" && s !== "watchlist");
+  }
+  // trade_distribution: everything except terminal + paused (paused is transitional but not in the active board)
+  return TRADE_DISTRIBUTION_STAGES.filter((s) => s !== "terminated" && s !== "paused" && s !== "active");
 }
 
 function closedStages(stream: StreamType): PipelineStage[] {
   if (stream === "sales") return ["won", "lost", "nurture"];
-  return ["onboarded", "inactive", "watchlist"];
+  if (stream === "supply_chain") return ["onboarded", "inactive", "watchlist"];
+  // trade_distribution: "active" is the long-running success state; paused/terminated are holding/terminal
+  return ["active", "paused", "terminated"];
 }
 
 function allStagesForStream(stream: StreamType): PipelineStage[] {
-  return stream === "sales" ? [...SALES_STAGES] : [...SUPPLY_CHAIN_STAGES];
+  if (stream === "sales") return [...SALES_STAGES];
+  if (stream === "supply_chain") return [...SUPPLY_CHAIN_STAGES];
+  return [...TRADE_DISTRIBUTION_STAGES];
 }
 
 const SECTORS: { value: LeadSector; label: string }[] = [
@@ -311,7 +328,11 @@ function AddLeadModal({ open, onClose, onCreated, getToken, stream }: {
       <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
-            Add {stream === "sales" ? "Sales" : "Supply Chain"} Lead
+            Add {
+              stream === "sales" ? "Sales" :
+              stream === "supply_chain" ? "Supply Chain" :
+              "Trade Distribution"
+            } Lead
           </DialogTitle>
         </DialogHeader>
         <div className="space-y-4 pt-2">
@@ -552,10 +573,15 @@ function PipelineView() {
   );
 
   // Stats for current stream
-  const totalValue = filtered.filter((l) => l.stage !== "lost" && l.stage !== "inactive").reduce((s, l) => s + (l.estimatedValue || 0), 0);
+  const totalValue = filtered
+    .filter((l) => l.stage !== "lost" && l.stage !== "inactive" && l.stage !== "terminated")
+    .reduce((s, l) => s + (l.estimatedValue || 0), 0);
   const hotLeads = filtered.filter((l) => l.leadGrade === "A" || l.leadGrade === "B").length;
   const today = new Date().toISOString().split("T")[0];
-  const terminalStages = stream === "sales" ? ["won", "lost"] : ["onboarded", "inactive"];
+  const terminalStages: string[] =
+    stream === "sales" ? ["won", "lost"] :
+    stream === "supply_chain" ? ["onboarded", "inactive"] :
+    ["terminated"];
   const overdue = filtered.filter((l) =>
     l.nextActionDate && l.nextActionDate < today && !terminalStages.includes(l.stage)
   ).length;
@@ -563,6 +589,7 @@ function PipelineView() {
   // Stream counts for tabs
   const salesCount = leads.filter((l) => (l.streamType || "sales") === "sales").length;
   const supplyCount = leads.filter((l) => l.streamType === "supply_chain").length;
+  const tradeCount = leads.filter((l) => l.streamType === "trade_distribution").length;
 
   return (
     <div className="flex flex-col gap-4 p-6">
@@ -571,7 +598,13 @@ function PipelineView() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">CRM Pipeline</h1>
           <p className="text-sm text-muted-foreground">
-            {stream === "sales" ? "Manage customer leads from identification to close." : "Track suppliers, partners, and technology opportunities."}
+            {
+              stream === "sales"
+                ? "Manage customer leads from identification to close."
+                : stream === "supply_chain"
+                ? "Track suppliers, partners, and technology opportunities."
+                : "Manage APEAX trade installer channel — vetting, onboarding, and ongoing distribution clients."
+            }
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -622,6 +655,18 @@ function PipelineView() {
           Supply Chain
           <Badge variant="outline" className="text-[10px] h-4 px-1.5 ml-1">{supplyCount}</Badge>
         </button>
+        <button
+          onClick={() => setStream("trade_distribution")}
+          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${
+            stream === "trade_distribution"
+              ? "border-violet-400 text-violet-400"
+              : "border-transparent text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <Package className="h-4 w-4" />
+          Trade Distribution
+          <Badge variant="outline" className="text-[10px] h-4 px-1.5 ml-1">{tradeCount}</Badge>
+        </button>
       </div>
 
       {/* Stats */}
@@ -656,10 +701,18 @@ function PipelineView() {
         </div>
         <Button variant="outline" size="sm" onClick={() => setShowOther(!showOther)}>
           <Filter className="h-3.5 w-3.5 mr-1.5" />
-          {showOther
-            ? stream === "sales" ? "Hide Won/Lost/Nurture" : "Hide Closed"
-            : stream === "sales" ? "Show Won/Lost/Nurture" : "Show Closed"
-          }
+          {(() => {
+            const sales = stream === "sales";
+            const trade = stream === "trade_distribution";
+            if (showOther) {
+              if (sales) return "Hide Won/Lost/Nurture";
+              if (trade) return "Hide Active/Paused/Terminated";
+              return "Hide Closed";
+            }
+            if (sales) return "Show Won/Lost/Nurture";
+            if (trade) return "Show Active/Paused/Terminated";
+            return "Show Closed";
+          })()}
         </Button>
       </div>
 

@@ -53,7 +53,7 @@ interface ImportLead {
   pipeline_stage?: number;
   stage?: PipelineStage;
   bant_score?: number;
-  stream_type?: "sales" | "supply_chain";
+  stream_type?: "sales" | "supply_chain" | "trade_distribution";
   bant_breakdown?: Partial<Lead["bantBreakdown"]>;
   lead_grade?: Lead["leadGrade"];
   source?: {

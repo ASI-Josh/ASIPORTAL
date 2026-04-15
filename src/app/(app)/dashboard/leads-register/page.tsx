@@ -6,7 +6,7 @@ import { collection, onSnapshot, orderBy, query, where } from "firebase/firestor
 import {
   Target, TrendingUp, AlertTriangle, Clock, Search,
   Filter, ChevronDown, ChevronUp, ExternalLink, ArrowRight,
-  CheckCircle2, PauseCircle, XCircle, Eye, Zap, Calendar,
+  CheckCircle2, PauseCircle, XCircle, Eye, Zap, Calendar, Package,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -271,7 +271,11 @@ function WeeklyReviewPanel({ entries, stream }: { entries: RegisterEntry[]; stre
         <CardHeader className="pb-3">
           <CardTitle className="text-base flex items-center gap-2">
             <Calendar className="h-4 w-4 text-primary" />
-            Weekly Shortlist ({stream === "supply_chain" ? "VANGUARD" : "SENTINEL"})
+            Weekly Shortlist ({
+              stream === "supply_chain" ? "VANGUARD" :
+              stream === "trade_distribution" ? "SHIELD" :
+              "SENTINEL"
+            })
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -465,6 +469,9 @@ export default function LeadsRegisterPage() {
           </TabsTrigger>
           <TabsTrigger value="sales" className="gap-2">
             <TrendingUp className="h-4 w-4" /> Sales (SENTINEL)
+          </TabsTrigger>
+          <TabsTrigger value="trade_distribution" className="gap-2">
+            <Package className="h-4 w-4" /> Trade Distribution (SHIELD)
           </TabsTrigger>
         </TabsList>
 

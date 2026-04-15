@@ -624,18 +624,18 @@ const TOOLS: McpTool[] = [
   // ─── Sales pipeline tools ─────────────────────────────────────────────────
   {
     name: "get_leads",
-    description: "List CRM leads from the pipeline. Filter by stream (sales/supply_chain), stage, grade, or sector.",
+    description: "List CRM leads from the pipeline. Filter by stream (sales/supply_chain/trade_distribution), stage, grade, or sector.",
     inputSchema: {
       type: "object",
       properties: {
         streamType: {
           type: "string",
-          enum: ["sales", "supply_chain"],
-          description: "Filter by stream type: 'sales' (customers) or 'supply_chain' (suppliers/partners). Omit for all.",
+          enum: ["sales", "supply_chain", "trade_distribution"],
+          description: "Filter by stream type: 'sales' (SENTINEL customers), 'supply_chain' (VANGUARD suppliers/partners), or 'trade_distribution' (SHIELD trade installer clients for APEAX films). Omit for all.",
         },
         stage: {
           type: "string",
-          description: "Filter by pipeline stage. Sales stages: identified, researched, qualified, outreach, engaged, discovery, proposal, negotiation, won, lost, nurture. Supply chain stages: identified, researched, qualified, outreach, engaged, evaluation, negotiation, agreement, onboarded, inactive, watchlist.",
+          description: "Filter by pipeline stage. Sales: identified, researched, qualified, outreach, engaged, discovery, proposal, negotiation, won, lost, nurture. Supply chain: identified, researched, qualified, outreach, engaged, evaluation, negotiation, agreement, onboarded, inactive, watchlist. Trade distribution: identified, researched, qualified, application_review, vetting, agreement_sent, agreement_signed, onboarded, first_order, active, paused, terminated.",
         },
         grade: { type: "string", enum: ["A","B","C","D","E"], description: "Filter by lead grade." },
         sector: { type: "string", description: "Filter by sector (e.g. mass-transit, manufacturing)." },
@@ -645,14 +645,14 @@ const TOOLS: McpTool[] = [
   },
   {
     name: "get_pipeline_stats",
-    description: "Get pipeline summary with per-stream breakdowns: total leads, hot leads count, overdue follow-ups, estimated pipeline value, breakdown by stage and grade. Accepts optional streamType filter.",
+    description: "Get pipeline summary with per-stream breakdowns: total leads, hot leads count, overdue follow-ups, estimated pipeline value, breakdown by stage and grade. Accepts optional streamType filter across sales, supply_chain, and trade_distribution.",
     inputSchema: {
       type: "object",
       properties: {
         streamType: {
           type: "string",
-          enum: ["sales", "supply_chain"],
-          description: "Filter stats to a specific stream. Omit for combined stats.",
+          enum: ["sales", "supply_chain", "trade_distribution"],
+          description: "Filter stats to a specific stream. Omit for combined stats across all three streams.",
         },
       },
     },
@@ -664,7 +664,7 @@ const TOOLS: McpTool[] = [
       type: "object",
       properties: {
         company: { type: "string", description: "Company name." },
-        streamType: { type: "string", enum: ["sales", "supply_chain"], description: "Stream type: 'sales' (customer) or 'supply_chain' (supplier/partner). Default: sales." },
+        streamType: { type: "string", enum: ["sales", "supply_chain", "trade_distribution"], description: "Stream type: 'sales' (SENTINEL customer), 'supply_chain' (VANGUARD supplier/partner), or 'trade_distribution' (SHIELD trade installer for APEAX films). Default: sales." },
         sector: { type: "string", description: "Sector: mass-transit, manufacturing, wholesale-trade, structural, marine, other." },
         companyWebsite: { type: "string" },
         existingOrganizationId: { type: "string", description: "Link to existing org in portal if already a client." },
@@ -812,7 +812,7 @@ const TOOLS: McpTool[] = [
     inputSchema: {
       type: "object",
       properties: {
-        streamType: { type: "string", enum: ["sales", "supply_chain"], description: "Stream: 'sales' (SENTINEL) or 'supply_chain' (VANGUARD)." },
+        streamType: { type: "string", enum: ["sales", "supply_chain", "trade_distribution"], description: "Stream: 'sales' (SENTINEL), 'supply_chain' (VANGUARD), or 'trade_distribution' (SHIELD)." },
         source: {
           type: "object", description: "How this entry was sourced.",
           properties: {
@@ -859,7 +859,7 @@ const TOOLS: McpTool[] = [
     inputSchema: {
       type: "object",
       properties: {
-        streamType: { type: "string", enum: ["sales", "supply_chain"], description: "Required — filter by stream." },
+        streamType: { type: "string", enum: ["sales", "supply_chain", "trade_distribution"], description: "Required — filter by stream." },
         status: { type: "string", enum: ["identified", "assessed", "shortlisted", "promoted", "parked", "rejected"] },
         roeGrade: { type: "string", enum: ["A", "B", "C", "D", "E"] },
         urgencyFlag: { type: "boolean" },
@@ -936,7 +936,7 @@ const TOOLS: McpTool[] = [
     inputSchema: {
       type: "object",
       properties: {
-        streamType: { type: "string", enum: ["sales", "supply_chain"], description: "Filter by stream." },
+        streamType: { type: "string", enum: ["sales", "supply_chain", "trade_distribution"], description: "Filter by stream." },
         weekEnding: { type: "string", description: "ISO date for week ending (default: this week's Sunday)." },
         limit: { type: "number", description: "Max entries (default 5)." },
       },
@@ -948,7 +948,7 @@ const TOOLS: McpTool[] = [
     inputSchema: {
       type: "object",
       properties: {
-        streamType: { type: "string", enum: ["sales", "supply_chain"], description: "Filter by stream." },
+        streamType: { type: "string", enum: ["sales", "supply_chain", "trade_distribution"], description: "Filter by stream." },
       },
     },
   },
@@ -958,7 +958,7 @@ const TOOLS: McpTool[] = [
     inputSchema: {
       type: "object",
       properties: {
-        streamType: { type: "string", enum: ["sales", "supply_chain"], description: "Filter by stream. Omit for both." },
+        streamType: { type: "string", enum: ["sales", "supply_chain", "trade_distribution"], description: "Filter by stream. Omit for all three." },
       },
     },
   },
@@ -3626,10 +3626,12 @@ async function handleGetPipelineStats(args: Record<string, unknown>) {
   const db = admin.firestore();
   const snap = await db.collection(COLLECTIONS.LEADS).limit(500).get();
   const streamFilter = typeof args.streamType === "string" ? args.streamType : null;
-  const terminalStages = ["won", "lost", "onboarded", "inactive"];
+  // Terminal stages across all three streams. Sales: won/lost. Supply chain: onboarded/inactive.
+  // Trade distribution: terminated (paused is transitional, not terminal).
+  const terminalStages = ["won", "lost", "onboarded", "inactive", "terminated"];
   const byStage: Record<string, number> = {};
   const byGrade: Record<string, number> = {};
-  const byStream: Record<string, number> = { sales: 0, supply_chain: 0 };
+  const byStream: Record<string, number> = { sales: 0, supply_chain: 0, trade_distribution: 0 };
   let totalValue = 0;
   let overdueFollowUps = 0;
   let total = 0;
@@ -3664,7 +3666,13 @@ async function handleGetPipelineStats(args: Record<string, unknown>) {
 
   return {
     total,
-    totalActive: total - (byStage["won"] || 0) - (byStage["lost"] || 0) - (byStage["onboarded"] || 0) - (byStage["inactive"] || 0),
+    totalActive:
+      total -
+      (byStage["won"] || 0) -
+      (byStage["lost"] || 0) -
+      (byStage["onboarded"] || 0) -
+      (byStage["inactive"] || 0) -
+      (byStage["terminated"] || 0),
     hotLeads: (byGrade["A"] || 0) + (byGrade["B"] || 0),
     overdueFollowUps,
     totalEstimatedValue: totalValue,
@@ -3675,6 +3683,7 @@ async function handleGetPipelineStats(args: Record<string, unknown>) {
     registerStats: {
       supply_chain: buildRegStats("supply_chain"),
       sales: buildRegStats("sales"),
+      trade_distribution: buildRegStats("trade_distribution"),
     },
   };
 }
@@ -3694,7 +3703,15 @@ async function handleCreateLead(args: Record<string, unknown>) {
     1: "identified", 2: "researched", 3: "qualified", 4: "outreach",
     5: "engaged", 6: "evaluation", 7: "negotiation", 8: "agreement", 9: "onboarded", 10: "inactive", 11: "watchlist",
   };
-  const stageMap = streamType === "supply_chain" ? supplyStageMap : salesStageMap;
+  const tradeStageMap: Record<number, string> = {
+    1: "identified", 2: "researched", 3: "qualified", 4: "application_review",
+    5: "vetting", 6: "agreement_sent", 7: "agreement_signed", 8: "onboarded",
+    9: "first_order", 10: "active", 11: "paused", 12: "terminated",
+  };
+  const stageMap =
+    streamType === "supply_chain" ? supplyStageMap :
+    streamType === "trade_distribution" ? tradeStageMap :
+    salesStageMap;
   const stageNum = typeof args.pipeline_stage === "number" ? args.pipeline_stage : 1;
   const stage = stageMap[stageNum] || "identified";
 
@@ -4060,7 +4077,9 @@ async function handleCreateLeadsRegisterEntry(args: Record<string, unknown>) {
   const company = args.company as Record<string, unknown> | undefined;
   if (!company?.name) throw new Error("company.name is required.");
   const streamType = String(args.streamType || "sales");
-  if (streamType !== "sales" && streamType !== "supply_chain") throw new Error("streamType must be 'sales' or 'supply_chain'.");
+  if (streamType !== "sales" && streamType !== "supply_chain" && streamType !== "trade_distribution") {
+    throw new Error("streamType must be 'sales', 'supply_chain', or 'trade_distribution'.");
+  }
   const db = admin.firestore();
   const now = admin.firestore.FieldValue.serverTimestamp();
   const source = (args.source || { type: "manual" }) as Record<string, unknown>;
@@ -4339,6 +4358,7 @@ async function handleGetLeadsRegisterStats(args: Record<string, unknown>) {
   return {
     supply_chain: buildStreamStats("supply_chain"),
     sales: buildStreamStats("sales"),
+    trade_distribution: buildStreamStats("trade_distribution"),
   };
 }
 

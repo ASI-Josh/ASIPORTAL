@@ -1006,7 +1006,7 @@ export interface AutomationAgent {
 // CRM & SALES PIPELINE
 // ============================================
 
-export type StreamType = "sales" | "supply_chain";
+export type StreamType = "sales" | "supply_chain" | "trade_distribution";
 
 export type SalesPipelineStage =
   | "identified"
@@ -1034,8 +1034,29 @@ export type SupplyChainPipelineStage =
   | "inactive"
   | "watchlist";
 
+// Trade distribution pipeline — SHIELD / APEAX trade installer channel.
+// Differs from both sales and supply chain because it involves installer
+// vetting, GUARDIAN QA hold, APEAX USA PO placement, warranty registration,
+// and an ongoing active-installer relationship with a distinct lifecycle.
+export type TradeDistributionPipelineStage =
+  | "identified"          // Lead discovered (application, outreach, referral)
+  | "researched"          // Background check, business validation
+  | "qualified"           // Meets trade installer criteria
+  | "application_review"  // Application submitted, under SHIELD review
+  | "vetting"             // GUARDIAN QA hold / compliance check
+  | "agreement_sent"      // Trade agreement issued
+  | "agreement_signed"    // Returned signed, contract live
+  | "onboarded"           // Trained, initial orders placed, installer active
+  | "first_order"         // First APEAX USA purchase order placed
+  | "active"              // Ongoing trade client, warranty-registered installs
+  | "paused"              // Temporarily inactive (seasonal, under review)
+  | "terminated";         // Trade agreement ended
+
 // Union of all pipeline stages (backwards-compatible)
-export type PipelineStage = SalesPipelineStage | SupplyChainPipelineStage;
+export type PipelineStage =
+  | SalesPipelineStage
+  | SupplyChainPipelineStage
+  | TradeDistributionPipelineStage;
 
 export const SALES_STAGES: SalesPipelineStage[] = [
   "identified", "researched", "qualified", "outreach", "engaged",
@@ -1045,6 +1066,12 @@ export const SALES_STAGES: SalesPipelineStage[] = [
 export const SUPPLY_CHAIN_STAGES: SupplyChainPipelineStage[] = [
   "identified", "researched", "qualified", "outreach", "engaged",
   "evaluation", "negotiation", "agreement", "onboarded", "inactive", "watchlist",
+];
+
+export const TRADE_DISTRIBUTION_STAGES: TradeDistributionPipelineStage[] = [
+  "identified", "researched", "qualified", "application_review", "vetting",
+  "agreement_sent", "agreement_signed", "onboarded", "first_order", "active",
+  "paused", "terminated",
 ];
 
 export const SALES_STAGE_LABELS: Record<SalesPipelineStage, string> = {
@@ -1060,6 +1087,21 @@ export const SUPPLY_CHAIN_STAGE_LABELS: Record<SupplyChainPipelineStage, string>
   inactive: "Inactive", watchlist: "Watchlist",
 };
 
+export const TRADE_DISTRIBUTION_STAGE_LABELS: Record<TradeDistributionPipelineStage, string> = {
+  identified: "Identified",
+  researched: "Researched",
+  qualified: "Qualified",
+  application_review: "Application Review",
+  vetting: "Vetting (QA Hold)",
+  agreement_sent: "Agreement Sent",
+  agreement_signed: "Agreement Signed",
+  onboarded: "Onboarded",
+  first_order: "First Order",
+  active: "Active Installer",
+  paused: "Paused",
+  terminated: "Terminated",
+};
+
 export const SALES_STAGE_COLORS: Record<SalesPipelineStage, string> = {
   identified: "zinc", researched: "violet", qualified: "teal", outreach: "blue",
   engaged: "cyan", discovery: "indigo", proposal: "amber", negotiation: "orange",
@@ -1070,6 +1112,21 @@ export const SUPPLY_CHAIN_STAGE_COLORS: Record<SupplyChainPipelineStage, string>
   identified: "zinc", researched: "violet", qualified: "teal", outreach: "blue",
   engaged: "cyan", evaluation: "indigo", negotiation: "orange", agreement: "amber",
   onboarded: "green", inactive: "red", watchlist: "purple",
+};
+
+export const TRADE_DISTRIBUTION_STAGE_COLORS: Record<TradeDistributionPipelineStage, string> = {
+  identified: "zinc",
+  researched: "violet",
+  qualified: "teal",
+  application_review: "blue",
+  vetting: "amber",
+  agreement_sent: "cyan",
+  agreement_signed: "indigo",
+  onboarded: "fuchsia",
+  first_order: "purple",
+  active: "green",
+  paused: "orange",
+  terminated: "red",
 };
 
 export type LeadSector =
