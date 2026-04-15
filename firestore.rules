@@ -329,6 +329,13 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    match /secureCredentials/{credId} {
+      // Server-side credentials (service account keys, etc.) — completely
+      // blocked from all client access. Only the Admin SDK can read/write
+      // these, which bypasses rules entirely.
+      allow read, write: if false;
+    }
+
     // KPI Traceability Module (staff full access, clients can read own org data)
     match /fuelRecords/{docId} {
       allow read: if isStaff() || (signedIn() && resource.data.organizationId == userOrgId());

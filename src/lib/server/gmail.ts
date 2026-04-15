@@ -147,12 +147,18 @@ export async function getGmailAccessToken(userId: string = "default") {
 
 // ── Service account (domain-wide delegation) for agent mailboxes ──
 //
-// The GOOGLE_SERVICE_ACCOUNT_B64 env var must contain a base64-encoded
-// Google service account JSON key. That service account must have
-// domain-wide delegation enabled in Google Workspace admin console with
-// the AGENT_SCOPES granted.
+// The service account JSON key is stored in Firestore at
+// secureCredentials/gmailServiceAccount rather than an env var because
+// base64-encoding the full key (~3.2KB) blows past AWS Lambda's 4KB
+// environment variable ceiling when combined with other Netlify env vars.
 //
-// Tokens are cached in memory per impersonated email (short-lived, ~55min).
+// The key doc is admin-read-only via Firestore rules. The Admin SDK
+// bypasses rules, so server-side fetching works unconditionally.
+// In-memory caching means only one cold-start fetch per serverless
+// instance lifetime.
+//
+// Access tokens (JWT-exchanged per impersonated email) are separately
+// cached in memory — short-lived, ~55min.
 
 interface CachedServiceToken {
   accessToken: string;
@@ -166,13 +172,54 @@ interface ServiceAccountKey {
   token_uri?: string;
 }
 
-function getServiceAccountKey(): ServiceAccountKey {
+// Process-level cache for the raw service account key. Read from
+// Firestore on first use, retained for the lifetime of the serverless
+// instance. Reset to null to force a re-fetch (e.g. after rotation).
+let cachedServiceAccountKey: ServiceAccountKey | null = null;
+
+/**
+ * Load the service account key from Firestore. The legacy env var path
+ * (GOOGLE_SERVICE_ACCOUNT_B64) still works as a fallback so local dev
+ * can use either source — Firestore is tried first in production.
+ */
+async function getServiceAccountKey(): Promise<ServiceAccountKey> {
+  if (cachedServiceAccountKey) return cachedServiceAccountKey;
+
+  // Try Firestore first — the production storage location
+  try {
+    const snap = await admin
+      .firestore()
+      .collection("secureCredentials")
+      .doc("gmailServiceAccount")
+      .get();
+
+    if (snap.exists) {
+      const data = snap.data() as { keyB64?: string } | undefined;
+      const b64 = data?.keyB64;
+      if (b64) {
+        const parsed = parseServiceAccountKeyB64(b64);
+        cachedServiceAccountKey = parsed;
+        return parsed;
+      }
+    }
+  } catch (err) {
+    // Non-fatal — fall through to env var path
+    console.error("[gmail] Firestore credential fetch failed, falling back to env var:", err);
+  }
+
+  // Fallback: env var (local dev / migration period)
   const b64 = process.env.GOOGLE_SERVICE_ACCOUNT_B64;
   if (!b64) {
     throw new Error(
-      "GOOGLE_SERVICE_ACCOUNT_B64 env var not set. Agent mailboxes require a Google Workspace service account with domain-wide delegation. See docs/gmail-service-account.md."
+      "Gmail service account key not found. Expected Firestore doc at secureCredentials/gmailServiceAccount (with field 'keyB64'), or GOOGLE_SERVICE_ACCOUNT_B64 env var as fallback. See docs/gmail-service-account.md for setup."
     );
   }
+  const parsed = parseServiceAccountKeyB64(b64);
+  cachedServiceAccountKey = parsed;
+  return parsed;
+}
+
+function parseServiceAccountKeyB64(b64: string): ServiceAccountKey {
   try {
     const json = Buffer.from(b64, "base64").toString("utf-8");
     const parsed = JSON.parse(json) as ServiceAccountKey;
@@ -181,7 +228,9 @@ function getServiceAccountKey(): ServiceAccountKey {
     }
     return parsed;
   } catch (err) {
-    throw new Error(`Invalid GOOGLE_SERVICE_ACCOUNT_B64 format: ${err instanceof Error ? err.message : "parse error"}`);
+    throw new Error(
+      `Invalid service account key format: ${err instanceof Error ? err.message : "parse error"}`
+    );
   }
 }
 
@@ -228,7 +277,7 @@ async function getServiceAccountAccessToken(impersonateEmail: string): Promise<s
     return cached.accessToken;
   }
 
-  const key = getServiceAccountKey();
+  const key = await getServiceAccountKey();
   const jwt = await signServiceAccountJwt(impersonateEmail, key);
 
   const res = await fetch(key.token_uri || TOKEN_URL, {

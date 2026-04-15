@@ -70,6 +70,9 @@ export const COLLECTIONS = {
   // Agent email audit trail (every email sent/received by an agent mailbox)
   AGENT_EMAIL_AUDIT: "agentEmailAudit",
   GMAIL_TOKENS: "gmailTokens",
+  // Secure server-side credentials (service account keys, API secrets)
+  // kept out of env vars to avoid AWS Lambda 4KB ceiling.
+  SECURE_CREDENTIALS: "secureCredentials",
 } as const;
 
 /**
