@@ -326,6 +326,39 @@
         { "fieldPath": "isActive", "order": "ASCENDING" },
         { "fieldPath": "nextRoundOpensAt", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "leadsRegister",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "streamType", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "leadsRegister",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "leadsRegister",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "streamType", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "leadsRegister",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "promotedToPipeline", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

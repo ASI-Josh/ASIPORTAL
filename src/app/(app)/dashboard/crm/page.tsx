@@ -96,11 +96,18 @@ function allStagesForStream(stream: StreamType): PipelineStage[] {
 }
 
 const SECTORS: { value: LeadSector; label: string }[] = [
+  // Heavy vehicle / fleet (SENTINEL's market)
   { value: "mass-transit", label: "Mass Transit" },
   { value: "manufacturing", label: "Manufacturing" },
   { value: "wholesale-trade", label: "Wholesale Trade" },
   { value: "structural", label: "Structural" },
   { value: "marine", label: "Marine" },
+  // Passenger / trade (MERCER's market)
+  { value: "passenger_trade", label: "Passenger / Trade (general)" },
+  { value: "dealership", label: "Dealership" },
+  { value: "panel_beater", label: "Panel Beater / Body Shop" },
+  { value: "trade_workshop", label: "Trade Workshop" },
+  { value: "detailing", label: "Auto Detailing" },
   { value: "other", label: "Other" },
 ];
 

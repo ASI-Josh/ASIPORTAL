@@ -1130,11 +1130,19 @@ export const TRADE_DISTRIBUTION_STAGE_COLORS: Record<TradeDistributionPipelineSt
 };
 
 export type LeadSector =
-  | "mass-transit"
-  | "manufacturing"
-  | "wholesale-trade"
-  | "structural"
-  | "marine"
+  // Heavy vehicle / fleet (SENTINEL's market)
+  | "mass-transit"          // Bus, coach, rail operators
+  | "manufacturing"          // Industrial / commercial manufacturing
+  | "wholesale-trade"        // B2B wholesale distribution
+  | "structural"             // Structural glass / large format
+  | "marine"                 // Marine / maritime
+  // Passenger / trade (MERCER's market)
+  | "passenger_trade"        // Generic passenger vehicle / trade (catch-all for MERCER)
+  | "dealership"             // New / used car dealerships (BMW, LSH, etc.)
+  | "panel_beater"           // Panel / body repair shops (Eurohub-type)
+  | "trade_workshop"         // Independent trade workshops (Millennium Auto-type)
+  | "detailing"              // Auto detailing / protection specialists
+  // Other
   | "other";
 
 export type LeadGrade = "A" | "B" | "C" | "D" | "E";
