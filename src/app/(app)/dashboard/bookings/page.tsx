@@ -43,6 +43,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { DateField } from "@/components/ui/date-field";
 import {
   Select,
   SelectContent,
@@ -848,13 +849,12 @@ export default function BookingsPage() {
     return (await response.json()) as { eventId?: string };
   };
 
-  // Time slots
-  const timeSlots = [
-    "07:00", "07:30", "08:00", "08:30", "09:00", "09:30",
-    "10:00", "10:30", "11:00", "11:30", "12:00", "12:30",
-    "13:00", "13:30", "14:00", "14:30", "15:00", "15:30",
-    "16:00", "16:30", "17:00",
-  ];
+  // Time slots — full 24 hours in 30-minute increments (ASI operates day & night)
+  const timeSlots = Array.from({ length: 48 }, (_, i) => {
+    const hours = String(Math.floor(i / 2)).padStart(2, "0");
+    const minutes = i % 2 === 0 ? "00" : "30";
+    return `${hours}:${minutes}`;
+  });
 
   const handleSelectOrganization = (org: ContactOrganization) => {
     setSelectedOrganization(org);
@@ -2695,28 +2695,7 @@ export default function BookingsPage() {
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="space-y-2">
                           <Label>Date *</Label>
-                          <Popover>
-                            <PopoverTrigger asChild>
-                              <Button
-                                variant="outline"
-                                className={cn(
-                                  "w-full justify-start text-left font-normal",
-                                  !scheduledDate && "text-muted-foreground"
-                                )}
-                              >
-                                <CalendarIcon className="mr-2 h-4 w-4" />
-                                {scheduledDate ? format(scheduledDate, "PPP") : "Select date"}
-                              </Button>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-auto p-0" align="start">
-                              <Calendar
-                                mode="single"
-                                selected={scheduledDate}
-                                onSelect={setScheduledDate}
-                                initialFocus
-                              />
-                            </PopoverContent>
-                          </Popover>
+                          <DateField value={scheduledDate} onChange={setScheduledDate} />
                         </div>
                         <div className="space-y-2">
                           <Label>Time *</Label>
@@ -2755,28 +2734,7 @@ export default function BookingsPage() {
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           <div className="space-y-2">
                             <Label>Finish date</Label>
-                            <Popover>
-                              <PopoverTrigger asChild>
-                                <Button
-                                  variant="outline"
-                                  className={cn(
-                                    "w-full justify-start text-left font-normal",
-                                    !finishDate && "text-muted-foreground"
-                                  )}
-                                >
-                                  <CalendarIcon className="mr-2 h-4 w-4" />
-                                  {finishDate ? format(finishDate, "PPP") : "Select date"}
-                                </Button>
-                              </PopoverTrigger>
-                              <PopoverContent className="w-auto p-0" align="start">
-                                <Calendar
-                                  mode="single"
-                                  selected={finishDate}
-                                  onSelect={setFinishDate}
-                                  initialFocus
-                                />
-                              </PopoverContent>
-                            </Popover>
+                            <DateField value={finishDate} onChange={setFinishDate} />
                           </div>
                           <div className="space-y-2">
                             <Label>Finish time</Label>
@@ -3531,28 +3489,7 @@ export default function BookingsPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Booking Date *</Label>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant="outline"
-                      className={cn(
-                        "w-full justify-start text-left font-normal",
-                        !editScheduledDate && "text-muted-foreground"
-                      )}
-                    >
-                      <CalendarIcon className="mr-2 h-4 w-4" />
-                      {editScheduledDate ? format(editScheduledDate, "PPP") : "Select date"}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0" align="start">
-                    <Calendar
-                      mode="single"
-                      selected={editScheduledDate}
-                      onSelect={setEditScheduledDate}
-                      initialFocus
-                    />
-                  </PopoverContent>
-                </Popover>
+                <DateField value={editScheduledDate} onChange={setEditScheduledDate} />
               </div>
               <div className="space-y-2">
                 <Label>Booking Time *</Label>
@@ -3591,28 +3528,7 @@ export default function BookingsPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Finish Date</Label>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button
-                        variant="outline"
-                        className={cn(
-                          "w-full justify-start text-left font-normal",
-                          !editFinishDate && "text-muted-foreground"
-                        )}
-                      >
-                        <CalendarIcon className="mr-2 h-4 w-4" />
-                        {editFinishDate ? format(editFinishDate, "PPP") : "Select date"}
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-auto p-0" align="start">
-                      <Calendar
-                        mode="single"
-                        selected={editFinishDate}
-                        onSelect={setEditFinishDate}
-                        initialFocus
-                      />
-                    </PopoverContent>
-                  </Popover>
+                  <DateField value={editFinishDate} onChange={setEditFinishDate} />
                 </div>
                 <div className="space-y-2">
                   <Label>Finish Time</Label>

@@ -49,6 +49,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
+import { DateField } from "@/components/ui/date-field";
 import { FormattedSummary } from "@/components/ai/formatted-summary";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
@@ -127,12 +128,11 @@ const VEHICLE_CONV_LABEL: Record<"pending" | "converted" | "rejected", string> =
   rejected: "Rejected",
 };
 
-const timeSlots = [
-  "07:00", "07:30", "08:00", "08:30", "09:00", "09:30",
-  "10:00", "10:30", "11:00", "11:30", "12:00", "12:30",
-  "13:00", "13:30", "14:00", "14:30", "15:00", "15:30",
-  "16:00", "16:30", "17:00",
-];
+const timeSlots = Array.from({ length: 48 }, (_, i) => {
+  const hours = String(Math.floor(i / 2)).padStart(2, "0");
+  const minutes = i % 2 === 0 ? "00" : "30";
+  return `${hours}:${minutes}`;
+});
 
 const DEFAULT_INSPECTION_BOOKING_TYPE: RepairType = "scratch_graffiti_removal";
 const AUTO_SAVE_DEBOUNCE_MS = 1500;
@@ -3009,24 +3009,7 @@ export default function InspectionDetailPage() {
                 </div>
                 <div className="space-y-2">
                   <Label>Inspection date</Label>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button variant="outline" className="w-full justify-start">
-                        <CalendarIcon className="mr-2 h-4 w-4" />
-                        {scheduledDate
-                          ? scheduledDate.toLocaleDateString("en-AU")
-                          : "Select date"}
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="p-0" align="start">
-                      <Calendar
-                        mode="single"
-                        selected={scheduledDate}
-                        onSelect={(date) => setScheduledDate(date || undefined)}
-                        initialFocus
-                      />
-                    </PopoverContent>
-                  </Popover>
+                  <DateField value={scheduledDate} onChange={setScheduledDate} />
                 </div>
                 <div className="space-y-2">
                   <Label>Inspection time</Label>
@@ -3063,28 +3046,7 @@ export default function InspectionDetailPage() {
                       </Button>
                     )}
                   </div>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button
-                        variant="outline"
-                        className={cn(
-                          "w-full justify-start",
-                          !finishDate && "text-muted-foreground"
-                        )}
-                      >
-                        <CalendarIcon className="mr-2 h-4 w-4" />
-                        {finishDate ? finishDate.toLocaleDateString("en-AU") : "Select date"}
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="p-0" align="start">
-                      <Calendar
-                        mode="single"
-                        selected={finishDate}
-                        onSelect={(date) => setFinishDate(date || undefined)}
-                        initialFocus
-                      />
-                    </PopoverContent>
-                  </Popover>
+                  <DateField value={finishDate} onChange={setFinishDate} />
                 </div>
 
                 <div className="space-y-2">
