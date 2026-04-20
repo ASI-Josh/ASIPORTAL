@@ -19,56 +19,11 @@ const XERO_TOKEN_URL = "https://identity.xero.com/connect/token";
 const XERO_API_BASE = "https://api.xero.com/api.xro/2.0";
 const XERO_CONNECTIONS_URL = "https://api.xero.com/connections";
 
-// Xero OAuth scopes — every scope here must ALSO be enabled in the Xero
-// Developer Portal app config (developer.xero.com → ASI Portal app →
-// Configuration → OAuth 2.0 scopes). Xero rejects the auth request with
-// "unauthorized_client: Invalid scope for client" if the app isn't
-// configured for a scope we ask for.
-// Xero OAuth scopes — granular scope model (apps created after
-// 2 March 2026). The deprecated accounting.transactions scope is
-// split into four: invoices, payments, banktransactions,
-// manualjournals. Same for accounting.reports.read — now one
-// scope per report type.
-//
-// Reference: developer.xero.com/documentation/guides/oauth2/scopes
-const SCOPES = [
-  "openid",
-  "profile",
-  "email",
-  "offline_access",
-
-  // Write + read pairs for everything LEDGER creates or updates.
-  // Invoices scope covers CreditNotes, Quotes, PurchaseOrders,
-  // RepeatingInvoices, Items, LinkedTransactions.
-  "accounting.invoices",
-  "accounting.invoices.read",
-  "accounting.payments",
-  "accounting.payments.read",
-  "accounting.banktransactions",
-  "accounting.banktransactions.read",
-  "accounting.manualjournals",
-  "accounting.manualjournals.read",
-  "accounting.contacts",
-  "accounting.contacts.read",
-  // Settings covers Accounts, BrandingThemes, Currencies, Items,
-  // InvoiceReminders, Organisation, TaxRates, TrackingCategories.
-  "accounting.settings",
-  "accounting.settings.read",
-  // Attachments for invoices, bills, contacts, credit notes, etc.
-  "accounting.attachments",
-  "accounting.attachments.read",
-
-  // Reports — granular, one per type. Add more as LEDGER needs them.
-  "accounting.reports.balancesheet.read",
-  "accounting.reports.profitandloss.read",
-  "accounting.reports.trialbalance.read",
-  "accounting.reports.banksummary.read",
-  "accounting.reports.aged.read",
-  "accounting.reports.taxreports.read",
-
-  // General ledger / journals — read only.
-  "accounting.journals.read",
-].join(" ");
+// TEMPORARY — matching the known-working manual URL exactly while we
+// diagnose. Josh's manual auth URL with just `openid` loaded the Xero
+// consent screen fine. If this version (from /api/xero/auth) still
+// fails, the problem is in how the route builds the URL — NOT scopes.
+const SCOPES = "openid";
 
 function getClientId() {
   const id = process.env.XERO_CLIENT_ID;
