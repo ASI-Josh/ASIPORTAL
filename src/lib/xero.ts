@@ -25,52 +25,19 @@ const XERO_CONNECTIONS_URL = "https://api.xero.com/connections";
 // "unauthorized_client: Invalid scope for client" if the app isn't
 // configured for a scope we ask for.
 // Xero OAuth scopes — granular scope model (apps created after
-// 2 March 2026). The deprecated accounting.transactions scope has
-// been split into four: invoices, payments, banktransactions,
-// manualjournals. Same story for accounting.reports.read — now one
-// scope per report type.
+// 2 March 2026). Deliberately MINIMAL right now while we diagnose
+// "Invalid scope for client". Starting with just OpenID + offline
+// + contacts.read — the absolute minimum that a known-working Xero
+// app always supports. If this succeeds, we add scopes back one
+// step at a time.
 //
 // Reference: developer.xero.com/documentation/guides/oauth2/scopes
 const SCOPES = [
-  // User identity
   "openid",
   "profile",
   "email",
   "offline_access",
-
-  // Write + read pairs for everything LEDGER creates or updates.
-  // Invoices scope also covers CreditNotes, Quotes, PurchaseOrders,
-  // RepeatingInvoices, Items, and LinkedTransactions.
-  "accounting.invoices",
-  "accounting.invoices.read",
-  "accounting.payments",
-  "accounting.payments.read",
-  "accounting.banktransactions",
-  "accounting.banktransactions.read",
-  "accounting.manualjournals",
-  "accounting.manualjournals.read",
-  "accounting.contacts",
   "accounting.contacts.read",
-  // Settings covers Accounts, BrandingThemes, Currencies, Employees,
-  // Items, InvoiceReminders, Organisation, TaxRates, TrackingCategories.
-  "accounting.settings",
-  "accounting.settings.read",
-  // Attachments cover all the entities we can attach files to.
-  "accounting.attachments",
-  "accounting.attachments.read",
-
-  // Reports — granular, one per report type. LEDGER primarily uses
-  // P&L and Balance Sheet for reconciliation + period close. Add more
-  // granular report scopes here if/when LEDGER needs them.
-  "accounting.reports.balancesheet.read",
-  "accounting.reports.profitandloss.read",
-  "accounting.reports.trialbalance.read",
-  "accounting.reports.banksummary.read",
-  "accounting.reports.aged.read",
-  "accounting.reports.taxreports.read",
-
-  // General ledger / journals — read only.
-  "accounting.journals.read",
 ].join(" ");
 
 function getClientId() {
