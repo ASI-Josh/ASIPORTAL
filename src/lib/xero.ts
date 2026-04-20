@@ -19,10 +19,30 @@ const XERO_TOKEN_URL = "https://identity.xero.com/connect/token";
 const XERO_API_BASE = "https://api.xero.com/api.xro/2.0";
 const XERO_CONNECTIONS_URL = "https://api.xero.com/connections";
 
-// Binary-search probe: openid alone works. Now testing the standard
-// OIDC quartet. If this fails, one of profile/email/offline_access is
-// the culprit. If it works, move on to accounting scopes one at a time.
-const SCOPES = "openid profile email offline_access";
+// Binary-search probe — batch 1 of accounting scopes (read+write pairs).
+// If this batch succeeds we add the reports scopes. If it fails we
+// halve it.
+const SCOPES = [
+  "openid",
+  "profile",
+  "email",
+  "offline_access",
+  "accounting.invoices",
+  "accounting.invoices.read",
+  "accounting.payments",
+  "accounting.payments.read",
+  "accounting.banktransactions",
+  "accounting.banktransactions.read",
+  "accounting.manualjournals",
+  "accounting.manualjournals.read",
+  "accounting.contacts",
+  "accounting.contacts.read",
+  "accounting.settings",
+  "accounting.settings.read",
+  "accounting.attachments",
+  "accounting.attachments.read",
+  "accounting.journals.read",
+].join(" ");
 
 function getClientId() {
   const id = process.env.XERO_CLIENT_ID;
