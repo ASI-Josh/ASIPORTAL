@@ -1125,7 +1125,7 @@ const TOOLS: McpTool[] = [
   // ─── Xero Accounting tools ──────────────────────────────────────────────────
   {
     name: "xero_status",
-    description: "Check whether Xero is connected and authorised. Returns connection status, organisation name, and token expiry.",
+    description: "Check whether Xero is connected and authorised. Returns connection status, organisation name, token expiry, AND the list of scopes actually granted in the current token (grantedScopes) plus any scopes that are configured but missing from the token (missingScopes). Use this first when diagnosing 401s — if missingScopes is non-empty, the org owner needs to re-consent via /api/xero/auth (which now forces prompt=consent).",
     inputSchema: { type: "object", properties: {} },
   },
   {
@@ -1162,11 +1162,12 @@ const TOOLS: McpTool[] = [
   {
     name: "xero_send_invoice",
     description:
-      "Approve a DRAFT invoice and email it to the client. Moves the invoice from DRAFT → AUTHORISED, then sends via Xero's email system.",
+      "Approve a DRAFT invoice and email it to the client. Moves the invoice from DRAFT → AUTHORISED, then sends via Xero's email system. If jobId is supplied, the Job Completion Report PDF is auto-attached to the invoice BEFORE it is sent, per ASI QA policy — every invoice ships with its traceability record.",
     inputSchema: {
       type: "object",
       properties: {
         invoiceId: { type: "string", description: "The Xero InvoiceID (UUID) returned by xero_create_invoice." },
+        jobId: { type: "string", description: "Optional ASI Portal job ID. When supplied, the completion report is generated and attached before the invoice is sent (QA requirement). The job must be completed or closed." },
       },
       required: ["invoiceId"],
     },
@@ -6469,7 +6470,27 @@ async function handleXeroCreateInvoice(args: Record<string, unknown>) {
 }
 
 async function handleXeroSendInvoice(args: Record<string, unknown>) {
-  return xeroSendInvoice(String(args.invoiceId));
+  const invoiceId = String(args.invoiceId);
+  const jobId = typeof args.jobId === "string" && args.jobId.trim() ? args.jobId.trim() : null;
+
+  let reportAttached = false;
+  let attachError: string | null = null;
+
+  // QA policy: every invoice ships with its completion report. Attach BEFORE
+  // sending so the email Xero fires carries the PDF as an attachment.
+  if (jobId) {
+    try {
+      const { pdfBytes, fileName } = await generateJobReportPdf(jobId);
+      await xeroAttachFileToInvoice(invoiceId, fileName, pdfBytes);
+      reportAttached = true;
+    } catch (err) {
+      attachError = err instanceof Error ? err.message : String(err);
+      console.error("[xero_send_invoice] Failed to auto-attach report:", err);
+    }
+  }
+
+  const sendResult = await xeroSendInvoice(invoiceId);
+  return { ...sendResult, reportAttached, attachError, jobId };
 }
 
 async function handleXeroGetInvoice(args: Record<string, unknown>) {
@@ -6481,32 +6502,11 @@ async function handleXeroListContacts(args: Record<string, unknown>) {
 }
 
 async function generateJobReportPdf(jobId: string): Promise<{ pdfBytes: Uint8Array; fileName: string }> {
-  const db = admin.firestore();
-  const jobSnap = await db.collection(COLLECTIONS.JOBS).doc(jobId).get();
-  if (!jobSnap.exists) throw new Error(`Job '${jobId}' not found.`);
-  const job = jobSnap.data()!;
-  const status = String(job.status || "");
-  if (status !== "completed" && status !== "closed") {
-    throw new Error(`Job status is '${status}' — report only available for completed/closed jobs.`);
-  }
-
-  // Call the completion report endpoint internally
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "https://asiportal.live";
-  const res = await fetch(`${baseUrl}/api/jobs/completion-report`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-mcp-internal": "true" },
-    body: JSON.stringify({ jobId }),
-  });
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Failed to generate report (${res.status}): ${text.slice(0, 200)}`);
-  }
-
-  const arrayBuffer = await res.arrayBuffer();
-  const pdfBytes = new Uint8Array(arrayBuffer);
-  const jobNumber = String(job.jobNumber || jobId).replace(/[^a-zA-Z0-9._-]/g, "_");
-  return { pdfBytes, fileName: `${jobNumber}_Completion_Report.pdf` };
+  // In-process PDF build — avoids the self-HTTP round-trip which was hitting
+  // auth/host-check edge cases under Netlify serverless and bouncing as 401.
+  const { buildJobCompletionReport } = await import("@/lib/server/job-report-pdf");
+  const { pdfBytes, fileName } = await buildJobCompletionReport(jobId, "LEDGER Agent");
+  return { pdfBytes, fileName };
 }
 
 async function handleXeroAttachJobReport(args: Record<string, unknown>) {

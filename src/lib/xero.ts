@@ -69,6 +69,12 @@ export function getAuthUrl(state?: string): string {
     redirect_uri: getRedirectUri(),
     scope: SCOPES,
     state: state || "xero-auth",
+    // Force Xero to re-display the consent screen every time. Without this,
+    // if the org owner previously approved the app, Xero silently issues a
+    // token with the EXISTING grant and ignores any new scopes we added to
+    // the request — the classic "token refreshes but still 401s on new
+    // endpoints" symptom.
+    prompt: "consent",
   });
   return `${XERO_AUTH_URL}?${params.toString()}`;
 }
@@ -232,13 +238,43 @@ export async function xeroGetConnectionStatus(): Promise<{
   connected: boolean;
   tenantName?: string;
   expiresAt?: number;
+  grantedScopes?: string[];
+  missingScopes?: string[];
+  scopesMatchConfig?: boolean;
 }> {
   const tokens = await loadTokens();
   if (!tokens) return { connected: false };
+
+  // Decode the JWT access token (no verification — we just want the scope
+  // claim for diagnostics). Xero access tokens are standard JWTs so the
+  // middle segment is a base64url-encoded JSON payload.
+  let grantedScopes: string[] = [];
+  try {
+    const parts = tokens.accessToken.split(".");
+    if (parts.length === 3) {
+      const payloadB64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+      const payloadJson = Buffer.from(payloadB64, "base64").toString("utf-8");
+      const payload = JSON.parse(payloadJson) as { scope?: string | string[] };
+      if (Array.isArray(payload.scope)) {
+        grantedScopes = payload.scope;
+      } else if (typeof payload.scope === "string") {
+        grantedScopes = payload.scope.split(" ").filter(Boolean);
+      }
+    }
+  } catch {
+    // Decoding failed — leave grantedScopes empty; caller can see scopesMatchConfig=false
+  }
+
+  const configured = SCOPES.split(" ").filter(Boolean);
+  const missingScopes = configured.filter((s) => !grantedScopes.includes(s));
+
   return {
     connected: true,
     tenantName: tokens.tenantName,
     expiresAt: tokens.expiresAt,
+    grantedScopes,
+    missingScopes,
+    scopesMatchConfig: missingScopes.length === 0,
   };
 }
 
