@@ -19,11 +19,10 @@ const XERO_TOKEN_URL = "https://identity.xero.com/connect/token";
 const XERO_API_BASE = "https://api.xero.com/api.xro/2.0";
 const XERO_CONNECTIONS_URL = "https://api.xero.com/connections";
 
-// TEMPORARY — matching the known-working manual URL exactly while we
-// diagnose. Josh's manual auth URL with just `openid` loaded the Xero
-// consent screen fine. If this version (from /api/xero/auth) still
-// fails, the problem is in how the route builds the URL — NOT scopes.
-const SCOPES = "openid";
+// Binary-search probe: openid alone works. Now testing the standard
+// OIDC quartet. If this fails, one of profile/email/offline_access is
+// the culprit. If it works, move on to accounting scopes one at a time.
+const SCOPES = "openid profile email offline_access";
 
 function getClientId() {
   const id = process.env.XERO_CLIENT_ID;
