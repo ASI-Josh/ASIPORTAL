@@ -19,20 +19,22 @@ const XERO_TOKEN_URL = "https://identity.xero.com/connect/token";
 const XERO_API_BASE = "https://api.xero.com/api.xro/2.0";
 const XERO_CONNECTIONS_URL = "https://api.xero.com/connections";
 
-// Binary-search — FIRST HALF of the accounting batch.
-// If this works, bad scope is in the second half.
-// If this fails, bad scope is in this half.
+// Binary-search — SECOND HALF. First half (invoices/payments/
+// banktransactions) confirmed good. Bad scope is somewhere in here.
 const SCOPES = [
   "openid",
   "profile",
   "email",
   "offline_access",
-  "accounting.invoices",
-  "accounting.invoices.read",
-  "accounting.payments",
-  "accounting.payments.read",
-  "accounting.banktransactions",
-  "accounting.banktransactions.read",
+  "accounting.manualjournals",
+  "accounting.manualjournals.read",
+  "accounting.contacts",
+  "accounting.contacts.read",
+  "accounting.settings",
+  "accounting.settings.read",
+  "accounting.attachments",
+  "accounting.attachments.read",
+  "accounting.journals.read",
 ].join(" ");
 
 function getClientId() {
