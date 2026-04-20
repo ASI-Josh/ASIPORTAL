@@ -19,18 +19,26 @@ const XERO_TOKEN_URL = "https://identity.xero.com/connect/token";
 const XERO_API_BASE = "https://api.xero.com/api.xro/2.0";
 const XERO_CONNECTIONS_URL = "https://api.xero.com/connections";
 
+// Xero OAuth scopes — every scope here must ALSO be enabled in the Xero
+// Developer Portal app config (developer.xero.com → ASI Portal app →
+// Configuration → OAuth 2.0 scopes). Xero rejects the auth request with
+// "unauthorized_client: Invalid scope for client" if the app isn't
+// configured for a scope we ask for.
 const SCOPES = [
   "openid",
   "profile",
   "email",
+  "offline_access",
+  // Invoices, bills, bank transactions, bank transfers, manual journals,
+  // payments, credit notes, purchase orders — Xero bundles all of these
+  // under accounting.transactions. There is NO standalone accounting.invoices
+  // scope in Xero (asking for it triggers "Invalid scope for client").
   "accounting.transactions",
-  "accounting.reports.read",
-  "accounting.journals.read",
-  "accounting.attachments",
-  "accounting.invoices",
   "accounting.contacts",
   "accounting.settings",
-  "offline_access",
+  "accounting.attachments",
+  "accounting.reports.read",
+  "accounting.journals.read",
 ].join(" ");
 
 function getClientId() {
