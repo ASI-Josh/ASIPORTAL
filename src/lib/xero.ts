@@ -19,9 +19,9 @@ const XERO_TOKEN_URL = "https://identity.xero.com/connect/token";
 const XERO_API_BASE = "https://api.xero.com/api.xro/2.0";
 const XERO_CONNECTIONS_URL = "https://api.xero.com/connections";
 
-// Binary-search probe — batch 1 of accounting scopes (read+write pairs).
-// If this batch succeeds we add the reports scopes. If it fails we
-// halve it.
+// Binary-search — FIRST HALF of the accounting batch.
+// If this works, bad scope is in the second half.
+// If this fails, bad scope is in this half.
 const SCOPES = [
   "openid",
   "profile",
@@ -33,15 +33,6 @@ const SCOPES = [
   "accounting.payments.read",
   "accounting.banktransactions",
   "accounting.banktransactions.read",
-  "accounting.manualjournals",
-  "accounting.manualjournals.read",
-  "accounting.contacts",
-  "accounting.contacts.read",
-  "accounting.settings",
-  "accounting.settings.read",
-  "accounting.attachments",
-  "accounting.attachments.read",
-  "accounting.journals.read",
 ].join(" ");
 
 function getClientId() {
