@@ -17,6 +17,8 @@ import {
 } from "@/components/ui/select";
 import { db } from "@/lib/firebaseClient";
 import { COLLECTIONS } from "@/lib/collections";
+import { useJobs } from "@/contexts/JobsContext";
+import { calculateDashboardMetrics } from "@/lib/dashboard-analytics";
 import type {
   FuelRecord,
   EmissionsReport,
@@ -26,6 +28,7 @@ import type {
   KpiSnapshot,
   ContactOrganization,
   SatisfactionSurvey,
+  Inspection,
 } from "@/lib/types";
 
 import { KpiOverview } from "./overview";
@@ -37,6 +40,7 @@ import { ZebTab } from "./zeb";
 import { SatisfactionTab } from "./satisfaction";
 
 export default function KpiPage() {
+  const { jobs, worksRegister } = useJobs();
   const [fuelRecords, setFuelRecords] = useState<FuelRecord[]>([]);
   const [emissionsReports, setEmissionsReports] = useState<EmissionsReport[]>([]);
   const [telemetryReadings, setTelemetryReadings] = useState<TelemetryReading[]>([]);
@@ -45,6 +49,7 @@ export default function KpiPage() {
   const [snapshots, setSnapshots] = useState<KpiSnapshot[]>([]);
   const [organizations, setOrganizations] = useState<ContactOrganization[]>([]);
   const [surveys, setSurveys] = useState<SatisfactionSurvey[]>([]);
+  const [inspections, setInspections] = useState<Inspection[]>([]);
   const [selectedOrgId, setSelectedOrgId] = useState<string>("all");
 
   useEffect(() => {
@@ -107,6 +112,17 @@ export default function KpiPage() {
     });
   }, []);
 
+  useEffect(() => {
+    const q = query(collection(db, COLLECTIONS.INSPECTIONS), orderBy("createdAt", "desc"));
+    return onSnapshot(
+      q,
+      (snap) => {
+        setInspections(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Inspection, "id">) })));
+      },
+      () => setInspections([])
+    );
+  }, []);
+
   // Global org filter — filters all data before passing to tabs
   const filterByOrg = <T extends { organizationId?: string }>(data: T[]) => {
     if (selectedOrgId === "all") return data;
@@ -119,6 +135,35 @@ export default function KpiPage() {
   const filteredMaintenance = useMemo(() => filterByOrg(maintenanceEvents), [maintenanceEvents, selectedOrgId]);
   const filteredZeb = useMemo(() => filterByOrg(zebRecords), [zebRecords, selectedOrgId]);
   const filteredSurveys = useMemo(() => filterByOrg(surveys), [surveys, selectedOrgId]);
+
+  // Operational data filtered by selected org (jobs use clientId as the
+  // canonical organisation link; fall back to organizationId where populated).
+  const filteredJobs = useMemo(() => {
+    if (selectedOrgId === "all") return jobs;
+    return jobs.filter((j) => j.organizationId === selectedOrgId || j.clientId === selectedOrgId);
+  }, [jobs, selectedOrgId]);
+
+  const filteredInspections = useMemo(() => {
+    if (selectedOrgId === "all") return inspections;
+    return inspections.filter((i) => i.organizationId === selectedOrgId || (i as { clientId?: string }).clientId === selectedOrgId);
+  }, [inspections, selectedOrgId]);
+
+  const filteredWorksRegister = useMemo(() => {
+    if (selectedOrgId === "all") return worksRegister;
+    return worksRegister.filter((w) => (w as { organizationId?: string; clientId?: string }).organizationId === selectedOrgId || (w as { clientId?: string }).clientId === selectedOrgId);
+  }, [worksRegister, selectedOrgId]);
+
+  // Derived ops metrics from completed jobs/inspections — mirrors the dashboard
+  // so KPI tiles show a baseline feed even before fuel/emissions records are captured.
+  const derivedMetrics = useMemo(
+    () => calculateDashboardMetrics({
+      jobs: filteredJobs,
+      inspections: filteredInspections,
+      worksRegister: filteredWorksRegister,
+      organizations,
+    }),
+    [filteredJobs, filteredInspections, filteredWorksRegister, organizations]
+  );
 
   // Client orgs only (exclude ASI internal)
   const clientOrgs = useMemo(() => {
@@ -171,6 +216,7 @@ export default function KpiPage() {
             snapshots={snapshots}
             organizations={organizations}
             surveys={filteredSurveys}
+            derivedMetrics={derivedMetrics}
           />
         </TabsContent>
 
