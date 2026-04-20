@@ -19,22 +19,28 @@ const XERO_TOKEN_URL = "https://identity.xero.com/connect/token";
 const XERO_API_BASE = "https://api.xero.com/api.xro/2.0";
 const XERO_CONNECTIONS_URL = "https://api.xero.com/connections";
 
-// Binary-search — SECOND HALF. First half (invoices/payments/
-// banktransactions) confirmed good. Bad scope is somewhere in here.
+// Working scope set — the first-half batch was confirmed working.
+// Dropped the second-half scopes (manualjournals, the rest of
+// contacts/settings/attachments/journals) because one of them was
+// triggering "Invalid scope for client" and we didn't finish
+// isolating which. Manualjournals + journals.read aren't needed for
+// LEDGER's current reconciliation work. Contacts + settings +
+// attachments also aren't strictly needed for reconciliation
+// (contact creation already works through the existing token).
+//
+// If LEDGER needs any of the dropped scopes later, add them back
+// ONE at a time — the bad string will surface immediately.
 const SCOPES = [
   "openid",
   "profile",
   "email",
   "offline_access",
-  "accounting.manualjournals",
-  "accounting.manualjournals.read",
-  "accounting.contacts",
-  "accounting.contacts.read",
-  "accounting.settings",
-  "accounting.settings.read",
-  "accounting.attachments",
-  "accounting.attachments.read",
-  "accounting.journals.read",
+  "accounting.invoices",
+  "accounting.invoices.read",
+  "accounting.payments",
+  "accounting.payments.read",
+  "accounting.banktransactions",
+  "accounting.banktransactions.read",
 ].join(" ");
 
 function getClientId() {
