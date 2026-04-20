@@ -24,24 +24,34 @@ const XERO_CONNECTIONS_URL = "https://api.xero.com/connections";
 // Configuration → OAuth 2.0 scopes). Xero rejects the auth request with
 // "unauthorized_client: Invalid scope for client" if the app isn't
 // configured for a scope we ask for.
-// Xero OAuth scopes — every scope here must ALSO be enabled in the Xero
-// Developer Portal app config (developer.xero.com → ASI Portal app →
-// Configuration → OAuth 2.0 scopes). Xero rejects the auth request with
-// "unauthorized_client: Invalid scope for client" if the app isn't
-// configured for a scope we ask for.
+// Xero OAuth scopes — this app is on the NEW granular scope model
+// (introduced 2 March 2026). Granular apps do not have a scope
+// checklist in the developer portal; scopes are set entirely by what
+// we request here. Each capability splits into a .read scope (read-
+// only) and a bare scope (read + write).
 //
-// MINIMAL SET for diagnosis — once we confirm this works, add back the
-// other scopes one at a time to identify which one the app isn't
-// configured for. Previously-working set included contacts + settings
-// only; we're now requesting transactions + reports on top of that.
+// We request BOTH read + write for everything LEDGER needs, plus
+// .read-only scopes for reports + journals. If Xero rejects with
+// "Invalid scope for client", the offending string is almost always
+// a typo or a scope that doesn't exist in the granular model.
 const SCOPES = [
   "openid",
   "profile",
   "email",
   "offline_access",
+  // Invoices, bills, credit notes, bank transactions, bank transfers,
+  // manual journals, payments, purchase orders — all covered by the
+  // transactions scope pair.
   "accounting.transactions",
+  "accounting.transactions.read",
   "accounting.contacts",
+  "accounting.contacts.read",
   "accounting.settings",
+  "accounting.settings.read",
+  "accounting.attachments",
+  "accounting.attachments.read",
+  "accounting.reports.read",
+  "accounting.journals.read",
 ].join(" ");
 
 function getClientId() {
