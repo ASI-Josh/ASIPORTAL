@@ -107,6 +107,8 @@ const summarizeJob = (job: FirebaseFirestore.DocumentData, includeFinancial: boo
 
 const buildPrompt = ({
   role,
+  userName,
+  userEmail,
   context,
   message,
   history,
@@ -114,6 +116,8 @@ const buildPrompt = ({
   memory,
 }: {
   role: "admin" | "technician";
+  userName: string;
+  userEmail: string;
   context: string;
   message: string;
   history: ChatMessage[];
@@ -125,7 +129,8 @@ const buildPrompt = ({
     .join("\n");
 
   return [
-    `User role: ${role}`,
+    `You are speaking with ${userName} (${userEmail}), an ASI Australia ${role}.`,
+    `Address them by their first name ("${userName.split(" ")[0]}"). Do NOT assume they are the founder (Josh Hyde) — always respect the actual user identified here.`,
     `Context: ${context || "dashboard"}`,
     "",
     "Live data context (JSON):",
@@ -137,7 +142,7 @@ const buildPrompt = ({
     "Conversation history:",
     historyText || "None",
     "",
-    "User request:",
+    `${userName}'s request:`,
     message,
   ].join("\n");
 };
@@ -197,7 +202,9 @@ export async function POST(req: NextRequest) {
 
     const liveContext: Record<string, unknown> = {
       user: {
-        name: user.name || user.email || "User",
+        uid: userId,
+        name: user.name || user.email?.split("@")[0] || "User",
+        email: user.email || "",
         role,
       },
       job: jobSummary,
@@ -440,8 +447,13 @@ export async function POST(req: NextRequest) {
       updates: memoryUpdates,
     };
 
+    const resolvedName = user.name || user.email?.split("@")[0] || "User";
+    const resolvedEmail = user.email || "";
+
     const prompt = buildPrompt({
       role,
+      userName: resolvedName,
+      userEmail: resolvedEmail,
       context: payload.context || "dashboard",
       message,
       history: Array.isArray(payload.history) ? payload.history.slice(-8) : [],
@@ -451,15 +463,18 @@ export async function POST(req: NextRequest) {
 
     const agentInstructions = isAthena ? [
       "You are ATHENA, ASI Australia's Chief of Staff and Executive Intelligence Engine.",
+      "ASI has multiple administrators. Always address the user by the name provided in the prompt — they are NOT always Josh Hyde. Current ASI admins include Josh Hyde, Jaydan, and Bobby. Treat whichever admin is speaking as your principal for this conversation.",
       "You operate under Jim Collins' frameworks: Good to Great (Hedgehog Concept, Flywheel, Stockdale Paradox), Built to Last (Clock Building, BHAGs), Beyond Entrepreneurship 2.0 (MAP, 20 Mile March).",
       "You have real-time access to the entire ASI operation. Lead with insight, not data. Be direct, quantify everything, be opinionated.",
       "Cross-reference departments: VANGUARD (supply chain OSINT), SENTINEL (sales), LEDGER (accounts/Xero), GUARDIAN (IMS/compliance), CIPHER (IT/web), MERIDIAN (geo-intel).",
+      "Full task-delegation authority: any admin can ask you to assign, track, or close out work. Reference the live job/inspection/works data in the prompt, recommend the right owner/agent, and structure the next steps. When the admin says 'assign X to Y' or 'complete X', confirm and list the concrete actions they should take in the portal to finalise it.",
       "When asked for a brief or report, structure it clearly with sections. Flag overdue items, risks, and strategic patterns.",
       "Present the Flywheel check in weekly reports. Test recommendations against the Hedgehog Concept.",
       "Australian English. Never use hyperportal.online — the portal is asiportal.live.",
       "You ONLY output valid JSON with an `answer` field, optional `followUps`, `warnings`, `actionSuggestions`, and `knowledgeUpdates` arrays.",
     ].join("\n") : isGuardian ? [
       "You are GUARDIAN, ASI Australia's IMS Lead Auditor. You hold Lead Auditor certification across ISO 9001:2015 (Quality), ISO 14001:2015 (Environmental), and ISO 45001:2018 (WHS).",
+      "ASI has multiple administrators. Always address the user by the name provided in the prompt — they are NOT always Josh Hyde. Current ASI admins include Josh Hyde, Jaydan, and Bobby. Treat whichever admin is speaking as your principal for this conversation.",
       "Your role is to develop, audit, and continuously improve ASI's Integrated Management System.",
       "You are meticulous, evidence-based, and systematic. You think in clauses, processes, and PDCA cycles.",
       "When asked to write procedures: use numbered steps, include responsibilities, reference ISO clauses, keep it practical for a lean operation.",
@@ -467,6 +482,7 @@ export async function POST(req: NextRequest) {
       "When asked about risk: always reference the risk register and link to ISO 6.1 risk-based thinking.",
       "When asked about incidents: follow the investigation workflow — 5 Whys or Fishbone, root cause, CAPAs, lessons learned.",
       "Track CAPAs rigorously — never close without verifying effectiveness.",
+      "Task-capable: any admin can ask you to assign a CAPA, schedule an audit, or close an incident. Confirm the action, list the exact portal steps (collection/doc to update, fields to set), and include a follow-up to verify effectiveness.",
       "Proportionality: the system should be sized for a lean operation, not a multinational. Documents should be usable, not just auditable.",
       "Australian English. The portal is asiportal.live.",
       "You ONLY output valid JSON with an `answer` field, optional `followUps`, `warnings`, `actionSuggestions`, and `knowledgeUpdates` arrays.",

@@ -1839,7 +1839,7 @@ export interface Notification {
   message: string;
   read: boolean;
   relatedEntityId?: string;
-  relatedEntityType?: "job" | "inspection" | "lead" | "quote" | "agent_thread" | "ims_document";
+  relatedEntityType?: "job" | "inspection" | "lead" | "quote" | "ims_document";
   createdAt: Timestamp;
 }
 

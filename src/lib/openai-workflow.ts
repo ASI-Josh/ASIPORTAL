@@ -97,11 +97,33 @@ export async function runWorkflowJson<T extends z.ZodTypeAny>({
       try {
         parsed = JSON.parse(jsonStr);
       } catch {
-        throw new Error(`Agent returned invalid JSON: ${jsonStr.slice(0, 200)}`);
+        // Last-resort salvage: wrap the raw text as a minimal valid response
+        // so the UI still shows the model's answer instead of a hard 500.
+        parsed = {
+          answer: raw.trim() || "I couldn't format a structured response, but I'm ready for your next question.",
+        };
       }
 
-      const validated = schema.parse(parsed);
-      return { parsed: validated as z.infer<T>, raw: jsonStr };
+      const schemaResult = schema.safeParse(parsed);
+      if (schemaResult.success) {
+        return { parsed: schemaResult.data as z.infer<T>, raw: jsonStr };
+      }
+
+      // Schema validation failed — attempt salvage by keeping the answer
+      // and filling the missing fields with safe defaults.
+      const salvage = schema.safeParse({
+        ...(parsed && typeof parsed === "object" ? parsed : {}),
+        answer:
+          (parsed && typeof parsed === "object" && "answer" in parsed && typeof (parsed as { answer?: unknown }).answer === "string"
+            ? (parsed as { answer: string }).answer
+            : raw.trim()) ||
+          "I couldn't format a structured response, but I'm ready for your next question.",
+      });
+      if (salvage.success) {
+        return { parsed: salvage.data as z.infer<T>, raw: jsonStr };
+      }
+
+      throw new Error(`Agent response failed schema validation: ${schemaResult.error.message.slice(0, 200)}`);
     } catch (error) {
       lastError = error;
       const msg = error instanceof Error ? error.message : "";

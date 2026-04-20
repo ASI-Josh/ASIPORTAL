@@ -51,9 +51,6 @@ export function AppHeader() {
       if (notification.relatedEntityType === "job" && notification.relatedEntityId) {
         router.push(`/dashboard/jobs/${notification.relatedEntityId}`);
       }
-      if (notification.relatedEntityType === "agent_thread" && notification.relatedEntityId) {
-        router.push(`/dashboard/agent-community/${notification.relatedEntityId}`);
-      }
       if (notification.relatedEntityType === "ims_document" && notification.relatedEntityId) {
         router.push(`/dashboard/ims/doc-manager/${notification.relatedEntityId}`);
       }

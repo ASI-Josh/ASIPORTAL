@@ -3,7 +3,7 @@
 import { useMemo, useRef, useState, useEffect } from "react";
 import Link from "next/link";
 import {
-  Bot, Brain, Eye, Globe, Landmark, MessagesSquare,
+  Bot, Brain, Eye, Globe, Landmark,
   Scale, SendHorizonal, ShieldCheck, TrendingUp,
   Users, ChevronDown, ChevronUp, Package, Target, Crown, Gavel,
 } from "lucide-react";
@@ -380,13 +380,27 @@ const ATHENA_PROMPTS = [
 
 export default function AgentHubPage() {
   const { user, firebaseUser } = useAuth();
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: "welcome",
-      role: "assistant",
-      content: "Good morning, Josh. I'm ATHENA — your Chief of Staff. I have real-time access to all departments via the portal. What do you need?",
-    },
-  ]);
+  const firstName = useMemo(() => {
+    const raw = user?.name?.trim() || user?.email?.split("@")[0] || "there";
+    return raw.split(" ")[0];
+  }, [user?.name, user?.email]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+
+  // Personalised welcome — re-evaluates once auth resolves so Bobby/Jay don't
+  // see the founder's name on sign-in.
+  useEffect(() => {
+    if (!user) return;
+    const hour = new Date().getHours();
+    const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
+    setMessages((prev) => {
+      if (prev.length > 0) return prev;
+      return [{
+        id: "welcome",
+        role: "assistant",
+        content: `${greeting}, ${firstName}. I'm ATHENA — ASI's Chief of Staff. I have real-time access to all departments via the portal and can help you assign, track, or close out work. What do you need?`,
+      }];
+    });
+  }, [user, firstName]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [orgExpanded, setOrgExpanded] = useState(true);
@@ -456,9 +470,6 @@ export default function AgentHubPage() {
           </div>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" asChild>
-            <Link href="/dashboard/agent-community"><MessagesSquare className="mr-2 h-4 w-4" />Community</Link>
-          </Button>
           <Button variant="outline" asChild>
             <Link href="/dashboard/ims"><ShieldCheck className="mr-2 h-4 w-4" />IMS</Link>
           </Button>
