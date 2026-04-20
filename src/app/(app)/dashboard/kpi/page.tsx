@@ -34,6 +34,7 @@ import { EmissionsEsgTab } from "./emissions-esg";
 import { TelemetryTab } from "./telemetry";
 import { MaintenanceTab } from "./maintenance";
 import { ZebTab } from "./zeb";
+import { SatisfactionTab } from "./satisfaction";
 
 export default function KpiPage() {
   const [fuelRecords, setFuelRecords] = useState<FuelRecord[]>([]);
@@ -158,6 +159,7 @@ export default function KpiPage() {
           <TabsTrigger value="telemetry">HVAC / Telemetry</TabsTrigger>
           <TabsTrigger value="maintenance">Maintenance</TabsTrigger>
           <TabsTrigger value="zeb">ZEB Integration</TabsTrigger>
+          <TabsTrigger value="satisfaction">Satisfaction</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview">
@@ -206,6 +208,13 @@ export default function KpiPage() {
           <ZebTab
             zebRecords={filteredZeb}
             organizations={organizations}
+          />
+        </TabsContent>
+
+        <TabsContent value="satisfaction">
+          <SatisfactionTab
+            surveys={filteredSurveys}
+            organizations={clientOrgs}
           />
         </TabsContent>
       </Tabs>

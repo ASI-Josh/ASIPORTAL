@@ -126,6 +126,7 @@ import {
 import { InternalKnowledgeAssistant } from "@/components/assistant/internal-knowledge-assistant";
 import { FormattedSummary } from "@/components/ai/formatted-summary";
 import { HseRiskMatrix } from "@/components/hse/hse-risk-matrix";
+import { LogMaintenanceDialog } from "@/components/kpi/log-maintenance-dialog";
 
 const statusColors: Record<JobStatus, string> = {
   pending: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30",
@@ -2436,6 +2437,7 @@ export default function JobCardPage() {
                   <Mail className="mr-2 h-4 w-4" />
                   {sendingCompletionNotice ? "Sending..." : "Send Completion Notice"}
                 </Button>
+                <LogMaintenanceDialog job={job} />
               </>
             )}
             <Button

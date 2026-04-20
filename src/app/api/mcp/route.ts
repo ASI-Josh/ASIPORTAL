@@ -3288,6 +3288,154 @@ const TOOLS: McpTool[] = [
       },
     },
   },
+  // ─── Jobs — lean summary ────────────────────────────────────────────────────
+  {
+    name: "list_jobs_summary",
+    description: "LEAN jobs list for Xero / LEDGER workflows. Returns only billing-relevant fields (id, jobNumber, clientName, organizationId, status, totals, invoice refs, dates). Use this instead of get_jobs when pulling ≥50 rows to avoid token-limit failures.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        status: {
+          type: "string",
+          enum: ["pending", "scheduled", "in_progress", "completed", "closed", "cancelled"],
+          description: "Filter by job status.",
+        },
+        limit: { type: "number", description: "Max rows (default 50, max 500)." },
+        clientId: { type: "string", description: "Filter by clientId (organization)." },
+        unbilled: { type: "boolean", description: "If true, return only jobs missing an invoiceNumber." },
+        fromDate: { type: "string", description: "ISO date — only jobs with createdAt on/after this." },
+      },
+    },
+  },
+  // ─── KPI Traceability capture ────────────────────────────────────────────────
+  {
+    name: "create_fuel_record",
+    description: "Capture a fuel baseline / post-install record against a client organisation. Used by VANGUARD, Athena, and field agents to feed the KPI Traceability module.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        organizationId: { type: "string", description: "Firestore contactOrganizations doc id." },
+        vehicleRegistration: { type: "string", description: "Vehicle rego (will be upper-cased)." },
+        vehicleDescription: { type: "string" },
+        fuelType: { type: "string", enum: ["diesel", "petrol", "lpg", "cng", "electric"] },
+        baselineConsumptionLPer100km: { type: "number" },
+        baselinePeriodStart: { type: "string", description: "ISO date." },
+        baselinePeriodEnd: { type: "string", description: "ISO date." },
+        baselineSource: { type: "string", enum: ["manual", "telematics", "fleet_report"] },
+        postInstallConsumptionLPer100km: { type: "number" },
+        postInstallPeriodStart: { type: "string" },
+        postInstallPeriodEnd: { type: "string" },
+        postInstallSource: { type: "string", enum: ["manual", "telematics", "fleet_report"] },
+        annualDistanceKm: { type: "number" },
+        fuelCostPerLitre: { type: "number", description: "AUD per litre (default 1.80)." },
+        hvacLoadReductionKw: { type: "number" },
+        radshieldInstalled: { type: "boolean" },
+        installDate: { type: "string" },
+        filmInstallationId: { type: "string", description: "Link back to film installation if applicable." },
+        notes: { type: "string" },
+      },
+      required: ["organizationId", "vehicleRegistration", "baselineConsumptionLPer100km"],
+    },
+  },
+  {
+    name: "create_emissions_report",
+    description: "File a period emissions report (Scope 1 + waste) for ASRS compliance. Auto-calculates CO2 avoided from diesel saved using the Australian NGA factor (2.68 kg/L).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        organizationId: { type: "string" },
+        reportingPeriod: { type: "string", enum: ["monthly", "quarterly", "annual"] },
+        periodStart: { type: "string", description: "ISO date." },
+        periodEnd: { type: "string", description: "ISO date." },
+        dieselSavedLitres: { type: "number" },
+        glassAvoidedKg: { type: "number" },
+        filmDisposalsAvoidedKg: { type: "number" },
+        status: { type: "string", enum: ["draft", "reviewed", "submitted"], description: "Default draft." },
+        notes: { type: "string" },
+      },
+      required: ["organizationId", "periodStart", "periodEnd"],
+    },
+  },
+  {
+    name: "create_telemetry_reading",
+    description: "Log a telemetry / HVAC reading for a vehicle. Used for compressor duty cycle, cabin temp delta, and component lifecycle tracking.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        organizationId: { type: "string" },
+        vehicleRegistration: { type: "string" },
+        readingDate: { type: "string", description: "ISO date." },
+        readingSource: { type: "string", enum: ["manual", "telematics", "obd2", "canbus"] },
+        dutyCyclePercent: { type: "number" },
+        runHoursTotal: { type: "number" },
+        tempDeltaCabin: { type: "number" },
+        totalSystemLoadKw: { type: "number" },
+        alternatorReductionKw: { type: "number" },
+        ambientTempC: { type: "number" },
+        cabinTempPreC: { type: "number" },
+        cabinTempPostC: { type: "number" },
+        compressorHoursTotal: { type: "number" },
+        estimatedLifeHours: { type: "number", description: "Default 12000." },
+        notes: { type: "string" },
+      },
+      required: ["organizationId", "vehicleRegistration"],
+    },
+  },
+  {
+    name: "create_maintenance_event",
+    description: "Log a maintenance / repair event against a client's vehicle. Captures actualCost vs replacementCostAvoided for asset-protection KPI rollups.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        organizationId: { type: "string" },
+        vehicleRegistration: { type: "string" },
+        eventDate: { type: "string", description: "ISO date." },
+        eventType: { type: "string", enum: ["respray", "major_repair", "panel_replacement", "film_replacement", "glass_replacement", "other"] },
+        description: { type: "string" },
+        actualCost: { type: "number" },
+        replacementCostAvoided: { type: "number", description: "Estimated cost of full replacement — drives the savings calc." },
+        jobId: { type: "string" },
+        jobNumber: { type: "string" },
+        filmInstallationId: { type: "string" },
+        performedBy: { type: "string" },
+        notes: { type: "string" },
+      },
+      required: ["organizationId", "vehicleRegistration", "eventDate", "eventType", "description", "actualCost"],
+    },
+  },
+  {
+    name: "submit_satisfaction_survey",
+    description: "Record a client satisfaction survey against a client organisation. Feeds the ISO 9001 satisfaction KPI. Use this for staff-logged or post-job ratings; Athena has its own one-tap flow.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        organizationId: { type: "string" },
+        submittedByName: { type: "string" },
+        jobId: { type: "string" },
+        jobNumber: { type: "string" },
+        overallSatisfaction: { type: "number", description: "1–5." },
+        serviceQuality: { type: "number", description: "1–5." },
+        communication: { type: "number", description: "1–5." },
+        timeliness: { type: "number", description: "1–5." },
+        valueForMoney: { type: "number", description: "1–5." },
+        wouldRecommend: { type: "boolean" },
+        comments: { type: "string" },
+        risks: { type: "array", items: { type: "string" }, description: "Client-raised concerns." },
+        opportunities: { type: "array", items: { type: "string" }, description: "Improvement / expansion ideas." },
+      },
+      required: ["organizationId", "submittedByName", "overallSatisfaction"],
+    },
+  },
+  {
+    name: "get_kpi_summary",
+    description: "Return ASI-wide or per-org KPI rollup: total fuel saved, CO2 avoided, cost savings, maintenance cost avoided, satisfaction score. Lightweight aggregate (no raw records).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        organizationId: { type: "string", description: "If omitted, returns ASI-total across all clients." },
+      },
+    },
+  },
 ];
 
 // ─── Firestore helpers ────────────────────────────────────────────────────────
@@ -7848,6 +7996,397 @@ async function handleGetApeaxStock(args: Record<string, unknown>) {
   return { items, totalSkus: items.length };
 }
 
+// ─── Jobs — lean summary for LEDGER / Xero workflows ──────────────────────────
+
+async function handleListJobsSummary(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const limit = typeof args.limit === "number"
+    ? Math.min(Math.max(1, args.limit), 500)
+    : 50;
+
+  // Pull more than limit so we can apply in-memory filters without composite indexes.
+  const fetchSize = Math.min(1000, limit * 4);
+  let q: FirebaseFirestore.Query = db.collection(COLLECTIONS.JOBS)
+    .orderBy("createdAt", "desc")
+    .limit(fetchSize);
+
+  if (typeof args.status === "string") q = q.where("status", "==", args.status);
+  if (typeof args.clientId === "string") q = q.where("clientId", "==", args.clientId);
+
+  const snap = await q.get();
+  const fromDate = typeof args.fromDate === "string" ? new Date(args.fromDate) : null;
+  const unbilled = args.unbilled === true;
+
+  const rows = snap.docs
+    .map((d) => {
+      const data = d.data();
+      const created = data.createdAt && typeof (data.createdAt as { toDate?: () => Date }).toDate === "function"
+        ? (data.createdAt as { toDate: () => Date }).toDate()
+        : null;
+      const completed = data.completedDate && typeof (data.completedDate as { toDate?: () => Date }).toDate === "function"
+        ? (data.completedDate as { toDate: () => Date }).toDate()
+        : null;
+      const invoiceDate = data.invoiceDate && typeof (data.invoiceDate as { toDate?: () => Date }).toDate === "function"
+        ? (data.invoiceDate as { toDate: () => Date }).toDate()
+        : null;
+
+      // Total cost rollup from jobVehicles (falls back to 0)
+      const jobVehicles = Array.isArray(data.jobVehicles) ? data.jobVehicles : [];
+      const totalCost = jobVehicles.reduce((sum: number, jv: { totalCost?: number }) => sum + (jv.totalCost || 0), 0);
+
+      return {
+        id: d.id,
+        jobNumber: data.jobNumber,
+        clientId: data.clientId,
+        clientName: data.clientName,
+        organizationId: data.organizationId,
+        status: data.status,
+        totalCost: Number(totalCost.toFixed(2)),
+        invoiceNumber: data.invoiceNumber || null,
+        invoiceDate: invoiceDate ? invoiceDate.toISOString().slice(0, 10) : null,
+        createdAt: created ? created.toISOString() : null,
+        completedDate: completed ? completed.toISOString().slice(0, 10) : null,
+        scheduledDate: data.scheduledDate && typeof (data.scheduledDate as { toDate?: () => Date }).toDate === "function"
+          ? (data.scheduledDate as { toDate: () => Date }).toDate().toISOString().slice(0, 10)
+          : null,
+        vehicleCount: jobVehicles.length,
+      };
+    })
+    .filter((r) => {
+      if (unbilled && r.invoiceNumber) return false;
+      if (fromDate && r.createdAt && new Date(r.createdAt) < fromDate) return false;
+      return true;
+    })
+    .slice(0, limit);
+
+  return { count: rows.length, jobs: rows };
+}
+
+// ─── KPI Traceability capture handlers ────────────────────────────────────────
+
+async function handleCreateFuelRecord(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const organizationId = String(args.organizationId || "");
+  const vehicleRegistration = String(args.vehicleRegistration || "").toUpperCase();
+  const baseline = typeof args.baselineConsumptionLPer100km === "number" ? args.baselineConsumptionLPer100km : null;
+
+  if (!organizationId || !vehicleRegistration || baseline === null) {
+    throw new Error("organizationId, vehicleRegistration, and baselineConsumptionLPer100km are required.");
+  }
+
+  const orgSnap = await db.collection(COLLECTIONS.CONTACT_ORGANIZATIONS).doc(organizationId).get();
+  if (!orgSnap.exists) throw new Error(`Organisation '${organizationId}' not found.`);
+  const organizationName = String(orgSnap.data()?.name || "");
+
+  const postInstall = typeof args.postInstallConsumptionLPer100km === "number" ? args.postInstallConsumptionLPer100km : undefined;
+  const annualKm = typeof args.annualDistanceKm === "number" ? args.annualDistanceKm : undefined;
+  const costPerLitre = typeof args.fuelCostPerLitre === "number" ? args.fuelCostPerLitre : 1.80;
+
+  const fuelDelta = postInstall !== undefined ? baseline - postInstall : undefined;
+  const fuelDeltaPct = fuelDelta !== undefined ? (fuelDelta / baseline) * 100 : undefined;
+  const annualLitresSaved = fuelDelta !== undefined && annualKm ? (fuelDelta * annualKm) / 100 : undefined;
+  const costSavings = annualLitresSaved !== undefined ? annualLitresSaved * costPerLitre : undefined;
+  const kwhSaved = annualLitresSaved !== undefined ? annualLitresSaved * 10.1 : undefined;
+
+  const payload: Record<string, unknown> = {
+    organizationId,
+    organizationName,
+    vehicleRegistration,
+    vehicleDescription: typeof args.vehicleDescription === "string" ? args.vehicleDescription : undefined,
+    fuelType: typeof args.fuelType === "string" ? args.fuelType : "diesel",
+    baselineConsumptionLPer100km: baseline,
+    baselinePeriodStart: typeof args.baselinePeriodStart === "string" ? args.baselinePeriodStart : "",
+    baselinePeriodEnd: typeof args.baselinePeriodEnd === "string" ? args.baselinePeriodEnd : "",
+    baselineSource: typeof args.baselineSource === "string" ? args.baselineSource : "manual",
+    postInstallConsumptionLPer100km: postInstall,
+    postInstallPeriodStart: typeof args.postInstallPeriodStart === "string" ? args.postInstallPeriodStart : undefined,
+    postInstallPeriodEnd: typeof args.postInstallPeriodEnd === "string" ? args.postInstallPeriodEnd : undefined,
+    postInstallSource: typeof args.postInstallSource === "string" ? args.postInstallSource : "manual",
+    fuelDeltaLPer100km: fuelDelta,
+    fuelDeltaPercent: fuelDeltaPct !== undefined ? Number(fuelDeltaPct.toFixed(2)) : undefined,
+    hvacLoadReductionKw: typeof args.hvacLoadReductionKw === "number" ? args.hvacLoadReductionKw : undefined,
+    estimatedKwhSaved: kwhSaved !== undefined ? Math.round(kwhSaved) : undefined,
+    fuelCostPerLitre: costPerLitre,
+    estimatedCostSavingsPerYear: costSavings !== undefined ? Math.round(costSavings) : undefined,
+    annualDistanceKm: annualKm,
+    filmInstallationId: typeof args.filmInstallationId === "string" ? args.filmInstallationId : undefined,
+    radshieldInstalled: typeof args.radshieldInstalled === "boolean" ? args.radshieldInstalled : true,
+    installDate: typeof args.installDate === "string" ? args.installDate : undefined,
+    notes: typeof args.notes === "string" ? args.notes : undefined,
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    createdBy: "mcp-agent",
+  };
+
+  const ref = await db.collection(COLLECTIONS.FUEL_RECORDS).add(payload);
+  return { id: ref.id, organizationId, organizationName, vehicleRegistration, estimatedCostSavingsPerYear: payload.estimatedCostSavingsPerYear };
+}
+
+async function handleCreateEmissionsReport(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const organizationId = String(args.organizationId || "");
+  const periodStart = String(args.periodStart || "");
+  const periodEnd = String(args.periodEnd || "");
+
+  if (!organizationId || !periodStart || !periodEnd) {
+    throw new Error("organizationId, periodStart, and periodEnd are required.");
+  }
+
+  const orgSnap = await db.collection(COLLECTIONS.CONTACT_ORGANIZATIONS).doc(organizationId).get();
+  if (!orgSnap.exists) throw new Error(`Organisation '${organizationId}' not found.`);
+  const organizationName = String(orgSnap.data()?.name || "");
+
+  const DIESEL_FACTOR = 2.68;
+  const litres = typeof args.dieselSavedLitres === "number" ? args.dieselSavedLitres : 0;
+  const co2Kg = litres * DIESEL_FACTOR;
+  const glassKg = typeof args.glassAvoidedKg === "number" ? args.glassAvoidedKg : 0;
+  const filmKg = typeof args.filmDisposalsAvoidedKg === "number" ? args.filmDisposalsAvoidedKg : 0;
+
+  const payload: Record<string, unknown> = {
+    organizationId,
+    organizationName,
+    reportingPeriod: typeof args.reportingPeriod === "string" ? args.reportingPeriod : "annual",
+    periodStart,
+    periodEnd,
+    scope1: {
+      dieselSavedLitres: litres,
+      co2AvoidedKg: Number(co2Kg.toFixed(2)),
+      co2AvoidedTonnes: Number((co2Kg / 1000).toFixed(4)),
+      calculationMethod: `diesel_saved (${litres}L) x ${DIESEL_FACTOR} kg CO2/L (Australian NGA factor)`,
+    },
+    waste: {
+      glassAvoidedKg: glassKg,
+      filmDisposalsAvoidedKg: filmKg,
+      totalWasteAvoidedKg: glassKg + filmKg,
+    },
+    status: typeof args.status === "string" ? args.status : "draft",
+    notes: typeof args.notes === "string" ? args.notes : undefined,
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    createdBy: "mcp-agent",
+  };
+
+  const ref = await db.collection(COLLECTIONS.EMISSIONS_REPORTS).add(payload);
+  return { id: ref.id, organizationId, co2AvoidedTonnes: (payload.scope1 as { co2AvoidedTonnes: number }).co2AvoidedTonnes };
+}
+
+async function handleCreateTelemetryReading(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const organizationId = String(args.organizationId || "");
+  const vehicleRegistration = String(args.vehicleRegistration || "").toUpperCase();
+  if (!organizationId || !vehicleRegistration) {
+    throw new Error("organizationId and vehicleRegistration are required.");
+  }
+
+  const orgSnap = await db.collection(COLLECTIONS.CONTACT_ORGANIZATIONS).doc(organizationId).get();
+  const organizationName = orgSnap.exists ? String(orgSnap.data()?.name || "") : undefined;
+
+  const cabinPre = typeof args.cabinTempPreC === "number" ? args.cabinTempPreC : undefined;
+  const cabinPost = typeof args.cabinTempPostC === "number" ? args.cabinTempPostC : undefined;
+  const compHours = typeof args.compressorHoursTotal === "number" ? args.compressorHoursTotal : undefined;
+  const estLife = typeof args.estimatedLifeHours === "number" ? args.estimatedLifeHours : 12000;
+  const remainingPct = compHours !== undefined ? Math.max(0, ((estLife - compHours) / estLife) * 100) : undefined;
+
+  const payload: Record<string, unknown> = {
+    organizationId,
+    organizationName,
+    vehicleRegistration,
+    readingDate: typeof args.readingDate === "string" ? args.readingDate : new Date().toISOString().slice(0, 10),
+    readingSource: typeof args.readingSource === "string" ? args.readingSource : "manual",
+    compressor: typeof args.dutyCyclePercent === "number" ? {
+      dutyCyclePercent: args.dutyCyclePercent,
+      runHoursTotal: typeof args.runHoursTotal === "number" ? args.runHoursTotal : 0,
+      tempDeltaCabin: typeof args.tempDeltaCabin === "number" ? args.tempDeltaCabin : 0,
+    } : undefined,
+    electrical: typeof args.totalSystemLoadKw === "number" ? {
+      totalSystemLoadKw: args.totalSystemLoadKw,
+      alternatorReductionKw: typeof args.alternatorReductionKw === "number" ? args.alternatorReductionKw : undefined,
+    } : undefined,
+    temperature: cabinPre !== undefined && cabinPost !== undefined ? {
+      ambientTempC: typeof args.ambientTempC === "number" ? args.ambientTempC : 0,
+      cabinTempPreC: cabinPre,
+      cabinTempPostC: cabinPost,
+      deltaTempC: cabinPre - cabinPost,
+    } : undefined,
+    componentLifecycle: compHours !== undefined ? {
+      compressorHoursTotal: compHours,
+      estimatedLifeHours: estLife,
+      remainingLifePercent: Number((remainingPct || 0).toFixed(1)),
+      alertLevel: remainingPct !== undefined ? (remainingPct < 10 ? "critical" : remainingPct < 25 ? "warning" : "ok") : "ok",
+    } : undefined,
+    notes: typeof args.notes === "string" ? args.notes : undefined,
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    createdBy: "mcp-agent",
+  };
+
+  const ref = await db.collection(COLLECTIONS.TELEMETRY_READINGS).add(payload);
+  return { id: ref.id, organizationId, vehicleRegistration };
+}
+
+async function handleCreateMaintenanceEvent(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const organizationId = String(args.organizationId || "");
+  const vehicleRegistration = String(args.vehicleRegistration || "").toUpperCase();
+  const eventDate = String(args.eventDate || "");
+  const eventType = String(args.eventType || "");
+  const description = String(args.description || "");
+  const actualCost = typeof args.actualCost === "number" ? args.actualCost : null;
+
+  if (!organizationId || !vehicleRegistration || !eventDate || !eventType || !description || actualCost === null) {
+    throw new Error("organizationId, vehicleRegistration, eventDate, eventType, description, and actualCost are required.");
+  }
+
+  const orgSnap = await db.collection(COLLECTIONS.CONTACT_ORGANIZATIONS).doc(organizationId).get();
+  if (!orgSnap.exists) throw new Error(`Organisation '${organizationId}' not found.`);
+  const organizationName = String(orgSnap.data()?.name || "");
+
+  const avoided = typeof args.replacementCostAvoided === "number" ? args.replacementCostAvoided : undefined;
+
+  const payload: Record<string, unknown> = {
+    organizationId,
+    organizationName,
+    vehicleRegistration,
+    eventDate,
+    eventType,
+    description,
+    actualCost,
+    replacementCostAvoided: avoided,
+    costSavings: avoided !== undefined ? avoided - actualCost : undefined,
+    jobId: typeof args.jobId === "string" ? args.jobId : undefined,
+    jobNumber: typeof args.jobNumber === "string" ? args.jobNumber : undefined,
+    filmInstallationId: typeof args.filmInstallationId === "string" ? args.filmInstallationId : undefined,
+    performedBy: typeof args.performedBy === "string" ? args.performedBy : undefined,
+    notes: typeof args.notes === "string" ? args.notes : undefined,
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    createdBy: "mcp-agent",
+  };
+
+  const ref = await db.collection(COLLECTIONS.MAINTENANCE_EVENTS).add(payload);
+  return { id: ref.id, organizationId, vehicleRegistration, replacementCostAvoided: avoided, costSavings: payload.costSavings };
+}
+
+async function handleSubmitSatisfactionSurvey(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const organizationId = String(args.organizationId || "");
+  const submittedByName = String(args.submittedByName || "");
+  const overall = typeof args.overallSatisfaction === "number" ? args.overallSatisfaction : null;
+
+  if (!organizationId || !submittedByName || overall === null) {
+    throw new Error("organizationId, submittedByName, and overallSatisfaction are required.");
+  }
+
+  const orgSnap = await db.collection(COLLECTIONS.CONTACT_ORGANIZATIONS).doc(organizationId).get();
+  if (!orgSnap.exists) throw new Error(`Organisation '${organizationId}' not found.`);
+  const organizationName = String(orgSnap.data()?.name || "");
+
+  const payload: Record<string, unknown> = {
+    organizationId,
+    organizationName,
+    jobId: typeof args.jobId === "string" ? args.jobId : undefined,
+    jobNumber: typeof args.jobNumber === "string" ? args.jobNumber : undefined,
+    submittedBy: "mcp-agent",
+    submittedByName,
+    submittedAt: admin.firestore.FieldValue.serverTimestamp(),
+    overallSatisfaction: overall,
+    serviceQuality: typeof args.serviceQuality === "number" ? args.serviceQuality : overall,
+    communication: typeof args.communication === "number" ? args.communication : overall,
+    timeliness: typeof args.timeliness === "number" ? args.timeliness : overall,
+    valueForMoney: typeof args.valueForMoney === "number" ? args.valueForMoney : overall,
+    wouldRecommend: typeof args.wouldRecommend === "boolean" ? args.wouldRecommend : overall >= 4,
+    comments: typeof args.comments === "string" ? args.comments : undefined,
+    risks: Array.isArray(args.risks) ? args.risks.filter((r) => typeof r === "string") : undefined,
+    opportunities: Array.isArray(args.opportunities) ? args.opportunities.filter((r) => typeof r === "string") : undefined,
+    athenaGenerated: false,
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  };
+
+  const ref = await db.collection(COLLECTIONS.SATISFACTION_SURVEYS).add(payload);
+  return { id: ref.id, organizationId, overallSatisfaction: overall };
+}
+
+async function handleGetKpiSummary(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const organizationId = typeof args.organizationId === "string" ? args.organizationId : null;
+
+  const fuelQ = organizationId
+    ? db.collection(COLLECTIONS.FUEL_RECORDS).where("organizationId", "==", organizationId)
+    : db.collection(COLLECTIONS.FUEL_RECORDS);
+  const emissionsQ = organizationId
+    ? db.collection(COLLECTIONS.EMISSIONS_REPORTS).where("organizationId", "==", organizationId)
+    : db.collection(COLLECTIONS.EMISSIONS_REPORTS);
+  const maintenanceQ = organizationId
+    ? db.collection(COLLECTIONS.MAINTENANCE_EVENTS).where("organizationId", "==", organizationId)
+    : db.collection(COLLECTIONS.MAINTENANCE_EVENTS);
+  const surveysQ = organizationId
+    ? db.collection(COLLECTIONS.SATISFACTION_SURVEYS).where("organizationId", "==", organizationId)
+    : db.collection(COLLECTIONS.SATISFACTION_SURVEYS);
+
+  const [fuelSnap, emissionsSnap, maintenanceSnap, surveysSnap] = await Promise.all([
+    fuelQ.get(),
+    emissionsQ.get(),
+    maintenanceQ.get(),
+    surveysQ.get(),
+  ]);
+
+  const fuelRecords = fuelSnap.docs.map((d) => d.data());
+  const emissionsReports = emissionsSnap.docs.map((d) => d.data());
+  const maintenanceEvents = maintenanceSnap.docs.map((d) => d.data());
+  const surveys = surveysSnap.docs.map((d) => d.data());
+
+  const totalFuelLitresSaved = fuelRecords.reduce((sum: number, r) => {
+    const rec = r as { fuelDeltaLPer100km?: number; annualDistanceKm?: number };
+    if (rec.fuelDeltaLPer100km && rec.annualDistanceKm) {
+      return sum + (rec.fuelDeltaLPer100km * rec.annualDistanceKm) / 100;
+    }
+    return sum;
+  }, 0);
+
+  const totalCostSavings = fuelRecords.reduce(
+    (sum: number, r) => sum + ((r as { estimatedCostSavingsPerYear?: number }).estimatedCostSavingsPerYear || 0),
+    0
+  );
+
+  const co2FromReports = emissionsReports.reduce(
+    (sum: number, r) => sum + ((r as { scope1?: { co2AvoidedTonnes?: number } }).scope1?.co2AvoidedTonnes || 0),
+    0
+  );
+  const co2FromFuel = (totalFuelLitresSaved * 2.68) / 1000;
+
+  const totalMaintenanceAvoided = maintenanceEvents.reduce(
+    (sum: number, e) => sum + ((e as { replacementCostAvoided?: number }).replacementCostAvoided || 0),
+    0
+  );
+
+  const avgSatisfaction = surveys.length > 0
+    ? surveys.reduce((s: number, r) => s + ((r as { overallSatisfaction?: number }).overallSatisfaction || 0), 0) / surveys.length
+    : null;
+
+  return {
+    scope: organizationId || "asi-total",
+    fuel: {
+      vehicleRecords: fuelRecords.length,
+      totalLitresSavedPerYear: Math.round(totalFuelLitresSaved),
+      totalCostSavingsAud: Math.round(totalCostSavings),
+    },
+    emissions: {
+      reportCount: emissionsReports.length,
+      co2AvoidedTonnes: Number((co2FromReports > 0 ? co2FromReports : co2FromFuel).toFixed(2)),
+      calculationSource: co2FromReports > 0 ? "filed_reports" : "derived_from_fuel",
+    },
+    maintenance: {
+      eventCount: maintenanceEvents.length,
+      replacementCostAvoidedAud: Math.round(totalMaintenanceAvoided),
+    },
+    satisfaction: {
+      surveyCount: surveys.length,
+      avgOverallScore: avgSatisfaction !== null ? Number(avgSatisfaction.toFixed(2)) : null,
+    },
+  };
+}
+
 // ─── Dispatch ─────────────────────────────────────────────────────────────────
 
 async function callTool(name: string, args: Record<string, unknown>): Promise<unknown> {
@@ -8009,6 +8548,15 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
     case "reject_trade_application":  return handleRejectTradeApplication(args);
     case "validate_apeax_order":      return handleValidateApeaxOrder(args);
     case "get_apeax_stock":           return handleGetApeaxStock(args);
+    // ─── Jobs (lean) ────────────────────────────────────────────────────────
+    case "list_jobs_summary":         return handleListJobsSummary(args);
+    // ─── KPI Traceability ───────────────────────────────────────────────────
+    case "create_fuel_record":        return handleCreateFuelRecord(args);
+    case "create_emissions_report":   return handleCreateEmissionsReport(args);
+    case "create_telemetry_reading":  return handleCreateTelemetryReading(args);
+    case "create_maintenance_event":  return handleCreateMaintenanceEvent(args);
+    case "submit_satisfaction_survey": return handleSubmitSatisfactionSurvey(args);
+    case "get_kpi_summary":           return handleGetKpiSummary(args);
     // ─── Meetings ───────────────────────────────────────────────────────────
     case "get_meetings": {
       const fdb = admin.firestore();
@@ -8321,6 +8869,30 @@ async function handleCreateFilmInstallation(args: Record<string, unknown>) {
     updatedAt: now,
   };
   await db.collection(COLLECTIONS.FILM_WARRANTY_REGISTER).add(registerPayload);
+
+  // Auto-seed KPI fuel record stub so this install feeds into the KPI Traceability module
+  // once the baseline is captured. Organisation is the clientId (contactOrganizations doc id).
+  const fuelStubPayload: Record<string, unknown> = {
+    organizationId: clientId,
+    organizationName: clientName,
+    vehicleRegistration: String(assetIdentifier).toUpperCase(),
+    vehicleDescription: typeof args.assetDescription === "string"
+      ? args.assetDescription
+      : [args.vehicleMake, args.vehicleModel].filter(Boolean).join(" ") || undefined,
+    fuelType: "diesel",
+    baselineConsumptionLPer100km: 0,
+    baselinePeriodStart: "",
+    baselinePeriodEnd: "",
+    baselineSource: "manual",
+    filmInstallationId: installRef.id,
+    radshieldInstalled: filmType === "optishield" || String(args.filmProduct || "").toLowerCase().includes("optishield"),
+    installDate: installedDate,
+    notes: `Auto-seeded from film installation ${installationNumber}. Capture baseline + post-install consumption to enable KPI rollup.`,
+    createdAt: now,
+    updatedAt: now,
+    createdBy: installedBy,
+  };
+  await db.collection(COLLECTIONS.FUEL_RECORDS).add(fuelStubPayload);
 
   const created = await installRef.get();
   return {
