@@ -51,6 +51,22 @@ import {
   gmailTrashMessageForAccount,
 } from "@/lib/server/gmail";
 
+// ─── Runtime configuration ────────────────────────────────────────────────────
+// CRITICAL:
+//   - "nodejs" is required because firebase-admin does not run on Edge.
+//     Without this, a cold invoke on Edge returns 500 immediately.
+//   - force-dynamic stops Next from trying to cache or prerender POST
+//     responses, which was surfacing as intermittent stale JSON-RPC
+//     bodies and 500s after deploys.
+//   - maxDuration bumps Netlify's function timeout. Several tool
+//     handlers (full-tenant Xero listings, OSINT ingest, grants
+//     dashboard, executive reports) regularly run past the 10s
+//     default and were being killed mid-flight — that was LEDGER's
+//     "intermittent timeout on status/balance calls" signature.
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const maxDuration = 60;
+
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 interface JsonRpcRequest {
@@ -10529,21 +10545,40 @@ export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const encoder = new TextEncoder();
 
+  let timer: ReturnType<typeof setInterval> | null = null;
+
   const stream = new ReadableStream({
     start(controller) {
       // Tell the client to POST messages to this same endpoint
       controller.enqueue(
         encoder.encode(`event: endpoint\ndata: ${url.pathname}\n\n`)
       );
-      // Keep-alive comments so the connection doesn't time out immediately
-      const timer = setInterval(() => {
+      // Keep-alive comments so the connection doesn't time out immediately.
+      // Tracked on the outer scope so cancel() can clear it — otherwise the
+      // interval fires forever after disconnect and tries to write to a
+      // closed controller, spamming unhandled rejections into the function
+      // health stream and triggering flaky-looking reconnects.
+      timer = setInterval(() => {
         try {
           controller.enqueue(encoder.encode(`: keep-alive\n\n`));
         } catch {
-          clearInterval(timer);
+          if (timer) clearInterval(timer);
+          timer = null;
         }
       }, 15000);
     },
+    cancel() {
+      if (timer) clearInterval(timer);
+      timer = null;
+    },
+  });
+
+  // Also bail if the request itself is aborted (Netlify connection drops,
+  // client navigates away, etc.) — ReadableStream.cancel isn't always
+  // fired in every runtime, so belt-and-braces.
+  req.signal.addEventListener("abort", () => {
+    if (timer) clearInterval(timer);
+    timer = null;
   });
 
   return new Response(stream, {
