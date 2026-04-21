@@ -15,15 +15,26 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Target, Landmark, Eye, Lightbulb, RefreshCw, Sparkles,
   AlertTriangle, Flame, Clock, TrendingUp, CheckCircle2, ChevronRight,
+  Gavel, MessageSquare, Check, X, Pause,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
 
 // ─── Types (loose — matches the /api/rnd/data response shape) ──────────────
+
+interface ApprovalRecord {
+  decision?: string;
+  approver?: string;
+  decidedAt?: string;
+  decidedBy?: string;
+  note?: string;
+}
 
 interface RndProjectRecord {
   id: string;
@@ -39,9 +50,11 @@ interface RndProjectRecord {
   actualSpendToDate?: number;
   requiresDirectorApproval?: boolean;
   approvals?: {
-    athena?: { decision?: string };
-    director?: { decision?: string };
+    athena?: ApprovalRecord;
+    director?: ApprovalRecord;
   };
+  directorReviewNote?: string | null;
+  directorReviewRequestedAt?: string | null;
   targetCompletionDate?: string;
   updatedAt?: string;
 }
@@ -60,6 +73,12 @@ interface GrantRecord {
   expectedDecisionDate?: string;
   acquittalDueDate?: string;
   linkedRndProjectIds?: string[];
+  internalApprovals?: {
+    athena?: ApprovalRecord;
+    director?: ApprovalRecord;
+  };
+  directorReviewNote?: string | null;
+  directorReviewRequestedAt?: string | null;
   updatedAt?: string;
 }
 
@@ -74,6 +93,8 @@ interface OpportunityRecord {
   status?: string;
   reviewScore?: { overall?: number };
   parkedUntil?: string;
+  directorReviewNote?: string | null;
+  directorReviewRequestedAt?: string | null;
   createdAt?: string;
 }
 
@@ -144,7 +165,7 @@ interface RndData {
   generatedAt: string;
 }
 
-type WorkspaceTab = "dashboard" | "projects" | "grants" | "opportunities" | "watchlist";
+type WorkspaceTab = "dashboard" | "approvals" | "projects" | "grants" | "opportunities" | "watchlist";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
@@ -326,6 +347,7 @@ export default function ArcherWorkspace() {
           {(
             [
               { key: "dashboard",     label: "Dashboard",   icon: TrendingUp },
+              { key: "approvals",     label: "Approvals",   icon: Gavel },
               { key: "projects",      label: "Projects",    icon: Target },
               { key: "grants",        label: "Grants",      icon: Landmark },
               { key: "opportunities", label: "Ops Log",     icon: Eye },
@@ -333,6 +355,7 @@ export default function ArcherWorkspace() {
             ] as Array<{ key: WorkspaceTab; label: string; icon: typeof Target }>
           ).map((tab) => {
             const Icon = tab.icon;
+            const pendingCount = tab.key === "approvals" && data ? countPendingApprovals(data) : 0;
             return (
               <button
                 key={tab.key}
@@ -346,6 +369,11 @@ export default function ArcherWorkspace() {
               >
                 <Icon className="h-3.5 w-3.5" />
                 {tab.label}
+                {tab.key === "approvals" && pendingCount > 0 && (
+                  <Badge className="text-[9px] h-4 px-1 ml-0.5 border-0 bg-amber-500/20 text-amber-400">
+                    {pendingCount}
+                  </Badge>
+                )}
                 {tab.key === "projects" && data && (
                   <Badge variant="outline" className="text-[9px] h-4 px-1 ml-0.5">{data.metrics.projects.total}</Badge>
                 )}
@@ -386,7 +414,8 @@ export default function ArcherWorkspace() {
 
         {data && !isEmpty && (
           <>
-            {activeTab === "dashboard" && <DashboardTab data={data} />}
+            {activeTab === "dashboard" && <DashboardTab data={data} onJumpToApprovals={() => setActiveTab("approvals")} />}
+            {activeTab === "approvals" && <ApprovalsTab data={data} onRefresh={fetchData} />}
             {activeTab === "projects" && <ProjectsTab projects={data.projects} />}
             {activeTab === "grants" && <GrantsTab grants={data.grants} />}
             {activeTab === "opportunities" && <OpportunitiesTab opportunities={data.opportunities} />}
@@ -400,7 +429,7 @@ export default function ArcherWorkspace() {
 
 // ─── Dashboard Tab ────────────────────────────────────────────────────────
 
-function DashboardTab({ data }: { data: RndData }) {
+function DashboardTab({ data, onJumpToApprovals }: { data: RndData; onJumpToApprovals?: () => void }) {
   const m = data.metrics;
   return (
     <div className="space-y-4">
@@ -427,6 +456,7 @@ function DashboardTab({ data }: { data: RndData }) {
           value={`${m.opportunities.awaitingReview}`}
           sub={`${m.opportunities.readyForRevisit} ready for revisit`}
           highlight={m.opportunities.awaitingReview > 0}
+          onClick={m.opportunities.awaitingReview > 0 ? onJumpToApprovals : undefined}
         />
         <MetricCard
           icon={CheckCircle2}
@@ -435,6 +465,7 @@ function DashboardTab({ data }: { data: RndData }) {
           value={`${m.projects.pendingAthenaApproval + m.projects.pendingDirectorApproval}`}
           sub={`${m.projects.pendingAthenaApproval} ATHENA · ${m.projects.pendingDirectorApproval} Director`}
           highlight={m.projects.pendingDirectorApproval > 0}
+          onClick={m.projects.pendingDirectorApproval > 0 ? onJumpToApprovals : undefined}
         />
       </div>
 
@@ -538,6 +569,7 @@ function MetricCard({
   value,
   sub,
   highlight,
+  onClick,
 }: {
   icon: typeof Target;
   iconColor: string;
@@ -545,20 +577,31 @@ function MetricCard({
   value: string;
   sub: string;
   highlight?: boolean;
+  onClick?: () => void;
 }) {
-  return (
-    <div className={cn(
-      "rounded-lg border p-3",
-      highlight ? "border-amber-500/40 bg-amber-500/5" : "border-border/40 bg-card/30"
-    )}>
+  const base = cn(
+    "rounded-lg border p-3 text-left",
+    highlight ? "border-amber-500/40 bg-amber-500/5" : "border-border/40 bg-card/30",
+    onClick && "hover:border-fuchsia-400/60 hover:bg-card/50 transition-colors cursor-pointer w-full"
+  );
+  const content = (
+    <>
       <div className="flex items-center gap-2 mb-1">
         <Icon className={cn("h-3.5 w-3.5", iconColor)} />
         <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</span>
       </div>
       <p className="text-lg font-bold">{value}</p>
       <p className="text-[10px] text-muted-foreground mt-0.5 truncate">{sub}</p>
-    </div>
+    </>
   );
+  if (onClick) {
+    return (
+      <button type="button" onClick={onClick} className={base}>
+        {content}
+      </button>
+    );
+  }
+  return <div className={base}>{content}</div>;
 }
 
 // ─── Projects Tab ─────────────────────────────────────────────────────────
@@ -837,6 +880,696 @@ function WatchlistTab({ programmes }: { programmes: ProgrammeRecord[] }) {
           )}
         </div>
       ))}
+    </div>
+  );
+}
+
+// ─── Approvals Tab ────────────────────────────────────────────────────────
+
+function countPendingApprovals(data: RndData): number {
+  const projectsPending = data.projects.filter(
+    (p) => p.requiresDirectorApproval && (p.approvals?.director?.decision || "pending") === "pending"
+  ).length;
+  const grantsPending = data.grants.filter((g) => {
+    const stage = String(g.stage || "");
+    if (stage !== "internal_review" && stage !== "drafting") return false;
+    return (g.internalApprovals?.director?.decision || "pending") === "pending";
+  }).length;
+  const oppsPending = data.opportunities.filter(
+    (o) => o.status === "new" || o.status === "under_review"
+  ).length;
+  return projectsPending + grantsPending + oppsPending;
+}
+
+type ApprovalDecision =
+  | "approved"
+  | "rejected"
+  | "request_amendments"
+  | "accept"
+  | "park"
+  | "reject";
+
+function ApprovalsTab({ data, onRefresh }: { data: RndData; onRefresh: () => void }) {
+  const { firebaseUser, user } = useAuth();
+  const { toast } = useToast();
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  const pendingProjects = useMemo(
+    () =>
+      data.projects.filter(
+        (p) => p.requiresDirectorApproval && (p.approvals?.director?.decision || "pending") === "pending"
+      ),
+    [data.projects]
+  );
+  const pendingGrants = useMemo(
+    () =>
+      data.grants.filter((g) => {
+        const stage = String(g.stage || "");
+        if (stage !== "internal_review" && stage !== "drafting") return false;
+        return (g.internalApprovals?.director?.decision || "pending") === "pending";
+      }),
+    [data.grants]
+  );
+  const pendingOpps = useMemo(
+    () => data.opportunities.filter((o) => o.status === "new" || o.status === "under_review"),
+    [data.opportunities]
+  );
+
+  const isAdmin = user?.role === "admin";
+
+  const submit = useCallback(
+    async (
+      type: "rnd_project" | "grant" | "opportunity",
+      id: string,
+      decision: ApprovalDecision,
+      note: string,
+      parkedUntil?: string
+    ): Promise<boolean> => {
+      if (!firebaseUser) {
+        toast({ title: "Sign in first", variant: "destructive" });
+        return false;
+      }
+      if (!isAdmin) {
+        toast({
+          title: "Director-only action",
+          description: "Approvals require admin role. Technicians can view the queue only.",
+          variant: "destructive",
+        });
+        return false;
+      }
+      setBusyId(id);
+      try {
+        const token = await firebaseUser.getIdToken();
+        const res = await fetch("/api/rnd/approval-action", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ type, id, decision, note: note.trim() || undefined, parkedUntil }),
+        });
+        const json = (await res.json().catch(() => ({}))) as { error?: string };
+        if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+        toast({
+          title:
+            decision === "request_amendments"
+              ? "Amendment request sent to Archer"
+              : `${type === "opportunity" ? "Opportunity" : type === "grant" ? "Grant" : "Project"} ${decision}`,
+        });
+        onRefresh();
+        return true;
+      } catch (err) {
+        toast({
+          title: "Action failed",
+          description: err instanceof Error ? err.message : "Unknown error",
+          variant: "destructive",
+        });
+        return false;
+      } finally {
+        setBusyId(null);
+      }
+    },
+    [firebaseUser, isAdmin, onRefresh, toast]
+  );
+
+  const totalPending = pendingProjects.length + pendingGrants.length + pendingOpps.length;
+
+  if (totalPending === 0) {
+    return (
+      <div className="text-center py-10 space-y-2">
+        <CheckCircle2 className="h-10 w-10 text-emerald-400/60 mx-auto" />
+        <p className="text-sm font-medium">All caught up</p>
+        <p className="text-xs text-muted-foreground">
+          No pending Director approvals or opportunity reviews in Sophie's queue.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-5">
+      {!isAdmin && (
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 text-xs text-amber-200">
+          Approvals are Director-only. You can view the queue but action buttons are disabled.
+        </div>
+      )}
+
+      {pendingProjects.length > 0 && (
+        <ApprovalsSection
+          icon={Target}
+          iconColor="text-fuchsia-400"
+          title="R&D Projects — Director Approval"
+          count={pendingProjects.length}
+        >
+          {pendingProjects.map((p) => (
+            <ProjectApprovalCard
+              key={p.id}
+              project={p}
+              busy={busyId === p.id}
+              onSubmit={(decision, note) => submit("rnd_project", p.id, decision, note)}
+            />
+          ))}
+        </ApprovalsSection>
+      )}
+
+      {pendingGrants.length > 0 && (
+        <ApprovalsSection
+          icon={Landmark}
+          iconColor="text-amber-400"
+          title="Grant Applications — Internal Sign-off"
+          count={pendingGrants.length}
+        >
+          {pendingGrants.map((g) => (
+            <GrantApprovalCard
+              key={g.id}
+              grant={g}
+              busy={busyId === g.id}
+              onSubmit={(decision, note) => submit("grant", g.id, decision, note)}
+            />
+          ))}
+        </ApprovalsSection>
+      )}
+
+      {pendingOpps.length > 0 && (
+        <ApprovalsSection
+          icon={Eye}
+          iconColor="text-blue-400"
+          title="Opportunity Log — Review Queue"
+          count={pendingOpps.length}
+        >
+          {pendingOpps.map((o) => (
+            <OpportunityApprovalCard
+              key={o.id}
+              opp={o}
+              busy={busyId === o.id}
+              onSubmit={(decision, note, parkedUntil) =>
+                submit("opportunity", o.id, decision, note, parkedUntil)
+              }
+            />
+          ))}
+        </ApprovalsSection>
+      )}
+    </div>
+  );
+}
+
+function ApprovalsSection({
+  icon: Icon,
+  iconColor,
+  title,
+  count,
+  children,
+}: {
+  icon: typeof Target;
+  iconColor: string;
+  title: string;
+  count: number;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <p className="text-[10px] uppercase tracking-wider font-semibold mb-2 flex items-center gap-1.5 text-muted-foreground">
+        <Icon className={cn("h-3 w-3", iconColor)} />
+        {title}
+        <Badge className="text-[9px] h-4 px-1 ml-1 border-0 bg-amber-500/20 text-amber-400">
+          {count}
+        </Badge>
+      </p>
+      <div className="space-y-3">{children}</div>
+    </div>
+  );
+}
+
+// ─── Individual approval cards ────────────────────────────────────────────
+
+function ApprovalCardShell({
+  children,
+  highlight,
+}: {
+  children: React.ReactNode;
+  highlight?: boolean;
+}) {
+  return (
+    <div
+      className={cn(
+        "rounded-xl border p-3",
+        highlight
+          ? "border-amber-500/40 bg-amber-500/5"
+          : "border-border/40 bg-card/40"
+      )}
+    >
+      {children}
+    </div>
+  );
+}
+
+function ProjectApprovalCard({
+  project,
+  busy,
+  onSubmit,
+}: {
+  project: RndProjectRecord;
+  busy: boolean;
+  onSubmit: (decision: ApprovalDecision, note: string) => Promise<boolean>;
+}) {
+  const [note, setNote] = useState("");
+  const [open, setOpen] = useState(false);
+
+  const phaseCfg = PHASE_CONFIG[project.phase || ""] || { color: "text-zinc-400", bg: "bg-zinc-500/10" };
+  const athenaDecision = project.approvals?.athena?.decision || "pending";
+  const athenaNote = project.approvals?.athena?.note;
+  const budget = project.estimatedBudget || 0;
+  const priorReviewNote = project.directorReviewNote;
+
+  const handle = async (decision: ApprovalDecision) => {
+    const ok = await onSubmit(decision, note);
+    if (ok) setNote("");
+  };
+
+  return (
+    <ApprovalCardShell highlight>
+      <div className="flex items-start justify-between gap-2 mb-1.5">
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-medium text-muted-foreground">{project.projectNumber}</p>
+          <p className="text-sm font-semibold leading-tight mt-0.5">{project.title}</p>
+        </div>
+        <Badge className={cn("text-[10px] border-0 capitalize shrink-0", phaseCfg.color, phaseCfg.bg)}>
+          {(project.phase || "scoping").replace(/_/g, " ")}
+        </Badge>
+      </div>
+      <p className="text-[11px] text-muted-foreground leading-snug line-clamp-3 mb-2">
+        {project.shortDescription}
+      </p>
+      <div className="flex flex-wrap gap-1.5 text-[10px] mb-2">
+        <Badge variant="outline" className="text-[9px] capitalize">{project.domain}</Badge>
+        <Badge variant="outline" className="text-[9px] capitalize">{project.priority}</Badge>
+        {budget > 0 && (
+          <Badge variant="outline" className="text-[9px]">
+            Budget: {formatCurrency(budget)}
+          </Badge>
+        )}
+        {project.targetCompletionDate && (
+          <Badge variant="outline" className="text-[9px]">
+            Target: {formatDate(project.targetCompletionDate)}
+          </Badge>
+        )}
+      </div>
+
+      {athenaDecision === "approved" && (
+        <div className="rounded border border-green-500/30 bg-green-500/5 px-2 py-1.5 mb-2 text-[10px]">
+          <p className="text-green-400 font-semibold mb-0.5 flex items-center gap-1">
+            <CheckCircle2 className="h-3 w-3" /> ATHENA approved
+          </p>
+          {athenaNote && <p className="text-muted-foreground italic">&quot;{athenaNote}&quot;</p>}
+        </div>
+      )}
+      {athenaDecision === "rejected" && (
+        <div className="rounded border border-red-500/30 bg-red-500/5 px-2 py-1.5 mb-2 text-[10px]">
+          <p className="text-red-400 font-semibold mb-0.5 flex items-center gap-1">
+            <X className="h-3 w-3" /> ATHENA rejected
+          </p>
+          {athenaNote && <p className="text-muted-foreground italic">&quot;{athenaNote}&quot;</p>}
+        </div>
+      )}
+      {priorReviewNote && (
+        <div className="rounded border border-blue-500/30 bg-blue-500/5 px-2 py-1.5 mb-2 text-[10px]">
+          <p className="text-blue-400 font-semibold mb-0.5 flex items-center gap-1">
+            <MessageSquare className="h-3 w-3" /> Your previous amendment note
+          </p>
+          <p className="text-muted-foreground italic">&quot;{priorReviewNote}&quot;</p>
+        </div>
+      )}
+
+      {!open ? (
+        <Button
+          size="sm"
+          variant="outline"
+          className="w-full h-7 text-[11px]"
+          onClick={() => setOpen(true)}
+          disabled={busy}
+        >
+          <Gavel className="h-3 w-3 mr-1.5" />
+          Review &amp; decide
+        </Button>
+      ) : (
+        <ActionBlock
+          note={note}
+          setNote={setNote}
+          busy={busy}
+          placeholder="Notes for Sophie (required for amendments, optional for approve/reject)…"
+          onApprove={() => handle("approved")}
+          onReject={() => handle("rejected")}
+          onRequestAmendments={() => handle("request_amendments")}
+          onCancel={() => {
+            setOpen(false);
+            setNote("");
+          }}
+        />
+      )}
+    </ApprovalCardShell>
+  );
+}
+
+function GrantApprovalCard({
+  grant,
+  busy,
+  onSubmit,
+}: {
+  grant: GrantRecord;
+  busy: boolean;
+  onSubmit: (decision: ApprovalDecision, note: string) => Promise<boolean>;
+}) {
+  const [note, setNote] = useState("");
+  const [open, setOpen] = useState(false);
+
+  const cfg = GRANT_STAGE_CONFIG[grant.stage || "monitoring"] || GRANT_STAGE_CONFIG.monitoring;
+  const athenaDecision = grant.internalApprovals?.athena?.decision || "pending";
+  const athenaNote = grant.internalApprovals?.athena?.note;
+  const priorReviewNote = grant.directorReviewNote;
+
+  const handle = async (decision: ApprovalDecision) => {
+    const ok = await onSubmit(decision, note);
+    if (ok) setNote("");
+  };
+
+  return (
+    <ApprovalCardShell highlight>
+      <div className="flex items-start justify-between gap-2 flex-wrap mb-1">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 mb-0.5">
+            <Landmark className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+            <p className="text-xs font-medium text-muted-foreground">{grant.grantNumber}</p>
+            <Badge className={cn("text-[9px] border-0", cfg.color, cfg.bg)}>{cfg.label}</Badge>
+          </div>
+          <p className="text-sm font-semibold leading-tight">
+            {grant.programmeName}
+            {grant.roundName && <span className="text-muted-foreground font-normal"> · {grant.roundName}</span>}
+          </p>
+          <p className="text-[10px] text-muted-foreground mt-0.5">{grant.programmeBody}</p>
+        </div>
+        <div className="text-right shrink-0">
+          {grant.awardValue !== undefined && (
+            <>
+              <p className="text-sm font-bold text-amber-400">{formatCurrency(grant.awardValue)}</p>
+              <p className="text-[9px] text-muted-foreground">potential</p>
+            </>
+          )}
+        </div>
+      </div>
+      <div className="flex items-center gap-3 mt-1 mb-2 text-[10px] text-muted-foreground flex-wrap">
+        {grant.submissionDeadline && (
+          <span className="flex items-center gap-1">
+            <Clock className="h-3 w-3" />
+            Submit by {formatDate(grant.submissionDeadline)}
+          </span>
+        )}
+        {grant.linkedRndProjectIds && grant.linkedRndProjectIds.length > 0 && (
+          <span className="flex items-center gap-1">
+            <Target className="h-3 w-3" />
+            Funds {grant.linkedRndProjectIds.length} project
+            {grant.linkedRndProjectIds.length === 1 ? "" : "s"}
+          </span>
+        )}
+      </div>
+
+      {athenaDecision === "approved" && (
+        <div className="rounded border border-green-500/30 bg-green-500/5 px-2 py-1.5 mb-2 text-[10px]">
+          <p className="text-green-400 font-semibold mb-0.5 flex items-center gap-1">
+            <CheckCircle2 className="h-3 w-3" /> ATHENA approved internal submission
+          </p>
+          {athenaNote && <p className="text-muted-foreground italic">&quot;{athenaNote}&quot;</p>}
+        </div>
+      )}
+      {priorReviewNote && (
+        <div className="rounded border border-blue-500/30 bg-blue-500/5 px-2 py-1.5 mb-2 text-[10px]">
+          <p className="text-blue-400 font-semibold mb-0.5 flex items-center gap-1">
+            <MessageSquare className="h-3 w-3" /> Your previous amendment note
+          </p>
+          <p className="text-muted-foreground italic">&quot;{priorReviewNote}&quot;</p>
+        </div>
+      )}
+
+      {!open ? (
+        <Button
+          size="sm"
+          variant="outline"
+          className="w-full h-7 text-[11px]"
+          onClick={() => setOpen(true)}
+          disabled={busy}
+        >
+          <Gavel className="h-3 w-3 mr-1.5" />
+          Review &amp; decide
+        </Button>
+      ) : (
+        <ActionBlock
+          note={note}
+          setNote={setNote}
+          busy={busy}
+          placeholder="Notes for Sophie (required for amendments)…"
+          onApprove={() => handle("approved")}
+          onReject={() => handle("rejected")}
+          onRequestAmendments={() => handle("request_amendments")}
+          onCancel={() => {
+            setOpen(false);
+            setNote("");
+          }}
+        />
+      )}
+    </ApprovalCardShell>
+  );
+}
+
+function OpportunityApprovalCard({
+  opp,
+  busy,
+  onSubmit,
+}: {
+  opp: OpportunityRecord;
+  busy: boolean;
+  onSubmit: (
+    decision: ApprovalDecision,
+    note: string,
+    parkedUntil?: string
+  ) => Promise<boolean>;
+}) {
+  const [note, setNote] = useState("");
+  const [open, setOpen] = useState(false);
+  const [parkedUntil, setParkedUntil] = useState("");
+
+  const cfg = OPPORTUNITY_STATUS_CONFIG[opp.status || "new"] || OPPORTUNITY_STATUS_CONFIG.new;
+  const typeLabel = OPPORTUNITY_TYPE_LABELS[opp.type || ""] || opp.type || "Other";
+  const priorReviewNote = opp.directorReviewNote;
+
+  const handle = async (decision: ApprovalDecision) => {
+    const effectiveParkedUntil = decision === "park" ? parkedUntil : undefined;
+    const ok = await onSubmit(decision, note, effectiveParkedUntil);
+    if (ok) {
+      setNote("");
+      setParkedUntil("");
+    }
+  };
+
+  return (
+    <ApprovalCardShell highlight>
+      <div className="flex items-start justify-between gap-2 mb-1">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+            <p className="text-xs font-medium text-muted-foreground">{opp.opportunityNumber}</p>
+            <Badge className={cn("text-[9px] border-0 capitalize", cfg.color, cfg.bg)}>
+              {(opp.status || "new").replace(/_/g, " ")}
+            </Badge>
+            <Badge variant="outline" className="text-[9px]">{typeLabel}</Badge>
+          </div>
+          <p className="text-sm font-semibold leading-tight">{opp.title}</p>
+        </div>
+        {opp.reviewScore?.overall !== undefined && (
+          <div className="text-right shrink-0">
+            <p className="text-sm font-bold text-fuchsia-400">
+              {opp.reviewScore.overall.toFixed(1)}
+            </p>
+            <p className="text-[9px] text-muted-foreground">Archer score</p>
+          </div>
+        )}
+      </div>
+      <p className="text-[11px] text-muted-foreground leading-snug line-clamp-3 mt-1 mb-2">
+        {opp.description}
+      </p>
+      <div className="flex items-center gap-2 mb-2 text-[10px] text-muted-foreground flex-wrap">
+        <span>Logged by <span className="font-semibold text-foreground">{opp.sourcedBy}</span></span>
+        {opp.sourceContext && <span>· {opp.sourceContext}</span>}
+      </div>
+
+      {priorReviewNote && (
+        <div className="rounded border border-blue-500/30 bg-blue-500/5 px-2 py-1.5 mb-2 text-[10px]">
+          <p className="text-blue-400 font-semibold mb-0.5 flex items-center gap-1">
+            <MessageSquare className="h-3 w-3" /> Your previous amendment note
+          </p>
+          <p className="text-muted-foreground italic">&quot;{priorReviewNote}&quot;</p>
+        </div>
+      )}
+
+      {!open ? (
+        <Button
+          size="sm"
+          variant="outline"
+          className="w-full h-7 text-[11px]"
+          onClick={() => setOpen(true)}
+          disabled={busy}
+        >
+          <Gavel className="h-3 w-3 mr-1.5" />
+          Review &amp; decide
+        </Button>
+      ) : (
+        <div className="space-y-2">
+          <Textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="Notes for Sophie (required for amendments)…"
+            rows={2}
+            className="text-xs"
+            disabled={busy}
+          />
+          <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+            <label className="flex items-center gap-1.5">
+              Park until:
+              <Input
+                type="date"
+                value={parkedUntil}
+                onChange={(e) => setParkedUntil(e.target.value)}
+                disabled={busy}
+                className="h-7 text-[11px] w-36"
+              />
+            </label>
+            <span className="text-[10px] italic">(only used for Park)</span>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            <Button
+              size="sm"
+              className="h-7 text-[11px] bg-green-600 hover:bg-green-700"
+              onClick={() => handle("accept")}
+              disabled={busy}
+            >
+              <Check className="h-3 w-3 mr-1" />
+              Accept
+            </Button>
+            <Button
+              size="sm"
+              className="h-7 text-[11px] bg-orange-600 hover:bg-orange-700"
+              onClick={() => handle("park")}
+              disabled={busy}
+            >
+              <Pause className="h-3 w-3 mr-1" />
+              Park
+            </Button>
+            <Button
+              size="sm"
+              className="h-7 text-[11px] bg-red-600 hover:bg-red-700"
+              onClick={() => handle("reject")}
+              disabled={busy}
+            >
+              <X className="h-3 w-3 mr-1" />
+              Reject
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-[11px]"
+              onClick={() => handle("request_amendments")}
+              disabled={busy || !note.trim()}
+              title={!note.trim() ? "Add a note first so Archer knows what to change" : undefined}
+            >
+              <MessageSquare className="h-3 w-3 mr-1" />
+              Request amendments
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 text-[11px] ml-auto"
+              onClick={() => {
+                setOpen(false);
+                setNote("");
+                setParkedUntil("");
+              }}
+              disabled={busy}
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
+    </ApprovalCardShell>
+  );
+}
+
+function ActionBlock({
+  note,
+  setNote,
+  busy,
+  placeholder,
+  onApprove,
+  onReject,
+  onRequestAmendments,
+  onCancel,
+}: {
+  note: string;
+  setNote: (v: string) => void;
+  busy: boolean;
+  placeholder: string;
+  onApprove: () => void;
+  onReject: () => void;
+  onRequestAmendments: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="space-y-2">
+      <Textarea
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        placeholder={placeholder}
+        rows={3}
+        className="text-xs"
+        disabled={busy}
+      />
+      <div className="flex flex-wrap gap-1.5">
+        <Button
+          size="sm"
+          className="h-7 text-[11px] bg-green-600 hover:bg-green-700"
+          onClick={onApprove}
+          disabled={busy}
+        >
+          <Check className="h-3 w-3 mr-1" />
+          Approve
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 text-[11px]"
+          onClick={onRequestAmendments}
+          disabled={busy || !note.trim()}
+          title={!note.trim() ? "Add a note first so Archer knows what to change" : undefined}
+        >
+          <MessageSquare className="h-3 w-3 mr-1" />
+          Request amendments
+        </Button>
+        <Button
+          size="sm"
+          className="h-7 text-[11px] bg-red-600 hover:bg-red-700"
+          onClick={onReject}
+          disabled={busy}
+        >
+          <X className="h-3 w-3 mr-1" />
+          Reject
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-7 text-[11px] ml-auto"
+          onClick={onCancel}
+          disabled={busy}
+        >
+          Cancel
+        </Button>
+      </div>
     </div>
   );
 }
