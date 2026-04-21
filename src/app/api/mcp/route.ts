@@ -2381,6 +2381,84 @@ const TOOLS: McpTool[] = [
       required: ["opportunityId", "domain"],
     },
   },
+  // ─── R&D Project Nominations ──────────────────────────────────────────────
+  {
+    name: "get_rnd_nominations",
+    description:
+      "List R&D project nominations. A nomination is a pre-project intake — Director nominates, Sophie Archer pre-feases it, Director approves which auto-creates the RndProject. Filter by status to find the ones waiting for Archer (submitted / in_prefeas) or for Director approval (prefeas_complete).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        status: {
+          type: "string",
+          enum: ["submitted", "in_prefeas", "prefeas_complete", "approved", "rejected", "withdrawn"],
+          description: "Optional filter. Omit for all.",
+        },
+        limit: { type: "number", description: "Max results (default 50, max 200)." },
+      },
+    },
+  },
+  {
+    name: "get_rnd_nomination",
+    description: "Get a single R&D nomination by Firestore ID. Returns the full record including pre-feas brief if written.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        nominationId: { type: "string" },
+      },
+      required: ["nominationId"],
+    },
+  },
+  {
+    name: "update_rnd_nomination_prefeas",
+    description:
+      "Sophie Archer writes the pre-feasibility brief on a nomination and flips its status to prefeas_complete (which puts it on the Director's approval queue). Required fields: marketRegulatoryContext, grantMatch, verdict. Scores clamp to 1-5. Use the live watchlist in the prompt to pick the grantMatch programme name(s).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        nominationId: { type: "string" },
+        strategicFitScore: { type: "number", description: "1-5 (clamped)." },
+        technicalFeasibilityScore: { type: "number", description: "1-5 (clamped)." },
+        marketRegulatoryContext: { type: "string" },
+        grantMatch: { type: "string", description: "Prose summary of best-fit programme(s) from the watchlist." },
+        costEnvelopeMin: { type: "number" },
+        costEnvelopeMax: { type: "number" },
+        flagsAndRisks: { type: "array", items: { type: "string" } },
+        verdict: { type: "string", enum: ["pursue", "park", "reject"] },
+      },
+      required: ["nominationId", "marketRegulatoryContext", "grantMatch", "verdict"],
+    },
+  },
+  {
+    name: "approve_rnd_nomination",
+    description:
+      "Director approves a nomination with a prefeas_complete status. This creates a full RndProject (inherits priority/domain/target date and pre-feas cost envelope) AND drafts a GrantApplication against each selected programme, linked to the new project. Returns the new projectId + any created grant IDs.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        nominationId: { type: "string" },
+        note: { type: "string", description: "Optional decision note." },
+        createGrantDraftsFor: {
+          type: "array",
+          items: { type: "string" },
+          description: "Optional explicit list of programme IDs to draft grants against. Defaults to the nomination's selectedProgrammeIds.",
+        },
+      },
+      required: ["nominationId"],
+    },
+  },
+  {
+    name: "reject_rnd_nomination",
+    description: "Director rejects a nomination. Logs the decision + note; nomination stays in the register for audit.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        nominationId: { type: "string" },
+        note: { type: "string" },
+      },
+      required: ["nominationId"],
+    },
+  },
   // ─── Grant Programme Watchlist ────────────────────────────────────────────
   {
     name: "create_grant_programme",
@@ -5060,6 +5138,219 @@ async function handleConvertOpportunityToProject(args: Record<string, unknown>) 
   };
 }
 
+// ─── R&D Nomination handlers ────────────────────────────────────────────────
+// Thin MCP wrappers over the same logic that /api/rnd/nomination runs — lets
+// Archer pull her own queue, write a pre-feas brief, and (for Director-level
+// operations) approve/reject from her agent.
+
+function clampPreFeasScore(n: unknown): number {
+  const v = typeof n === "number" ? n : 0;
+  return Math.max(1, Math.min(5, Math.round(v)));
+}
+
+async function handleGetRndNominations(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const limit = safeLimit(args.limit, 50, 200);
+  let q: admin.firestore.Query = db
+    .collection(COLLECTIONS.RND_PROJECT_NOMINATIONS)
+    .orderBy("createdAt", "desc");
+  if (typeof args.status === "string") q = q.where("status", "==", args.status);
+  q = q.limit(limit);
+  const snap = await q.get();
+  return snap.docs.map((d) => serializeDoc(d.id, d.data()));
+}
+
+async function handleGetRndNomination(args: Record<string, unknown>) {
+  const id = String(args.nominationId || "");
+  if (!id) throw new Error("nominationId is required.");
+  const db = admin.firestore();
+  const snap = await db.collection(COLLECTIONS.RND_PROJECT_NOMINATIONS).doc(id).get();
+  if (!snap.exists) throw new Error(`Nomination '${id}' not found.`);
+  return serializeDoc(snap.id, snap.data()!);
+}
+
+async function handleUpdateRndNominationPrefeas(args: Record<string, unknown>) {
+  const id = String(args.nominationId || "");
+  if (!id) throw new Error("nominationId is required.");
+  if (!args.marketRegulatoryContext || !args.grantMatch || !args.verdict) {
+    throw new Error("marketRegulatoryContext, grantMatch, and verdict are required.");
+  }
+  const db = admin.firestore();
+  const ref = db.collection(COLLECTIONS.RND_PROJECT_NOMINATIONS).doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) throw new Error(`Nomination '${id}' not found.`);
+
+  const preFeas = {
+    strategicFitScore: clampPreFeasScore(args.strategicFitScore),
+    technicalFeasibilityScore: clampPreFeasScore(args.technicalFeasibilityScore),
+    marketRegulatoryContext: String(args.marketRegulatoryContext),
+    grantMatch: String(args.grantMatch),
+    costEnvelopeMin: typeof args.costEnvelopeMin === "number" ? args.costEnvelopeMin : null,
+    costEnvelopeMax: typeof args.costEnvelopeMax === "number" ? args.costEnvelopeMax : null,
+    flagsAndRisks: Array.isArray(args.flagsAndRisks)
+      ? (args.flagsAndRisks as string[]).filter((s) => typeof s === "string")
+      : [],
+    verdict: String(args.verdict),
+    writtenBy: "ARCHER",
+    writtenAt: new Date().toISOString(),
+  };
+
+  await ref.update({
+    preFeas,
+    status: "prefeas_complete",
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+
+  return {
+    nominationId: id,
+    status: "prefeas_complete",
+    preFeas,
+  };
+}
+
+async function handleApproveRndNomination(args: Record<string, unknown>) {
+  const id = String(args.nominationId || "");
+  if (!id) throw new Error("nominationId is required.");
+  const db = admin.firestore();
+  const ref = db.collection(COLLECTIONS.RND_PROJECT_NOMINATIONS).doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) throw new Error(`Nomination '${id}' not found.`);
+  const existing = snap.data()!;
+
+  const actorName = "mcp-agent";
+  const nowIso = new Date().toISOString();
+  const now = admin.firestore.FieldValue.serverTimestamp();
+
+  // Create the RndProject via the canonical handler so project numbers,
+  // counters, and defaults stay consistent.
+  const title = String(existing.title || "Untitled R&D Project");
+  const rationale = String(existing.rationale || "");
+  const preFeas = (existing.preFeas || {}) as Record<string, unknown>;
+  const estimatedBudget =
+    typeof preFeas.costEnvelopeMax === "number"
+      ? preFeas.costEnvelopeMax
+      : typeof preFeas.costEnvelopeMin === "number"
+        ? preFeas.costEnvelopeMin
+        : undefined;
+
+  const projectArgs: Record<string, unknown> = {
+    title,
+    shortDescription: rationale.slice(0, 400),
+    domain: existing.domain || "other",
+    priority: existing.priority || "medium",
+    leadAgent: "ARCHER",
+    estimatedBudget,
+    targetCompletionDate: existing.targetCompletionDate,
+    notes: `Approved from nomination ${id}.${
+      typeof args.note === "string" && args.note.trim() ? ` ${args.note.trim()}` : ""
+    }`,
+  };
+  const created = await handleCreateRndProject(projectArgs);
+  const projectId = (created as { id: string }).id;
+
+  // Stamp director approval on the project so it's closed-loop.
+  try {
+    await db.collection(COLLECTIONS.RND_PROJECTS).doc(projectId).update({
+      approvals: {
+        athena: { decision: "pending", approver: "ATHENA" },
+        director: {
+          decision: "approved",
+          approver: "DIRECTOR",
+          decidedAt: nowIso,
+          decidedBy: actorName,
+          note: typeof args.note === "string" ? args.note : "Approved via nomination pipeline (MCP).",
+        },
+      },
+      nominationId: id,
+      nominationPreFeas: existing.preFeas || null,
+      updatedAt: now,
+    });
+  } catch (err) {
+    console.error("[approve_rnd_nomination] Failed to stamp approval on project:", err);
+  }
+
+  // Draft grant applications against selected programmes.
+  const programmeIds = Array.isArray(args.createGrantDraftsFor)
+    ? (args.createGrantDraftsFor as string[]).filter((s) => typeof s === "string")
+    : ((existing.selectedProgrammeIds as string[] | undefined) || []);
+  const convertedGrantIds: string[] = [];
+  for (const programmeId of programmeIds) {
+    try {
+      const progSnap = await db
+        .collection(COLLECTIONS.RND_GRANT_PROGRAMMES)
+        .doc(programmeId)
+        .get();
+      if (!progSnap.exists) continue;
+      const prog = progSnap.data()!;
+      const grantNumber = await nextRndNumber("GRT");
+      const grantRef = await db.collection(COLLECTIONS.GRANT_APPLICATIONS).add({
+        grantNumber,
+        programmeName: prog.programmeName,
+        programmeBody: prog.programmeBody,
+        programmeId,
+        fundingType: prog.fundingType || "grant",
+        stage: "scoping",
+        awardValue: prog.typicalValueMax || prog.typicalValueMin || null,
+        linkedRndProjectIds: [projectId],
+        nominationId: id,
+        statusLog: [
+          {
+            stage: "scoping",
+            changedAt: nowIso,
+            changedBy: actorName,
+            note: `Drafted from nomination ${id} approval (project ${projectId}).`,
+          },
+        ],
+        createdAt: now,
+        updatedAt: now,
+        createdBy: actorName,
+      });
+      convertedGrantIds.push(grantRef.id);
+    } catch (err) {
+      console.error("Failed to draft grant for programme", programmeId, err);
+    }
+  }
+
+  await ref.update({
+    status: "approved",
+    directorDecision: "approved",
+    directorNote: typeof args.note === "string" ? args.note : null,
+    directorDecidedAt: nowIso,
+    directorDecidedBy: actorName,
+    convertedProjectId: projectId,
+    convertedGrantIds,
+    updatedAt: now,
+  });
+
+  return {
+    ok: true,
+    nominationId: id,
+    status: "approved",
+    convertedProjectId: projectId,
+    convertedGrantIds,
+  };
+}
+
+async function handleRejectRndNomination(args: Record<string, unknown>) {
+  const id = String(args.nominationId || "");
+  if (!id) throw new Error("nominationId is required.");
+  const db = admin.firestore();
+  const ref = db.collection(COLLECTIONS.RND_PROJECT_NOMINATIONS).doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) throw new Error(`Nomination '${id}' not found.`);
+
+  const nowIso = new Date().toISOString();
+  await ref.update({
+    status: "rejected",
+    directorDecision: "rejected",
+    directorNote: typeof args.note === "string" ? args.note : null,
+    directorDecidedAt: nowIso,
+    directorDecidedBy: "mcp-agent",
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+  return { ok: true, nominationId: id, status: "rejected" };
+}
+
 // ─── Grant Programme Watchlist handlers ──────────────────────────────────────
 
 async function handleCreateGrantProgramme(args: Record<string, unknown>) {
@@ -7290,6 +7581,12 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
     case "get_opportunities_awaiting_review": return handleGetOpportunitiesAwaitingReview(args);
     case "review_rnd_opportunity":            return handleReviewRndOpportunity(args);
     case "convert_opportunity_to_project":    return handleConvertOpportunityToProject(args);
+    // R&D Nominations
+    case "get_rnd_nominations":               return handleGetRndNominations(args);
+    case "get_rnd_nomination":                return handleGetRndNomination(args);
+    case "update_rnd_nomination_prefeas":     return handleUpdateRndNominationPrefeas(args);
+    case "approve_rnd_nomination":            return handleApproveRndNomination(args);
+    case "reject_rnd_nomination":             return handleRejectRndNomination(args);
     // Grant Programme Watchlist
     case "create_grant_programme":            return handleCreateGrantProgramme(args);
     case "get_grant_programmes":              return handleGetGrantProgrammes(args);
