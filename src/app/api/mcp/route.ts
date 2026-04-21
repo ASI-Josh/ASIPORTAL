@@ -521,6 +521,23 @@ const TOOLS: McpTool[] = [
             },
           },
         },
+        rndProjectId: {
+          type: "string",
+          description: "Link this IMS document to an R&D project (Firestore rndProjects doc ID). Surfaces the doc under that project in the R&D Projects filing tree on the IMS page.",
+        },
+        rndNominationId: {
+          type: "string",
+          description: "Link this IMS document to an R&D nomination (pre-feas stage). Mutually exclusive with rndProjectId — use whichever the doc belongs to.",
+        },
+        rndFolder: {
+          type: "string",
+          enum: ["pm_planning", "engineering_design", "administration", "finance", "legal", "project_filing"],
+          description: "Which of the six R&D filing folders this doc belongs to. Required when rndProjectId or rndNominationId is set. Defaults to project_filing if omitted but R&D linkage is present.",
+        },
+        rndFinancialYear: {
+          type: "string",
+          description: "Australian FY string (e.g. 'FY2025-26'). Optional — if omitted, IMS derives it from createdAt when filing.",
+        },
       },
       required: ["title", "type", "content"],
     },
@@ -528,7 +545,7 @@ const TOOLS: McpTool[] = [
   {
     name: "update_ims_document",
     description:
-      "Update fields on an existing IMS document. Auto-increments revisionNumber and appends to revisionHistory when content or title changes. Returns the updated document.",
+      "Update fields on an existing IMS document. Auto-increments revisionNumber and appends to revisionHistory when content or title changes. Returns the updated document. To file an existing doc into the R&D Projects tree, pass updates: { rndProjectId, rndFolder, rndFinancialYear? } (or rndNominationId for pre-feas stage docs).",
     inputSchema: {
       type: "object",
       properties: {
@@ -536,7 +553,7 @@ const TOOLS: McpTool[] = [
         updates: {
           type: "object",
           description:
-            "Key-value pairs of fields to update. Allowed fields: title, content, status, processOwner, isoClauses, type, docId.",
+            "Key-value pairs of fields to update. Allowed fields: title, content, status, processOwner, isoClauses, type, docId, rndProjectId, rndNominationId, rndFolder (pm_planning | engineering_design | administration | finance | legal | project_filing), rndFinancialYear.",
         },
         changeNote: { type: "string", description: "Brief note describing what changed (appended to revisionHistory)." },
         updatedBy: { type: "string", description: "User or agent ID performing the update." },
@@ -2988,6 +3005,28 @@ async function handleCreateImsDocumentDraft(args: Record<string, unknown>) {
   const managementReviewData = isManagementReview ? (args.managementReview || {}) : null;
   const meetingId = typeof args.meetingId === "string" ? args.meetingId : null;
 
+  // R&D filing tags — let Sophie (or any agent) file a new doc directly
+  // into a project's folder on the IMS R&D tree. If an R&D link is set
+  // without an explicit folder, default to project_filing (the general
+  // bucket). If FY is missing, derive from "now".
+  const validFolders = new Set([
+    "pm_planning", "engineering_design", "administration", "finance", "legal", "project_filing",
+  ]);
+  const rndProjectId = typeof args.rndProjectId === "string" && args.rndProjectId.trim() ? args.rndProjectId.trim() : null;
+  const rndNominationId = typeof args.rndNominationId === "string" && args.rndNominationId.trim() ? args.rndNominationId.trim() : null;
+  let rndFolder: string | null = null;
+  if (typeof args.rndFolder === "string" && validFolders.has(args.rndFolder)) {
+    rndFolder = args.rndFolder;
+  } else if (rndProjectId || rndNominationId) {
+    rndFolder = "project_filing";
+  }
+  const rndFinancialYear =
+    typeof args.rndFinancialYear === "string" && /^FY\d{4}-\d{2}$/.test(args.rndFinancialYear)
+      ? args.rndFinancialYear
+      : (rndProjectId || rndNominationId)
+        ? deriveAustralianFinancialYear(new Date())
+        : null;
+
   const payload: Record<string, unknown> = {
     title: String(args.title || ""),
     docId: args.docId ? String(args.docId) : null,
@@ -3009,16 +3048,44 @@ async function handleCreateImsDocumentDraft(args: Record<string, unknown>) {
     reviewOverdue: false,
     meetingId,
     managementReview: managementReviewData,
+    rndProjectId,
+    rndNominationId,
+    rndFolder,
+    rndFinancialYear,
     createdByAgent: true,
     createdAt: now,
     updatedAt: now,
   };
   const ref = await admin.firestore().collection(COLLECTIONS.IMS_DOCUMENTS).add(payload);
-  return { id: ref.id, status: "draft", approvalStatus: "draft", title: payload.title, type };
+  return {
+    id: ref.id,
+    status: "draft",
+    approvalStatus: "draft",
+    title: payload.title,
+    type,
+    rndProjectId,
+    rndNominationId,
+    rndFolder,
+    rndFinancialYear,
+  };
+}
+
+/**
+ * Compute the Australian financial year for a date (1 Jul – 30 Jun).
+ * Kept inline here so the MCP route stays self-contained — mirrors
+ * src/lib/rnd/filing.ts getAustralianFinancialYear().
+ */
+function deriveAustralianFinancialYear(d: Date): string {
+  const y = d.getFullYear();
+  const m = d.getMonth();
+  const startYear = m >= 6 ? y : y - 1;
+  const endShort = String((startYear + 1) % 100).padStart(2, "0");
+  return `FY${startYear}-${endShort}`;
 }
 
 const ALLOWED_UPDATE_FIELDS = new Set([
   "title", "content", "status", "processOwner", "isoClauses", "type", "docId",
+  "rndProjectId", "rndNominationId", "rndFolder", "rndFinancialYear",
 ]);
 
 const DIRECTOR_EMAIL = "joshua@asi-australia.com.au";
