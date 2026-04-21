@@ -12,10 +12,12 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   Target, Landmark, Eye, Lightbulb, RefreshCw, Sparkles,
   AlertTriangle, Flame, Clock, TrendingUp, CheckCircle2, ChevronRight,
-  Gavel, MessageSquare, Check, X, Pause,
+  Gavel, MessageSquare, Check, X, Pause, FolderTree, ExternalLink,
+  FlaskConical,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -25,6 +27,10 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
+import {
+  getAustralianFinancialYear,
+  compareFinancialYearsDesc,
+} from "@/lib/rnd/filing";
 
 // ─── Types (loose — matches the /api/rnd/data response shape) ──────────────
 
@@ -212,6 +218,7 @@ type WorkspaceTab =
   | "dashboard"
   | "approvals"
   | "nominations"
+  | "register"
   | "projects"
   | "grants"
   | "opportunities"
@@ -396,13 +403,14 @@ export default function ArcherWorkspace() {
         <div className="flex items-center gap-1 mt-3 border-b border-border/40 -mb-3 overflow-x-auto">
           {(
             [
-              { key: "dashboard",     label: "Dashboard",   icon: TrendingUp },
-              { key: "approvals",     label: "Approvals",   icon: Gavel },
-              { key: "nominations",   label: "Nominations", icon: Sparkles },
-              { key: "projects",      label: "Projects",    icon: Target },
-              { key: "grants",        label: "Grants",      icon: Landmark },
-              { key: "opportunities", label: "Ops Log",     icon: Eye },
-              { key: "watchlist",     label: "Watchlist",   icon: Lightbulb },
+              { key: "dashboard",     label: "Dashboard",        icon: TrendingUp },
+              { key: "approvals",     label: "Approvals",        icon: Gavel },
+              { key: "nominations",   label: "Nominations",      icon: Sparkles },
+              { key: "register",      label: "Project Register", icon: FolderTree },
+              { key: "projects",      label: "Projects",         icon: Target },
+              { key: "grants",        label: "Grants",           icon: Landmark },
+              { key: "opportunities", label: "Ops Log",          icon: Eye },
+              { key: "watchlist",     label: "Watchlist",        icon: Lightbulb },
             ] as Array<{ key: WorkspaceTab; label: string; icon: typeof Target }>
           ).map((tab) => {
             const Icon = tab.icon;
@@ -428,6 +436,11 @@ export default function ArcherWorkspace() {
                 {tab.key === "nominations" && data && (data.nominations?.length || 0) > 0 && (
                   <Badge variant="outline" className="text-[9px] h-4 px-1 ml-0.5">
                     {data.nominations?.length || 0}
+                  </Badge>
+                )}
+                {tab.key === "register" && data && (
+                  <Badge variant="outline" className="text-[9px] h-4 px-1 ml-0.5">
+                    {data.projects.length + (data.nominations?.length || 0)}
                   </Badge>
                 )}
                 {tab.key === "projects" && data && (
@@ -470,9 +483,17 @@ export default function ArcherWorkspace() {
 
         {data && !isEmpty && (
           <>
-            {activeTab === "dashboard" && <DashboardTab data={data} onJumpToApprovals={() => setActiveTab("approvals")} />}
+            {activeTab === "dashboard" && (
+              <DashboardTab
+                data={data}
+                onJumpToApprovals={() => setActiveTab("approvals")}
+                onJumpToNominations={() => setActiveTab("nominations")}
+                onJumpToRegister={() => setActiveTab("register")}
+              />
+            )}
             {activeTab === "approvals" && <ApprovalsTab data={data} onRefresh={fetchData} />}
             {activeTab === "nominations" && <NominationsTab data={data} onRefresh={fetchData} />}
+            {activeTab === "register" && <ProjectRegisterTab data={data} onRefresh={fetchData} />}
             {activeTab === "projects" && <ProjectsTab projects={data.projects} />}
             {activeTab === "grants" && <GrantsTab grants={data.grants} />}
             {activeTab === "opportunities" && <OpportunitiesTab opportunities={data.opportunities} />}
@@ -486,8 +507,23 @@ export default function ArcherWorkspace() {
 
 // ─── Dashboard Tab ────────────────────────────────────────────────────────
 
-function DashboardTab({ data, onJumpToApprovals }: { data: RndData; onJumpToApprovals?: () => void }) {
+function DashboardTab({
+  data,
+  onJumpToApprovals,
+  onJumpToNominations,
+  onJumpToRegister,
+}: {
+  data: RndData;
+  onJumpToApprovals?: () => void;
+  onJumpToNominations?: () => void;
+  onJumpToRegister?: () => void;
+}) {
   const m = data.metrics;
+  const nominationMetrics = m.nominations;
+  const preFeasInProgress = nominationMetrics
+    ? (nominationMetrics.byStatus?.submitted || 0) + (nominationMetrics.byStatus?.in_prefeas || 0)
+    : 0;
+  const preFeasAwaitingApproval = nominationMetrics?.prefeasCompleteAwaitingApproval || 0;
   return (
     <div className="space-y-4">
       {/* Top row: 4 metric cards */}
@@ -498,6 +534,7 @@ function DashboardTab({ data, onJumpToApprovals }: { data: RndData; onJumpToAppr
           label="Active Projects"
           value={`${m.projects.active}`}
           sub={`${m.projects.total} total · ${formatCurrency(m.projects.totalBudget)} budget`}
+          onClick={m.projects.total > 0 ? onJumpToRegister : undefined}
         />
         <MetricCard
           icon={Landmark}
@@ -523,6 +560,43 @@ function DashboardTab({ data, onJumpToApprovals }: { data: RndData; onJumpToAppr
           sub={`${m.projects.pendingAthenaApproval} ATHENA · ${m.projects.pendingDirectorApproval} Director`}
           highlight={m.projects.pendingDirectorApproval > 0}
           onClick={m.projects.pendingDirectorApproval > 0 ? onJumpToApprovals : undefined}
+        />
+      </div>
+
+      {/* Second row: nomination pipeline visibility */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <MetricCard
+          icon={Sparkles}
+          iconColor="text-fuchsia-400"
+          label="Pre-feas In Progress"
+          value={`${preFeasInProgress}`}
+          sub={`${nominationMetrics?.byStatus?.submitted || 0} submitted · ${nominationMetrics?.byStatus?.in_prefeas || 0} with Sophie`}
+          highlight={preFeasInProgress > 0}
+          onClick={preFeasInProgress > 0 ? onJumpToNominations : undefined}
+        />
+        <MetricCard
+          icon={Gavel}
+          iconColor="text-fuchsia-400"
+          label="Pre-feas Complete"
+          value={`${preFeasAwaitingApproval}`}
+          sub="Awaiting Director approval"
+          highlight={preFeasAwaitingApproval > 0}
+          onClick={preFeasAwaitingApproval > 0 ? onJumpToApprovals : undefined}
+        />
+        <MetricCard
+          icon={FolderTree}
+          iconColor="text-fuchsia-400"
+          label="Project Register"
+          value={`${m.projects.total}`}
+          sub="R&D projects filed to IMS"
+          onClick={m.projects.total > 0 ? onJumpToRegister : undefined}
+        />
+        <MetricCard
+          icon={Landmark}
+          iconColor="text-amber-400"
+          label="Grants In Flight"
+          value={`${m.grants.total - (m.grants.byStage?.approved || 0) - (m.grants.byStage?.rejected || 0) - (m.grants.byStage?.acquitted || 0)}`}
+          sub={`${m.grants.upcomingDeadlines.length} deadline${m.grants.upcomingDeadlines.length === 1 ? "" : "s"} in 30 days`}
         />
       </div>
 
@@ -2429,4 +2503,346 @@ function NominationApprovalCard({
     </ApprovalCardShell>
   );
 }
+
+// ─── Project Register Tab ──────────────────────────────────────────────────
+
+function ProjectRegisterTab({
+  data,
+  onRefresh,
+}: {
+  data: RndData;
+  onRefresh: () => void;
+}) {
+  const router = useRouter();
+
+  const preFeas = useMemo(
+    () =>
+      (data.nominations || []).filter((n) => {
+        const s = String(n.status || "");
+        return ["submitted", "in_prefeas", "prefeas_complete"].includes(s);
+      }),
+    [data.nominations]
+  );
+
+  const projectsByFY = useMemo(() => {
+    const buckets = new Map<string, RndProjectRecord[]>();
+    for (const p of data.projects) {
+      const fy = getAustralianFinancialYear(p.updatedAt || new Date().toISOString());
+      const list = buckets.get(fy) || [];
+      list.push(p);
+      buckets.set(fy, list);
+    }
+    const fys = Array.from(buckets.keys()).sort(compareFinancialYearsDesc);
+    return fys.map((fy) => ({
+      fy,
+      projects: (buckets.get(fy) || []).sort((a, b) =>
+        String(a.projectNumber || a.id).localeCompare(String(b.projectNumber || b.id))
+      ),
+    }));
+  }, [data.projects]);
+
+  const openInIms = (params: { rndProject?: string; rndNomination?: string }) => {
+    const qs = new URLSearchParams();
+    if (params.rndProject) qs.set("rndProject", params.rndProject);
+    if (params.rndNomination) qs.set("rndNomination", params.rndNomination);
+    router.push(`/dashboard/ims?${qs.toString()}`);
+  };
+
+  return (
+    <div className="space-y-6">
+      <section>
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-sm font-semibold flex items-center gap-2 text-fuchsia-400">
+            <FlaskConical className="h-4 w-4" />
+            Pre-feas Studies
+            <Badge variant="outline" className="text-[9px] ml-1">
+              {preFeas.length}
+            </Badge>
+          </h3>
+          <p className="text-[10px] text-muted-foreground">
+            Click a card to open the project filing in IMS.
+          </p>
+        </div>
+        {preFeas.length === 0 ? (
+          <p className="text-xs italic text-muted-foreground">
+            No pre-feas studies in flight. Submit a nomination on the Nominations tab.
+          </p>
+        ) : (
+          <div className="grid gap-3 md:grid-cols-2">
+            {preFeas.map((n) => (
+              <NominationRegisterCard
+                key={n.id}
+                nomination={n}
+                onOpen={() => openInIms({ rndNomination: n.id })}
+                onRefresh={onRefresh}
+              />
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section>
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-sm font-semibold flex items-center gap-2 text-fuchsia-400">
+            <FolderTree className="h-4 w-4" />
+            R&amp;D Projects
+            <Badge variant="outline" className="text-[9px] ml-1">
+              {data.projects.length}
+            </Badge>
+          </h3>
+          <p className="text-[10px] text-muted-foreground">
+            Grouped by Australian FY (1 Jul – 30 Jun).
+          </p>
+        </div>
+        {projectsByFY.length === 0 ? (
+          <p className="text-xs italic text-muted-foreground">
+            No R&amp;D projects filed yet. Approve a nomination to create the first one.
+          </p>
+        ) : (
+          <div className="space-y-4">
+            {projectsByFY.map(({ fy, projects }) => (
+              <div key={fy}>
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-2">
+                  {fy}{" "}
+                  <span className="text-muted-foreground/70">
+                    ({projects.length} project{projects.length === 1 ? "" : "s"})
+                  </span>
+                </p>
+                <div className="grid gap-3 md:grid-cols-2">
+                  {projects.map((p) => (
+                    <ProjectRegisterCard
+                      key={p.id}
+                      project={p}
+                      onOpen={() => openInIms({ rndProject: p.id })}
+                    />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function NominationRegisterCard({
+  nomination,
+  onOpen,
+  onRefresh,
+}: {
+  nomination: NominationRecord;
+  onOpen: () => void;
+  onRefresh: () => void;
+}) {
+  const { user, firebaseUser } = useAuth();
+  const { toast } = useToast();
+  const isAdmin = user?.role === "admin";
+  const [busy, setBusy] = useState(false);
+
+  const statusCfg: Record<string, { color: string; bg: string; label: string }> = {
+    submitted: { color: "text-amber-400", bg: "bg-amber-500/10", label: "Awaiting pre-feas" },
+    in_prefeas: { color: "text-blue-400", bg: "bg-blue-500/10", label: "In pre-feas" },
+    prefeas_complete: {
+      color: "text-fuchsia-400",
+      bg: "bg-fuchsia-500/10",
+      label: "Awaiting approval",
+    },
+  };
+  const cfg = statusCfg[nomination.status || "submitted"] || statusCfg.submitted;
+  const canDecide = isAdmin && nomination.status === "prefeas_complete";
+
+  const decide = async (action: "approve" | "reject") => {
+    if (!firebaseUser || !canDecide) return;
+    setBusy(true);
+    try {
+      const token = await firebaseUser.getIdToken();
+      const res = await fetch("/api/rnd/nomination", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action, id: nomination.id }),
+      });
+      const json = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+      toast({
+        title: action === "approve" ? "Nomination approved → project created" : "Nomination rejected",
+      });
+      onRefresh();
+    } catch (err) {
+      toast({
+        title: "Action failed",
+        description: err instanceof Error ? err.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onOpen}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") onOpen();
+      }}
+      className="group text-left rounded-xl border border-border/40 bg-card/40 p-3 hover:border-fuchsia-500/40 transition-colors cursor-pointer"
+    >
+      <div className="flex items-start justify-between gap-2 mb-1">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
+            <Badge className={cn("text-[9px] border-0", cfg.color, cfg.bg)}>{cfg.label}</Badge>
+            {nomination.priority && (
+              <Badge variant="outline" className="text-[9px] capitalize">
+                {nomination.priority}
+              </Badge>
+            )}
+            {nomination.domain && (
+              <Badge variant="outline" className="text-[9px] capitalize">
+                {nomination.domain}
+              </Badge>
+            )}
+          </div>
+          <p className="text-sm font-semibold leading-tight">{nomination.title || "Untitled"}</p>
+        </div>
+        <ExternalLink className="h-3.5 w-3.5 text-muted-foreground group-hover:text-fuchsia-400 shrink-0" />
+      </div>
+      <p className="text-[11px] text-muted-foreground leading-snug line-clamp-2 mb-2">
+        {nomination.rationale}
+      </p>
+
+      {nomination.preFeas && (
+        <div className="flex items-center gap-3 text-[10px] mb-2 flex-wrap">
+          <span>
+            Fit: <span className="font-semibold text-foreground">{nomination.preFeas.strategicFitScore}/5</span>
+          </span>
+          <span>
+            Feasibility:{" "}
+            <span className="font-semibold text-foreground">
+              {nomination.preFeas.technicalFeasibilityScore}/5
+            </span>
+          </span>
+          <span>
+            Verdict:{" "}
+            <span
+              className={cn(
+                "font-semibold",
+                nomination.preFeas.verdict === "pursue"
+                  ? "text-green-400"
+                  : nomination.preFeas.verdict === "park"
+                    ? "text-orange-400"
+                    : "text-red-400"
+              )}
+            >
+              {nomination.preFeas.verdict}
+            </span>
+          </span>
+        </div>
+      )}
+
+      <p className="text-[10px] text-muted-foreground">
+        {nomination.submittedByName ? `Submitted by ${nomination.submittedByName}` : "Submitted"}
+        {nomination.createdAt ? ` · ${formatDate(nomination.createdAt)}` : ""}
+      </p>
+
+      {canDecide && (
+        <div className="flex items-center gap-1.5 mt-2" onClick={(e) => e.stopPropagation()}>
+          <Button
+            size="sm"
+            className="h-6 text-[10px] bg-green-600 hover:bg-green-700"
+            disabled={busy}
+            onClick={() => decide("approve")}
+          >
+            <Check className="h-3 w-3 mr-1" />
+            Approve
+          </Button>
+          <Button
+            size="sm"
+            className="h-6 text-[10px] bg-red-600 hover:bg-red-700"
+            disabled={busy}
+            onClick={() => decide("reject")}
+          >
+            <X className="h-3 w-3 mr-1" />
+            Reject
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ProjectRegisterCard({
+  project,
+  onOpen,
+}: {
+  project: RndProjectRecord;
+  onOpen: () => void;
+}) {
+  const phaseCfg = PHASE_CONFIG[project.phase || ""] || { color: "text-zinc-400", bg: "bg-zinc-500/10" };
+  const budget = project.estimatedBudget || 0;
+  const spend = project.actualSpendToDate || 0;
+  const spendPct = budget > 0 ? Math.min(100, Math.round((spend / budget) * 100)) : 0;
+  const athenaDecision = project.approvals?.athena?.decision || "pending";
+  const directorDecision = project.requiresDirectorApproval
+    ? project.approvals?.director?.decision || "pending"
+    : "not_required";
+
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="group text-left rounded-xl border border-border/40 bg-card/40 p-3 hover:border-fuchsia-500/40 transition-colors w-full"
+    >
+      <div className="flex items-start justify-between gap-2 mb-1.5">
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-medium text-muted-foreground">{project.projectNumber}</p>
+          <p className="text-sm font-semibold leading-tight mt-0.5">{project.title}</p>
+        </div>
+        <div className="flex items-center gap-1 shrink-0">
+          <Badge className={cn("text-[9px] border-0 capitalize", phaseCfg.color, phaseCfg.bg)}>
+            {(project.phase || "scoping").replace(/_/g, " ")}
+          </Badge>
+          <ExternalLink className="h-3.5 w-3.5 text-muted-foreground group-hover:text-fuchsia-400" />
+        </div>
+      </div>
+      <p className="text-[11px] text-muted-foreground leading-snug line-clamp-2 mb-2">
+        {project.shortDescription}
+      </p>
+      <div className="flex flex-wrap gap-1 text-[10px] mb-2">
+        {project.domain && (
+          <Badge variant="outline" className="text-[9px] capitalize">
+            {project.domain}
+          </Badge>
+        )}
+        {project.priority && (
+          <Badge variant="outline" className="text-[9px] capitalize">
+            {project.priority}
+          </Badge>
+        )}
+        <Badge variant="outline" className="text-[9px] capitalize">
+          {(project.status || "active").replace(/_/g, " ")}
+        </Badge>
+      </div>
+      {budget > 0 && (
+        <div className="mb-2">
+          <div className="flex items-center justify-between text-[10px] text-muted-foreground mb-1">
+            <span>
+              {formatCurrency(spend)} / {formatCurrency(budget)}
+            </span>
+            <span>{spendPct}%</span>
+          </div>
+          <div className="h-1 bg-border/30 rounded-full overflow-hidden">
+            <div className="h-full bg-fuchsia-500/60 transition-all" style={{ width: `${spendPct}%` }} />
+          </div>
+        </div>
+      )}
+      <div className="flex items-center gap-2 text-[10px]">
+        <ApprovalDot label="ATHENA" decision={athenaDecision} />
+        <ApprovalDot label="Director" decision={directorDecision} />
+      </div>
+    </button>
+  );
+}
+
 

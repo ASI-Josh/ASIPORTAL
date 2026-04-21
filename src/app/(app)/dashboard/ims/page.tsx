@@ -25,16 +25,21 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { collection, onSnapshot } from "firebase/firestore";
 import {
   ArrowDown,
+  ChevronDown,
+  ChevronRight,
   ClipboardCheck,
   FileText,
+  FolderTree,
   Layers,
   SendHorizonal,
   ShieldAlert,
   ShieldCheck,
   Eye,
+  FlaskConical,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -49,6 +54,13 @@ import {
   type ApprovalState,
 } from "@/lib/ims/documentService";
 import { cn } from "@/lib/utils";
+import {
+  RND_FOLDERS,
+  RND_FOLDER_LABELS,
+  getAustralianFinancialYear,
+  compareFinancialYearsDesc,
+  type RndFolder,
+} from "@/lib/rnd/filing";
 
 // ─── Chat types ───────────────────────────────────────────────────────────────
 
@@ -141,6 +153,43 @@ export default function ImsHubPage() {
     );
     return () => unsubs.forEach((u) => u());
   }, []);
+
+  // R&D — projects + nominations for the R&D Projects tree
+  const [rndProjects, setRndProjects] = useState<Array<Record<string, unknown> & { id: string }>>([]);
+  const [rndNominations, setRndNominations] = useState<Array<Record<string, unknown> & { id: string }>>([]);
+  useEffect(() => {
+    const unsub = onSnapshot(
+      collection(db, COLLECTIONS.RND_PROJECTS),
+      (snap) => {
+        setRndProjects(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      },
+      () => setRndProjects([])
+    );
+    return () => unsub();
+  }, []);
+  useEffect(() => {
+    const unsub = onSnapshot(
+      collection(db, COLLECTIONS.RND_PROJECT_NOMINATIONS),
+      (snap) => {
+        setRndNominations(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      },
+      () => setRndNominations([])
+    );
+    return () => unsub();
+  }, []);
+
+  // Deep-link target — the Archer workspace sends users here with
+  // ?rndProject=<id> so the tree auto-expands on that project. We scroll
+  // to the R&D Projects card and open the node on first render.
+  const searchParams = useSearchParams();
+  const rndProjectTarget = searchParams?.get("rndProject") || null;
+  const rndNominationTarget = searchParams?.get("rndNomination") || null;
+  const rndTreeRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if ((rndProjectTarget || rndNominationTarget) && rndTreeRef.current) {
+      rndTreeRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [rndProjectTarget, rndNominationTarget]);
 
   // Grouped live document lists
   const policies = useMemo(
@@ -469,6 +518,19 @@ export default function ImsHubPage() {
         </CardContent>
       </Card>
 
+      {/* R&D Projects filing tree — every R&D project's IMS-controlled docs
+          live here, grouped by Australian FY. This is the filing side; the
+          Archer workspace handles the register view + pre-feas workflow. */}
+      <div ref={rndTreeRef}>
+        <RndProjectsTree
+          projects={rndProjects}
+          nominations={rndNominations}
+          imsDocs={imsDocs}
+          expandProjectId={rndProjectTarget}
+          expandNominationId={rndNominationTarget}
+        />
+      </div>
+
       <Card className="bg-card/50 backdrop-blur-lg border-border/20">
         <CardHeader>
           <CardTitle>IMS Filing Structure</CardTitle>
@@ -486,6 +548,386 @@ export default function ImsHubPage() {
           </p>
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+// ─── R&D Projects Tree ────────────────────────────────────────────────────
+
+interface RndDocBag {
+  project: Record<string, unknown> & { id: string };
+  fy: string;
+  docsByFolder: Partial<Record<RndFolder, NormalisedDoc[]>>;
+}
+
+function RndProjectsTree({
+  projects,
+  nominations,
+  imsDocs,
+  expandProjectId,
+  expandNominationId,
+}: {
+  projects: Array<Record<string, unknown> & { id: string }>;
+  nominations: Array<Record<string, unknown> & { id: string }>;
+  imsDocs: NormalisedDoc[];
+  expandProjectId: string | null;
+  expandNominationId: string | null;
+}) {
+  // Index R&D-tagged IMS documents by projectId + folder.
+  const docsByProject = useMemo(() => {
+    const map = new Map<string, Partial<Record<RndFolder, NormalisedDoc[]>>>();
+    for (const doc of imsDocs) {
+      const raw = doc.raw as Record<string, unknown>;
+      const projectId = typeof raw.rndProjectId === "string" ? raw.rndProjectId : null;
+      if (!projectId) continue;
+      const folder = (typeof raw.rndFolder === "string" ? raw.rndFolder : "project_filing") as RndFolder;
+      if (!RND_FOLDERS.includes(folder)) continue;
+      const bucket = map.get(projectId) || {};
+      const list = bucket[folder] || [];
+      list.push(doc);
+      bucket[folder] = list;
+      map.set(projectId, bucket);
+    }
+    return map;
+  }, [imsDocs]);
+
+  const docsByNomination = useMemo(() => {
+    const map = new Map<string, Partial<Record<RndFolder, NormalisedDoc[]>>>();
+    for (const doc of imsDocs) {
+      const raw = doc.raw as Record<string, unknown>;
+      const nomId = typeof raw.rndNominationId === "string" ? raw.rndNominationId : null;
+      if (!nomId) continue;
+      const folder = (typeof raw.rndFolder === "string" ? raw.rndFolder : "project_filing") as RndFolder;
+      if (!RND_FOLDERS.includes(folder)) continue;
+      const bucket = map.get(nomId) || {};
+      const list = bucket[folder] || [];
+      list.push(doc);
+      bucket[folder] = list;
+      map.set(nomId, bucket);
+    }
+    return map;
+  }, [imsDocs]);
+
+  // Projects grouped by FY (newest first). Each project's FY comes from
+  // its createdAt; fall back to current FY if missing.
+  const projectsByFY = useMemo(() => {
+    const buckets = new Map<string, RndDocBag[]>();
+    for (const p of projects) {
+      const createdAt = (p.createdAt as { toDate?: () => Date } | string | null | undefined);
+      const date =
+        createdAt && typeof createdAt === "object" && typeof createdAt.toDate === "function"
+          ? createdAt.toDate()
+          : typeof createdAt === "string"
+            ? new Date(createdAt)
+            : new Date();
+      const fy =
+        typeof p.rndFinancialYear === "string"
+          ? p.rndFinancialYear
+          : getAustralianFinancialYear(date);
+      const bag: RndDocBag = {
+        project: p,
+        fy,
+        docsByFolder: docsByProject.get(p.id) || {},
+      };
+      const list = buckets.get(fy) || [];
+      list.push(bag);
+      buckets.set(fy, list);
+    }
+    const fys = Array.from(buckets.keys()).sort(compareFinancialYearsDesc);
+    return fys.map((fy) => ({
+      fy,
+      bags: (buckets.get(fy) || []).sort((a, b) =>
+        String(a.project.projectNumber || a.project.id).localeCompare(
+          String(b.project.projectNumber || b.project.id)
+        )
+      ),
+    }));
+  }, [projects, docsByProject]);
+
+  const activeNominations = useMemo(
+    () =>
+      nominations
+        .filter((n) => {
+          const status = String(n.status || "");
+          return ["submitted", "in_prefeas", "prefeas_complete"].includes(status);
+        })
+        .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || ""))),
+    [nominations]
+  );
+
+  const totalProjects = projects.length;
+  const totalDocs = imsDocs.filter((d) => {
+    const raw = d.raw as Record<string, unknown>;
+    return typeof raw.rndProjectId === "string" || typeof raw.rndNominationId === "string";
+  }).length;
+
+  return (
+    <Card className="bg-card/50 backdrop-blur-lg border-fuchsia-500/20">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <FolderTree className="h-5 w-5 text-fuchsia-400" />
+          R&amp;D Projects
+          <Badge variant="outline" className="text-[10px] ml-2">
+            {totalProjects} project{totalProjects === 1 ? "" : "s"}
+          </Badge>
+          <Badge variant="outline" className="text-[10px]">
+            {totalDocs} IMS doc{totalDocs === 1 ? "" : "s"}
+          </Badge>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <p className="text-xs text-muted-foreground">
+          Every R&amp;D project document lives in the IMS — tagged with its project, folder, and
+          financial year. Tree below is grouped by Australian FY (1 Jul – 30 Jun). Pre-feas
+          working docs sit under the nomination they belong to until approval converts the
+          nomination to a project.
+        </p>
+
+        {activeNominations.length > 0 && (
+          <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
+            <p className="text-xs font-semibold text-amber-400 mb-2 flex items-center gap-1.5">
+              <FlaskConical className="h-3.5 w-3.5" />
+              Pre-feas in progress ({activeNominations.length})
+            </p>
+            <div className="space-y-2">
+              {activeNominations.map((n) => (
+                <NominationNode
+                  key={n.id}
+                  nomination={n}
+                  docsByFolder={docsByNomination.get(n.id) || {}}
+                  defaultOpen={expandNominationId === n.id}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {projectsByFY.length === 0 ? (
+          <p className="text-sm text-muted-foreground italic">
+            No R&amp;D projects filed yet. Approve a nomination in the Archer workspace to
+            create the first project and its filing folders.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {projectsByFY.map(({ fy, bags }) => (
+              <FyNode
+                key={fy}
+                fy={fy}
+                bags={bags}
+                defaultOpen={
+                  projectsByFY[0].fy === fy ||
+                  bags.some((b) => b.project.id === expandProjectId)
+                }
+                expandProjectId={expandProjectId}
+              />
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function FyNode({
+  fy,
+  bags,
+  defaultOpen,
+  expandProjectId,
+}: {
+  fy: string;
+  bags: RndDocBag[];
+  defaultOpen?: boolean;
+  expandProjectId: string | null;
+}) {
+  const [open, setOpen] = useState(Boolean(defaultOpen));
+  return (
+    <div className="rounded-lg border border-border/40 bg-background/40">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center justify-between px-3 py-2 text-sm font-semibold hover:bg-card/40 transition-colors"
+      >
+        <span className="flex items-center gap-2">
+          {open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+          <span className="text-fuchsia-400">{fy}</span>
+          <span className="text-muted-foreground font-normal text-xs">
+            ({bags.length} project{bags.length === 1 ? "" : "s"})
+          </span>
+        </span>
+      </button>
+      {open && (
+        <div className="border-t border-border/40 px-3 py-2 space-y-1.5">
+          {bags.map((bag) => (
+            <ProjectNode
+              key={bag.project.id}
+              bag={bag}
+              defaultOpen={bag.project.id === expandProjectId}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ProjectNode({ bag, defaultOpen }: { bag: RndDocBag; defaultOpen?: boolean }) {
+  const [open, setOpen] = useState(Boolean(defaultOpen));
+  const p = bag.project;
+  const title = String(p.title || "Untitled project");
+  const number = String(p.projectNumber || p.id.slice(0, 8));
+  const phase = String(p.phase || "scoping");
+  const status = String(p.status || "active");
+  const docCount = Object.values(bag.docsByFolder).reduce((s, arr) => s + (arr?.length || 0), 0);
+
+  return (
+    <div className="rounded border border-border/30 bg-card/40">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center justify-between px-3 py-2 text-left hover:bg-primary/5 transition-colors"
+      >
+        <div className="min-w-0 flex-1 flex items-center gap-2">
+          {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+          <FolderTree className="h-3.5 w-3.5 text-fuchsia-400 shrink-0" />
+          <span className="text-xs text-muted-foreground font-mono shrink-0">{number}</span>
+          <span className="text-sm truncate">{title}</span>
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <Badge variant="outline" className="text-[9px] capitalize">
+            {phase.replace(/_/g, " ")}
+          </Badge>
+          <Badge variant="outline" className="text-[9px] capitalize">
+            {status.replace(/_/g, " ")}
+          </Badge>
+          <Badge variant="outline" className="text-[9px]">
+            {docCount} doc{docCount === 1 ? "" : "s"}
+          </Badge>
+        </div>
+      </button>
+      {open && (
+        <div className="border-t border-border/30 px-3 py-2 space-y-1">
+          {RND_FOLDERS.map((folder) => (
+            <FolderNode
+              key={folder}
+              folder={folder}
+              docs={bag.docsByFolder[folder] || []}
+              rndProjectId={bag.project.id}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function NominationNode({
+  nomination,
+  docsByFolder,
+  defaultOpen,
+}: {
+  nomination: Record<string, unknown> & { id: string };
+  docsByFolder: Partial<Record<RndFolder, NormalisedDoc[]>>;
+  defaultOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(Boolean(defaultOpen));
+  const title = String(nomination.title || "Untitled nomination");
+  const status = String(nomination.status || "submitted");
+  const docCount = Object.values(docsByFolder).reduce((s, arr) => s + (arr?.length || 0), 0);
+
+  return (
+    <div className="rounded border border-amber-500/20 bg-card/40">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center justify-between px-3 py-2 text-left hover:bg-amber-500/10 transition-colors"
+      >
+        <div className="min-w-0 flex-1 flex items-center gap-2">
+          {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+          <FlaskConical className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+          <span className="text-sm truncate">{title}</span>
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <Badge variant="outline" className="text-[9px] capitalize">
+            {status.replace(/_/g, " ")}
+          </Badge>
+          <Badge variant="outline" className="text-[9px]">
+            {docCount} doc{docCount === 1 ? "" : "s"}
+          </Badge>
+        </div>
+      </button>
+      {open && (
+        <div className="border-t border-amber-500/20 px-3 py-2 space-y-1">
+          {RND_FOLDERS.map((folder) => (
+            <FolderNode
+              key={folder}
+              folder={folder}
+              docs={docsByFolder[folder] || []}
+              rndNominationId={nomination.id}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FolderNode({
+  folder,
+  docs,
+  rndProjectId,
+  rndNominationId,
+}: {
+  folder: RndFolder;
+  docs: NormalisedDoc[];
+  rndProjectId?: string;
+  rndNominationId?: string;
+}) {
+  const [open, setOpen] = useState(docs.length > 0);
+  const tagParam = rndProjectId
+    ? `?rndProjectId=${rndProjectId}&rndFolder=${folder}`
+    : rndNominationId
+      ? `?rndNominationId=${rndNominationId}&rndFolder=${folder}`
+      : "";
+  return (
+    <div className="rounded border border-border/20 bg-background/40">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center justify-between px-3 py-1.5 text-left text-xs hover:bg-primary/5 transition-colors"
+      >
+        <span className="flex items-center gap-2">
+          {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+          <FileText className="h-3 w-3 text-muted-foreground" />
+          <span>{RND_FOLDER_LABELS[folder]}</span>
+          <span className="text-muted-foreground">({docs.length})</span>
+        </span>
+        <Link
+          href={`/dashboard/ims/doc-manager${tagParam}`}
+          className="text-[10px] text-primary hover:underline opacity-0 group-hover:opacity-100 focus:opacity-100"
+          onClick={(e) => e.stopPropagation()}
+        >
+          + Add doc
+        </Link>
+      </button>
+      {open && (
+        <div className="border-t border-border/20 px-5 py-1 space-y-0.5">
+          {docs.length === 0 ? (
+            <p className="text-[10px] italic text-muted-foreground py-1">
+              Empty —{" "}
+              <Link
+                href={`/dashboard/ims/doc-manager${tagParam}`}
+                className="text-primary hover:underline"
+              >
+                create the first doc
+              </Link>
+            </p>
+          ) : (
+            docs
+              .sort((a, b) => a.docId.localeCompare(b.docId))
+              .map((d) => <DocLine key={d.id} doc={d} />)
+          )}
+        </div>
+      )}
     </div>
   );
 }
