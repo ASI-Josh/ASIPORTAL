@@ -613,8 +613,11 @@ export async function POST(req: NextRequest) {
       workflowId,
       input: prompt,
       schema: InternalKnowledgeSchema,
-      timeoutMs: 45000,
-      maxRetries: 2,
+      // Budget: Netlify kills the function at 60s. Leave headroom for
+      // context-building + client round-trip. One retry max; if the
+      // first attempt times out we're already over budget on retries.
+      timeoutMs: 40000,
+      maxRetries: 0,
       instructionsOverride: agentInstructions,
     });
 
