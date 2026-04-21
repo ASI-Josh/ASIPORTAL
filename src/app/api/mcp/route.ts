@@ -727,6 +727,8 @@ const TOOLS: McpTool[] = [
         notes: { type: "string" },
         tags: { type: "array", items: { type: "string" } },
         market_mode: { type: "string", enum: ["growth","downturn","neutral"] },
+        osintHook: { type: "string", description: "Full-sentence specific outreach hook. SENTINEL/MERCER/SHIELD daily outreach gates on this field." },
+        osintHookShort: { type: "string", description: "Short version for Touch 1 subject-line / opener (max 160 chars)." },
       },
       required: ["company"],
     },
@@ -871,6 +873,8 @@ const TOOLS: McpTool[] = [
         notes: { type: "string" },
         tags: { type: "array", items: { type: "string" } },
         status: { type: "string", enum: ["identified", "assessed", "shortlisted"], description: "Initial status (default: identified)." },
+        osintHook: { type: "string", description: "Full-sentence specific outreach hook (optional at create; ATHENA typically backfills)." },
+        osintHookShort: { type: "string", description: "Short outreach hook for subject-lines (max 160 chars)." },
       },
       required: ["streamType", "company"],
     },
@@ -902,12 +906,21 @@ const TOOLS: McpTool[] = [
   },
   {
     name: "update_leads_register_entry",
-    description: "Update a Leads Register entry — ROE score, Stockdale assessment, status, weekly decision, notes, tags, contact, opportunity, etc.",
+    description: "Update a Leads Register entry — ROE score, Stockdale assessment, status, weekly decision, notes, tags, contact, opportunity, osintHook, etc. Pass the entry's doc ID as either `id` or `entryId` (both accepted).",
     inputSchema: {
       type: "object",
       properties: {
         id: { type: "string", description: "Register entry document ID." },
+        entryId: { type: "string", description: "Alias for `id` — both are accepted." },
         status: { type: "string", enum: ["identified", "assessed", "shortlisted", "promoted", "parked", "rejected"] },
+        osintHook: {
+          type: "string",
+          description: "Full-sentence specific hook from VANGUARD scan or supplier intel. SENTINEL/MERCER/SHIELD daily outreach hard-gates on this field — if null, the lead is skipped. No length cap.",
+        },
+        osintHookShort: {
+          type: "string",
+          description: "Short version of osintHook for Touch 1 subject-line / opener. Max 160 characters. SENTINEL/MERCER/SHIELD outreach uses this in email subjects.",
+        },
         roeScore: {
           type: "object", description: "ROE score breakdown (0-100 total).",
           properties: {
@@ -3724,6 +3737,10 @@ async function handleCreateLead(args: Record<string, unknown>) {
     nextActionDate: args.follow_up_date as string | undefined,
     notes: String(args.notes || ""),
     tags: ((args.tags as string[]) || []).concat(["osint"]).filter((v, i, a) => a.indexOf(v) === i),
+    osintHook: typeof args.osintHook === "string" ? args.osintHook : null,
+    osintHookShort: typeof args.osintHookShort === "string"
+      ? (args.osintHookShort.length > 160 ? args.osintHookShort.slice(0, 160) : args.osintHookShort)
+      : null,
     createdAt: now,
     updatedAt: now,
     createdBy: "mcp-agent",
@@ -4082,6 +4099,10 @@ async function handleCreateLeadsRegisterEntry(args: Record<string, unknown>) {
     weeklyDecision: null,
     notes: String(args.notes || ""),
     tags: (args.tags as string[]) || [],
+    osintHook: typeof args.osintHook === "string" ? args.osintHook : null,
+    osintHookShort: typeof args.osintHookShort === "string"
+      ? (args.osintHookShort.length > 160 ? args.osintHookShort.slice(0, 160) : args.osintHookShort)
+      : null,
     createdAt: now,
     updatedAt: now,
     createdBy: String(args.createdBy || "mcp-agent"),
@@ -4116,8 +4137,11 @@ async function handleGetLeadsRegisterEntry(args: Record<string, unknown>) {
 }
 
 async function handleUpdateLeadsRegisterEntry(args: Record<string, unknown>) {
-  const id = String(args.id);
-  if (!id) throw new Error("id is required.");
+  // Accept either `id` or `entryId` — ATHENA / LEDGER callers have
+  // drifted on which name they use, and this is a hot path for the
+  // daily outreach cycle so we take both.
+  const id = String(args.id || args.entryId || "");
+  if (!id) throw new Error("id (or entryId) is required.");
   const db = admin.firestore();
   const now = admin.firestore.FieldValue.serverTimestamp();
 
@@ -4126,6 +4150,18 @@ async function handleUpdateLeadsRegisterEntry(args: Record<string, unknown>) {
   if (typeof args.status === "string") updates.status = args.status;
   if (typeof args.notes === "string") updates.notes = args.notes;
   if (Array.isArray(args.tags)) updates.tags = args.tags;
+
+  // OSINT hooks — SENTINEL/MERCER/SHIELD outreach gates on these.
+  // osintHookShort is capped at 160 chars for subject-line use; anything
+  // longer gets truncated rather than rejected so ATHENA's write doesn't
+  // fail mid-cycle.
+  if (typeof args.osintHook === "string") {
+    updates.osintHook = args.osintHook;
+  }
+  if (typeof args.osintHookShort === "string") {
+    const short = args.osintHookShort;
+    updates.osintHookShort = short.length > 160 ? short.slice(0, 160) : short;
+  }
 
   // ROE Score
   if (args.roeScore) {

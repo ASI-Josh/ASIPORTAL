@@ -1309,6 +1309,11 @@ export interface Lead {
   outreachStatus: OutreachStatus;
   outreachHistory: OutreachEvent[];
 
+  // OSINT hooks — SENTINEL/MERCER/SHIELD daily outreach gates on these.
+  // Populated by ATHENA at lead creation or post-hoc via update_lead.
+  osintHook?: string | null;
+  osintHookShort?: string | null;
+
   // Context
   marketMode: "growth" | "downturn" | "neutral";
   nextActionDate?: string;
@@ -2490,6 +2495,11 @@ export interface LeadsRegisterEntry {
 
   notes?: string;
   tags: string[];
+
+  // OSINT outreach hooks — daily outreach cycle (SENTINEL/MERCER/SHIELD)
+  // gates on these. Populated by ATHENA post-hoc via update_leads_register_entry.
+  osintHook?: string | null;
+  osintHookShort?: string | null;
 
   createdAt: Timestamp;
   updatedAt: Timestamp;
