@@ -218,7 +218,12 @@ export async function POST(req: NextRequest) {
       job: jobSummary,
     };
 
-    if (role === "admin") {
+    // When talking to Archer, skip the generic admin-wide live context.
+    // She doesn't need jobs/inspections/IMS — she needs R&D data, which
+    // we build directly below. The admin block adds ~6 Firestore reads
+    // and tens of KB of prompt text that bloats Anthropic's input tokens
+    // and pushes past the Netlify 60s function limit on cold starts.
+    if (role === "admin" && !isArcher) {
       const { start, end, dateKey, timeZone } = getDayRange(DEFAULT_TIMEZONE);
       const startTs = admin.firestore.Timestamp.fromDate(start);
       const endTs = admin.firestore.Timestamp.fromDate(end);
@@ -390,107 +395,78 @@ export async function POST(req: NextRequest) {
       };
       liveContext.recentInspections = recentInspections;
       liveContext.knowledgeVault = knowledgeVault;
+    } else if (isArcher) {
+      // Archer-specific live context — a lean slice of her domain. Does
+      // NOT inherit the generic admin block above, which was making the
+      // prompt too big and tipping the Anthropic call past Netlify's
+      // 60s function limit. She sees only what's relevant to R&D /
+      // grants / nominations decisions.
+      const [projectsSnap, grantsSnap, programmesSnap, nominationsSnap] = await Promise.all([
+        admin.firestore().collection(COLLECTIONS.RND_PROJECTS)
+          .orderBy("updatedAt", "desc").limit(15).get(),
+        admin.firestore().collection(COLLECTIONS.GRANT_APPLICATIONS)
+          .orderBy("updatedAt", "desc").limit(10).get(),
+        admin.firestore().collection(COLLECTIONS.RND_GRANT_PROGRAMMES)
+          .where("isActive", "==", true).limit(20).get(),
+        admin.firestore().collection(COLLECTIONS.RND_PROJECT_NOMINATIONS)
+          .orderBy("createdAt", "desc").limit(10).get().catch(() => null),
+      ]);
 
-      // Archer-specific live context: the R&D portfolio + grants pipeline +
-      // opportunity queue + watched programmes + pending nominations. Only
-      // injected when the admin is talking to Archer — keeps the default
-      // admin prompt lean, and gives Archer the full picture of her domain.
-      if (isArcher) {
-        // Cap each fetch tight — this all goes into the prompt. Big limits
-        // bloat the token count without helping Archer's decision-making
-        // and push the whole call past the function timeout.
-        const [projectsSnap, grantsSnap, oppsSnap, programmesSnap, nominationsSnap] = await Promise.all([
-          admin.firestore().collection(COLLECTIONS.RND_PROJECTS)
-            .orderBy("updatedAt", "desc").limit(20).get(),
-          admin.firestore().collection(COLLECTIONS.GRANT_APPLICATIONS)
-            .orderBy("updatedAt", "desc").limit(15).get(),
-          admin.firestore().collection(COLLECTIONS.RND_OPPORTUNITY_LOG)
-            .orderBy("createdAt", "desc").limit(15).get(),
-          admin.firestore().collection(COLLECTIONS.RND_GRANT_PROGRAMMES)
-            .where("isActive", "==", true).limit(25).get(),
-          admin.firestore().collection(COLLECTIONS.RND_PROJECT_NOMINATIONS)
-            .orderBy("createdAt", "desc").limit(15).get().catch(() => null),
-        ]);
+      liveContext.rndProjects = projectsSnap.docs.map((docSnap) => {
+        const d = docSnap.data();
+        return {
+          id: docSnap.id,
+          projectNumber: d.projectNumber,
+          title: d.title,
+          phase: d.phase,
+          status: d.status,
+          domain: d.domain,
+          priority: d.priority,
+          estimatedBudget: d.estimatedBudget,
+          requiresDirectorApproval: d.requiresDirectorApproval,
+        };
+      });
 
-        liveContext.rndProjects = projectsSnap.docs.map((docSnap) => {
+      liveContext.grants = grantsSnap.docs.map((docSnap) => {
+        const d = docSnap.data();
+        return {
+          id: docSnap.id,
+          grantNumber: d.grantNumber,
+          programmeName: d.programmeName,
+          stage: d.stage,
+          awardValue: d.awardValue,
+          submissionDeadline: d.submissionDeadline,
+        };
+      });
+
+      liveContext.grantProgrammesWatchlist = programmesSnap.docs.map((docSnap) => {
+        const d = docSnap.data();
+        return {
+          id: docSnap.id,
+          programmeName: d.programmeName,
+          programmeBody: d.programmeBody,
+          fundingType: d.fundingType,
+          typicalValueMax: d.typicalValueMax,
+          nextRoundOpensAt: d.nextRoundOpensAt,
+          tags: d.tags,
+        };
+      });
+
+      if (nominationsSnap && !nominationsSnap.empty) {
+        liveContext.rndNominations = nominationsSnap.docs.map((docSnap) => {
           const d = docSnap.data();
           return {
             id: docSnap.id,
-            projectNumber: d.projectNumber,
             title: d.title,
-            shortDescription: d.shortDescription,
-            phase: d.phase,
+            rationale: d.rationale,
             status: d.status,
-            domain: d.domain,
             priority: d.priority,
-            estimatedBudget: d.estimatedBudget,
-            actualSpendToDate: d.actualSpendToDate,
-            requiresDirectorApproval: d.requiresDirectorApproval,
-            approvals: d.approvals,
+            domain: d.domain,
+            selectedProgrammeIds: d.selectedProgrammeIds,
+            preFeas: d.preFeas,
+            submittedByName: d.submittedByName,
           };
         });
-
-        liveContext.grants = grantsSnap.docs.map((docSnap) => {
-          const d = docSnap.data();
-          return {
-            id: docSnap.id,
-            grantNumber: d.grantNumber,
-            programmeName: d.programmeName,
-            programmeBody: d.programmeBody,
-            stage: d.stage,
-            fundingType: d.fundingType,
-            awardValue: d.awardValue,
-            awardedAmount: d.awardedAmount,
-            submissionDeadline: d.submissionDeadline,
-            expectedDecisionDate: d.expectedDecisionDate,
-          };
-        });
-
-        liveContext.opportunityLog = oppsSnap.docs.map((docSnap) => {
-          const d = docSnap.data();
-          return {
-            id: docSnap.id,
-            opportunityNumber: d.opportunityNumber,
-            title: d.title,
-            type: d.type,
-            status: d.status,
-            sourcedBy: d.sourcedBy,
-            reviewScore: d.reviewScore,
-          };
-        });
-
-        liveContext.grantProgrammesWatchlist = programmesSnap.docs.map((docSnap) => {
-          const d = docSnap.data();
-          return {
-            id: docSnap.id,
-            programmeName: d.programmeName,
-            programmeBody: d.programmeBody,
-            level: d.level,
-            jurisdiction: d.jurisdiction,
-            fundingType: d.fundingType,
-            typicalValueMin: d.typicalValueMin,
-            typicalValueMax: d.typicalValueMax,
-            nextRoundOpensAt: d.nextRoundOpensAt,
-            fitScore: d.fitScore,
-            tags: d.tags,
-          };
-        });
-
-        if (nominationsSnap && !nominationsSnap.empty) {
-          liveContext.rndNominations = nominationsSnap.docs.map((docSnap) => {
-            const d = docSnap.data();
-            return {
-              id: docSnap.id,
-              title: d.title,
-              rationale: d.rationale,
-              status: d.status,
-              suggestedProgrammeIds: d.suggestedProgrammeIds,
-              preFeas: d.preFeas,
-              submittedBy: d.submittedBy,
-              createdAt: formatTimestamp(d.createdAt),
-            };
-          });
-        }
       }
     } else {
       const techJobsSnap = await admin
