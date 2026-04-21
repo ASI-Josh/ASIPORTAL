@@ -220,7 +220,24 @@ export default function ArcherChat() {
           agentOverride: "archer",
         }),
       });
-      const data = await res.json();
+      // Netlify returns an HTML error page on function timeout / 502,
+      // which makes response.json() throw on the leading "<". Parse as
+      // text first and only JSON-parse when the server replied with JSON.
+      const raw = await res.text();
+      let data: { answer?: string; error?: string } = {};
+      try {
+        data = raw ? JSON.parse(raw) : {};
+      } catch {
+        // Non-JSON body — surface a human-readable error instead of the
+        // classic "Unexpected token '<'" noise.
+        if (!res.ok) {
+          throw new Error(
+            `Server returned ${res.status} ${res.statusText || ""}`.trim() ||
+              "Server error — try again."
+          );
+        }
+        throw new Error("Server returned a non-JSON response. Try again.");
+      }
       if (!res.ok) throw new Error(data.error || "Request failed.");
       setMessages((prev) => [
         ...prev,

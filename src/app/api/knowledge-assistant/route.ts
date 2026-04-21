@@ -6,6 +6,13 @@ import { InternalKnowledgeSchema } from "@/lib/assistant/internal-knowledge-sche
 import { runWorkflowJson, AGENT_ADMIN, AGENT_TECH } from "@/lib/openai-workflow";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+// Anthropic round-trip + context-building (admin + Archer branches do
+// several parallel Firestore queries) can push past Netlify's 10s
+// default timeout on cold starts and return an HTML error page, which
+// breaks the chat client's response.json() call. 60s matches the MCP
+// route.
+export const maxDuration = 60;
 
 type ChatMessage = {
   role: "user" | "assistant";
@@ -389,17 +396,20 @@ export async function POST(req: NextRequest) {
       // injected when the admin is talking to Archer — keeps the default
       // admin prompt lean, and gives Archer the full picture of her domain.
       if (isArcher) {
+        // Cap each fetch tight — this all goes into the prompt. Big limits
+        // bloat the token count without helping Archer's decision-making
+        // and push the whole call past the function timeout.
         const [projectsSnap, grantsSnap, oppsSnap, programmesSnap, nominationsSnap] = await Promise.all([
           admin.firestore().collection(COLLECTIONS.RND_PROJECTS)
-            .orderBy("updatedAt", "desc").limit(40).get(),
+            .orderBy("updatedAt", "desc").limit(20).get(),
           admin.firestore().collection(COLLECTIONS.GRANT_APPLICATIONS)
-            .orderBy("updatedAt", "desc").limit(30).get(),
+            .orderBy("updatedAt", "desc").limit(15).get(),
           admin.firestore().collection(COLLECTIONS.RND_OPPORTUNITY_LOG)
-            .orderBy("createdAt", "desc").limit(30).get(),
+            .orderBy("createdAt", "desc").limit(15).get(),
           admin.firestore().collection(COLLECTIONS.RND_GRANT_PROGRAMMES)
-            .where("isActive", "==", true).limit(40).get(),
+            .where("isActive", "==", true).limit(25).get(),
           admin.firestore().collection(COLLECTIONS.RND_PROJECT_NOMINATIONS)
-            .orderBy("createdAt", "desc").limit(20).get().catch(() => null),
+            .orderBy("createdAt", "desc").limit(15).get().catch(() => null),
         ]);
 
         liveContext.rndProjects = projectsSnap.docs.map((docSnap) => {
