@@ -382,6 +382,16 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    match /rndProjectNominations/{nominationId} {
+      // Director nominates; Archer writes the pre-feas; Director
+      // approves to convert into an RndProject. Staff read for
+      // cross-agent visibility. Only admin can delete.
+      allow read: if isStaff();
+      allow create: if isStaff();
+      allow update: if isStaff();
+      allow delete: if isAdmin();
+    }
+
     // KPI Traceability Module (staff full access, clients can read own org data)
     match /fuelRecords/{docId} {
       allow read: if isStaff() || (signedIn() && resource.data.organizationId == userOrgId());

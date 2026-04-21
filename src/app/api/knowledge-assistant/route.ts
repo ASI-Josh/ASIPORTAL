@@ -177,6 +177,7 @@ export async function POST(req: NextRequest) {
     const agentOverride = payload.agentOverride;
     const isAthena = agentOverride === "athena" && role === "admin";
     const isGuardian = agentOverride === "guardian" && role === "admin";
+    const isArcher = agentOverride === "archer" && role === "admin";
     const workflowId = role === "admin" ? AGENT_ADMIN : AGENT_TECH;
 
     let jobSummary: Record<string, unknown> | null = null;
@@ -382,6 +383,105 @@ export async function POST(req: NextRequest) {
       };
       liveContext.recentInspections = recentInspections;
       liveContext.knowledgeVault = knowledgeVault;
+
+      // Archer-specific live context: the R&D portfolio + grants pipeline +
+      // opportunity queue + watched programmes + pending nominations. Only
+      // injected when the admin is talking to Archer — keeps the default
+      // admin prompt lean, and gives Archer the full picture of her domain.
+      if (isArcher) {
+        const [projectsSnap, grantsSnap, oppsSnap, programmesSnap, nominationsSnap] = await Promise.all([
+          admin.firestore().collection(COLLECTIONS.RND_PROJECTS)
+            .orderBy("updatedAt", "desc").limit(40).get(),
+          admin.firestore().collection(COLLECTIONS.GRANT_APPLICATIONS)
+            .orderBy("updatedAt", "desc").limit(30).get(),
+          admin.firestore().collection(COLLECTIONS.RND_OPPORTUNITY_LOG)
+            .orderBy("createdAt", "desc").limit(30).get(),
+          admin.firestore().collection(COLLECTIONS.RND_GRANT_PROGRAMMES)
+            .where("isActive", "==", true).limit(40).get(),
+          admin.firestore().collection(COLLECTIONS.RND_PROJECT_NOMINATIONS)
+            .orderBy("createdAt", "desc").limit(20).get().catch(() => null),
+        ]);
+
+        liveContext.rndProjects = projectsSnap.docs.map((docSnap) => {
+          const d = docSnap.data();
+          return {
+            id: docSnap.id,
+            projectNumber: d.projectNumber,
+            title: d.title,
+            shortDescription: d.shortDescription,
+            phase: d.phase,
+            status: d.status,
+            domain: d.domain,
+            priority: d.priority,
+            estimatedBudget: d.estimatedBudget,
+            actualSpendToDate: d.actualSpendToDate,
+            requiresDirectorApproval: d.requiresDirectorApproval,
+            approvals: d.approvals,
+          };
+        });
+
+        liveContext.grants = grantsSnap.docs.map((docSnap) => {
+          const d = docSnap.data();
+          return {
+            id: docSnap.id,
+            grantNumber: d.grantNumber,
+            programmeName: d.programmeName,
+            programmeBody: d.programmeBody,
+            stage: d.stage,
+            fundingType: d.fundingType,
+            awardValue: d.awardValue,
+            awardedAmount: d.awardedAmount,
+            submissionDeadline: d.submissionDeadline,
+            expectedDecisionDate: d.expectedDecisionDate,
+          };
+        });
+
+        liveContext.opportunityLog = oppsSnap.docs.map((docSnap) => {
+          const d = docSnap.data();
+          return {
+            id: docSnap.id,
+            opportunityNumber: d.opportunityNumber,
+            title: d.title,
+            type: d.type,
+            status: d.status,
+            sourcedBy: d.sourcedBy,
+            reviewScore: d.reviewScore,
+          };
+        });
+
+        liveContext.grantProgrammesWatchlist = programmesSnap.docs.map((docSnap) => {
+          const d = docSnap.data();
+          return {
+            id: docSnap.id,
+            programmeName: d.programmeName,
+            programmeBody: d.programmeBody,
+            level: d.level,
+            jurisdiction: d.jurisdiction,
+            fundingType: d.fundingType,
+            typicalValueMin: d.typicalValueMin,
+            typicalValueMax: d.typicalValueMax,
+            nextRoundOpensAt: d.nextRoundOpensAt,
+            fitScore: d.fitScore,
+            tags: d.tags,
+          };
+        });
+
+        if (nominationsSnap && !nominationsSnap.empty) {
+          liveContext.rndNominations = nominationsSnap.docs.map((docSnap) => {
+            const d = docSnap.data();
+            return {
+              id: docSnap.id,
+              title: d.title,
+              rationale: d.rationale,
+              status: d.status,
+              suggestedProgrammeIds: d.suggestedProgrammeIds,
+              preFeas: d.preFeas,
+              submittedBy: d.submittedBy,
+              createdAt: formatTimestamp(d.createdAt),
+            };
+          });
+        }
+      }
     } else {
       const techJobsSnap = await admin
         .firestore()
@@ -484,6 +584,17 @@ export async function POST(req: NextRequest) {
       "Track CAPAs rigorously — never close without verifying effectiveness.",
       "Task-capable: any admin can ask you to assign a CAPA, schedule an audit, or close an incident. Confirm the action, list the exact portal steps (collection/doc to update, fields to set), and include a follow-up to verify effectiveness.",
       "Proportionality: the system should be sized for a lean operation, not a multinational. Documents should be usable, not just auditable.",
+      "Australian English. The portal is asiportal.live.",
+      "You ONLY output valid JSON with an `answer` field, optional `followUps`, `warnings`, `actionSuggestions`, and `knowledgeUpdates` arrays.",
+    ].join("\n") : isArcher ? [
+      "You are SOPHIE ARCHER, ASI Australia's R&D Programme Lead and Head of Grants. You run the Research & Development programme register, the grants pipeline, the opportunity log, and the grant programmes watchlist.",
+      "ASI has multiple administrators. Always address the user by the name provided in the prompt — they are NOT always Josh Hyde. Current ASI admins include Josh Hyde, Jaydan, and Bobby. Treat whichever admin is speaking as your principal for this conversation.",
+      "You think in terms of the R&D Tax Incentive, cooperative research centres, state grants (VIC Innovation Fund, SA Research Commercialisation, etc.), federal grants (MMF, CRC-P, Industry Growth Program), and the ASI Flywheel — every project should feed commercial capability, IMS evidence, or both.",
+      "Jim Collins' Beyond Entrepreneurship 2.0 is your operating manual for portfolio decisions: Hedgehog Concept (what can ASI be best in Australia at?), 20 Mile March (consistent monthly R&D throughput), Level 5 discipline, Stockdale Paradox (brutal facts + faith in outcome).",
+      "When writing a pre-feas brief: strategic fit (1-5), technical feasibility (1-5), market/regulatory context, grant match from the watchlist, cost envelope (order of magnitude), flags/risks, and a crisp verdict (pursue / park / reject). Keep each section tight — 3-6 sentences max.",
+      "When reviewing a nomination: check domain fit against ASI's five sectors, check the grant match against the live watchlist in the live context, check whether it advances a current BHAG or is orthogonal.",
+      "When discussing grants: reference specific programmes by name, note the next-round-opens date if known, flag acquittal obligations before they become overdue.",
+      "Task-capable: any admin can ask you to create a nomination, write a pre-feas, recommend a grant programme match, or propose a project. Reference the live R&D portfolio data in the prompt (projects, grants, opportunities, programmes). When the admin asks 'pre-feas this' or 'write up a nomination', produce the structured brief.",
       "Australian English. The portal is asiportal.live.",
       "You ONLY output valid JSON with an `answer` field, optional `followUps`, `warnings`, `actionSuggestions`, and `knowledgeUpdates` arrays.",
     ].join("\n") : undefined;

@@ -116,11 +116,48 @@ interface ProgrammeRecord {
   isActive?: boolean;
 }
 
+interface NominationPreFeas {
+  strategicFitScore?: number;
+  technicalFeasibilityScore?: number;
+  marketRegulatoryContext?: string;
+  grantMatch?: string;
+  costEnvelopeMin?: number | null;
+  costEnvelopeMax?: number | null;
+  flagsAndRisks?: string[];
+  verdict?: "pursue" | "park" | "reject";
+  writtenBy?: string;
+  writtenAt?: string;
+}
+
+interface NominationRecord {
+  id: string;
+  title?: string;
+  rationale?: string;
+  domain?: string;
+  priority?: string;
+  targetCompletionDate?: string;
+  suggestedProgrammeIds?: string[];
+  selectedProgrammeIds?: string[];
+  status?: string;
+  preFeas?: NominationPreFeas;
+  directorDecision?: string;
+  directorNote?: string;
+  directorDecidedAt?: string;
+  directorDecidedBy?: string;
+  convertedProjectId?: string;
+  convertedGrantIds?: string[];
+  submittedBy?: string;
+  submittedByName?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 interface RndData {
   projects: RndProjectRecord[];
   grants: GrantRecord[];
   opportunities: OpportunityRecord[];
   programmes: ProgrammeRecord[];
+  nominations?: NominationRecord[];
   metrics: {
     projects: {
       total: number;
@@ -161,11 +198,24 @@ interface RndData {
       awaitingReview: number;
       readyForRevisit: number;
     };
+    nominations?: {
+      total: number;
+      byStatus: Record<string, number>;
+      submittedAwaitingPreFeas: number;
+      prefeasCompleteAwaitingApproval: number;
+    };
   };
   generatedAt: string;
 }
 
-type WorkspaceTab = "dashboard" | "approvals" | "projects" | "grants" | "opportunities" | "watchlist";
+type WorkspaceTab =
+  | "dashboard"
+  | "approvals"
+  | "nominations"
+  | "projects"
+  | "grants"
+  | "opportunities"
+  | "watchlist";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
@@ -348,6 +398,7 @@ export default function ArcherWorkspace() {
             [
               { key: "dashboard",     label: "Dashboard",   icon: TrendingUp },
               { key: "approvals",     label: "Approvals",   icon: Gavel },
+              { key: "nominations",   label: "Nominations", icon: Sparkles },
               { key: "projects",      label: "Projects",    icon: Target },
               { key: "grants",        label: "Grants",      icon: Landmark },
               { key: "opportunities", label: "Ops Log",     icon: Eye },
@@ -372,6 +423,11 @@ export default function ArcherWorkspace() {
                 {tab.key === "approvals" && pendingCount > 0 && (
                   <Badge className="text-[9px] h-4 px-1 ml-0.5 border-0 bg-amber-500/20 text-amber-400">
                     {pendingCount}
+                  </Badge>
+                )}
+                {tab.key === "nominations" && data && (data.nominations?.length || 0) > 0 && (
+                  <Badge variant="outline" className="text-[9px] h-4 px-1 ml-0.5">
+                    {data.nominations?.length || 0}
                   </Badge>
                 )}
                 {tab.key === "projects" && data && (
@@ -416,6 +472,7 @@ export default function ArcherWorkspace() {
           <>
             {activeTab === "dashboard" && <DashboardTab data={data} onJumpToApprovals={() => setActiveTab("approvals")} />}
             {activeTab === "approvals" && <ApprovalsTab data={data} onRefresh={fetchData} />}
+            {activeTab === "nominations" && <NominationsTab data={data} onRefresh={fetchData} />}
             {activeTab === "projects" && <ProjectsTab projects={data.projects} />}
             {activeTab === "grants" && <GrantsTab grants={data.grants} />}
             {activeTab === "opportunities" && <OpportunitiesTab opportunities={data.opportunities} />}
@@ -898,7 +955,10 @@ function countPendingApprovals(data: RndData): number {
   const oppsPending = data.opportunities.filter(
     (o) => o.status === "new" || o.status === "under_review"
   ).length;
-  return projectsPending + grantsPending + oppsPending;
+  const nominationsPending = (data.nominations || []).filter(
+    (n) => n.status === "prefeas_complete"
+  ).length;
+  return projectsPending + grantsPending + oppsPending + nominationsPending;
 }
 
 type ApprovalDecision =
@@ -933,6 +993,10 @@ function ApprovalsTab({ data, onRefresh }: { data: RndData; onRefresh: () => voi
   const pendingOpps = useMemo(
     () => data.opportunities.filter((o) => o.status === "new" || o.status === "under_review"),
     [data.opportunities]
+  );
+  const pendingNominations = useMemo(
+    () => (data.nominations || []).filter((n) => n.status === "prefeas_complete"),
+    [data.nominations]
   );
 
   const isAdmin = user?.role === "admin";
@@ -992,7 +1056,49 @@ function ApprovalsTab({ data, onRefresh }: { data: RndData; onRefresh: () => voi
     [firebaseUser, isAdmin, onRefresh, toast]
   );
 
-  const totalPending = pendingProjects.length + pendingGrants.length + pendingOpps.length;
+  const submitNomination = useCallback(
+    async (id: string, action: "approve" | "reject", note: string): Promise<boolean> => {
+      if (!firebaseUser) return false;
+      if (!isAdmin) {
+        toast({ title: "Director-only action", variant: "destructive" });
+        return false;
+      }
+      setBusyId(id);
+      try {
+        const token = await firebaseUser.getIdToken();
+        const res = await fetch("/api/rnd/nomination", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ action, id, note: note.trim() || undefined }),
+        });
+        const json = (await res.json().catch(() => ({}))) as { error?: string; convertedProjectId?: string };
+        if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+        toast({
+          title: action === "approve"
+            ? `Nomination approved → project ${json.convertedProjectId || "created"}`
+            : "Nomination rejected",
+        });
+        onRefresh();
+        return true;
+      } catch (err) {
+        toast({
+          title: "Nomination action failed",
+          description: err instanceof Error ? err.message : "Unknown error",
+          variant: "destructive",
+        });
+        return false;
+      } finally {
+        setBusyId(null);
+      }
+    },
+    [firebaseUser, isAdmin, onRefresh, toast]
+  );
+
+  const totalPending =
+    pendingProjects.length +
+    pendingGrants.length +
+    pendingOpps.length +
+    pendingNominations.length;
 
   if (totalPending === 0) {
     return (
@@ -1065,6 +1171,26 @@ function ApprovalsTab({ data, onRefresh }: { data: RndData; onRefresh: () => voi
               onSubmit={(decision, note, parkedUntil) =>
                 submit("opportunity", o.id, decision, note, parkedUntil)
               }
+            />
+          ))}
+        </ApprovalsSection>
+      )}
+
+      {pendingNominations.length > 0 && (
+        <ApprovalsSection
+          icon={Sparkles}
+          iconColor="text-fuchsia-400"
+          title="Nominations — Pre-feas Complete, Awaiting Approval"
+          count={pendingNominations.length}
+        >
+          {pendingNominations.map((n) => (
+            <NominationApprovalCard
+              key={n.id}
+              nomination={n}
+              programmes={data.programmes}
+              busy={busyId === n.id}
+              onApprove={(note) => submitNomination(n.id, "approve", note)}
+              onReject={(note) => submitNomination(n.id, "reject", note)}
             />
           ))}
         </ApprovalsSection>
@@ -1573,3 +1699,734 @@ function ActionBlock({
     </div>
   );
 }
+
+// ─── Nominations Tab ──────────────────────────────────────────────────────
+
+function NominationsTab({
+  data,
+  onRefresh,
+}: {
+  data: RndData;
+  onRefresh: () => void;
+}) {
+  const { user, firebaseUser } = useAuth();
+  const { toast } = useToast();
+  const [showForm, setShowForm] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  // Form state
+  const [title, setTitle] = useState("");
+  const [rationale, setRationale] = useState("");
+  const [domain, setDomain] = useState("");
+  const [priority, setPriority] = useState<"low" | "medium" | "high" | "critical">("medium");
+  const [targetCompletion, setTargetCompletion] = useState("");
+  const [selectedProgrammes, setSelectedProgrammes] = useState<string[]>([]);
+  const [manualTags, setManualTags] = useState("");
+
+  const nominations = data.nominations || [];
+  const inProgress = nominations.filter(
+    (n) => n.status === "submitted" || n.status === "in_prefeas"
+  );
+  const awaitingApproval = nominations.filter((n) => n.status === "prefeas_complete");
+  const resolved = nominations.filter((n) =>
+    ["approved", "rejected", "withdrawn"].includes(String(n.status || ""))
+  );
+
+  // Auto-suggested programmes based on manual-tag overlap with watchlist entries.
+  const suggestedProgrammes = useMemo(() => {
+    const tags = manualTags
+      .toLowerCase()
+      .split(/[,\s]+/)
+      .map((t) => t.trim())
+      .filter(Boolean);
+    if (tags.length === 0) return [];
+    const scored = data.programmes.map((p) => {
+      const programmeTags = (p.tags || []).map((t) => t.toLowerCase());
+      const overlap = programmeTags.filter((t) => tags.includes(t)).length;
+      return { programme: p, overlap, fit: p.fitScore || 0 };
+    });
+    return scored
+      .filter((s) => s.overlap > 0 || s.fit >= 4)
+      .sort((a, b) => b.overlap * 10 + b.fit - (a.overlap * 10 + a.fit))
+      .slice(0, 6)
+      .map((s) => s.programme);
+  }, [manualTags, data.programmes]);
+
+  const toggleProgramme = (id: string) => {
+    setSelectedProgrammes((prev) =>
+      prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id]
+    );
+  };
+
+  const resetForm = () => {
+    setTitle("");
+    setRationale("");
+    setDomain("");
+    setPriority("medium");
+    setTargetCompletion("");
+    setSelectedProgrammes([]);
+    setManualTags("");
+  };
+
+  const handleSubmit = async () => {
+    if (!firebaseUser) return;
+    if (!title.trim() || !rationale.trim()) {
+      toast({ title: "Title and rationale are required", variant: "destructive" });
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const token = await firebaseUser.getIdToken();
+      const suggestedIds = suggestedProgrammes
+        .map((p) => p.id)
+        .filter((id) => !selectedProgrammes.includes(id));
+      const res = await fetch("/api/rnd/nomination", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          action: "create",
+          title: title.trim(),
+          rationale: rationale.trim(),
+          domain: domain || undefined,
+          priority,
+          targetCompletionDate: targetCompletion || undefined,
+          suggestedProgrammeIds: suggestedIds,
+          selectedProgrammeIds: selectedProgrammes,
+        }),
+      });
+      const json = (await res.json().catch(() => ({}))) as { error?: string; id?: string };
+      if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+      toast({ title: "Nomination submitted", description: "Sophie will pre-feas it shortly." });
+      resetForm();
+      setShowForm(false);
+      onRefresh();
+    } catch (err) {
+      toast({
+        title: "Nomination failed",
+        description: err instanceof Error ? err.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleWithdraw = async (id: string) => {
+    if (!firebaseUser) return;
+    try {
+      const token = await firebaseUser.getIdToken();
+      const res = await fetch("/api/rnd/nomination", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action: "withdraw", id }),
+      });
+      const json = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+      toast({ title: "Nomination withdrawn" });
+      onRefresh();
+    } catch (err) {
+      toast({
+        title: "Withdraw failed",
+        description: err instanceof Error ? err.message : "Unknown error",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const isAdmin = user?.role === "admin";
+
+  return (
+    <div className="space-y-5">
+      {/* Submit button */}
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-muted-foreground">
+          Nominate a new R&D project for Sophie to pre-feas. She writes the brief, you approve
+          the good ones, and approval auto-creates the project + drafts grant applications.
+        </p>
+        {!showForm && isAdmin && (
+          <Button
+            size="sm"
+            className="bg-fuchsia-600 hover:bg-fuchsia-700 shrink-0"
+            onClick={() => setShowForm(true)}
+          >
+            <Sparkles className="h-3.5 w-3.5 mr-1.5" />
+            New nomination
+          </Button>
+        )}
+      </div>
+
+      {/* Form */}
+      {showForm && (
+        <Card className="bg-fuchsia-500/5 border-fuchsia-500/30">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-fuchsia-400" />
+              New R&D Nomination
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div>
+              <label className="text-[10px] uppercase tracking-wider text-muted-foreground block mb-1">
+                Title
+              </label>
+              <Input
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="e.g. UV-cured film topcoat for mass-transit glazing"
+                disabled={submitting}
+              />
+            </div>
+            <div>
+              <label className="text-[10px] uppercase tracking-wider text-muted-foreground block mb-1">
+                Rationale — why this, why now
+              </label>
+              <Textarea
+                value={rationale}
+                onChange={(e) => setRationale(e.target.value)}
+                placeholder="Strategic context, the commercial gap, the technical angle, any signal from the ops log or management meeting."
+                rows={4}
+                disabled={submitting}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-[10px] uppercase tracking-wider text-muted-foreground block mb-1">
+                  Domain
+                </label>
+                <Input
+                  value={domain}
+                  onChange={(e) => setDomain(e.target.value)}
+                  placeholder="e.g. films_coatings, materials, process"
+                  disabled={submitting}
+                />
+              </div>
+              <div>
+                <label className="text-[10px] uppercase tracking-wider text-muted-foreground block mb-1">
+                  Priority
+                </label>
+                <select
+                  value={priority}
+                  onChange={(e) =>
+                    setPriority(e.target.value as "low" | "medium" | "high" | "critical")
+                  }
+                  disabled={submitting}
+                  className="w-full rounded-md border border-border/40 bg-background/60 px-3 py-2 text-sm"
+                >
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                  <option value="critical">Critical</option>
+                </select>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-[10px] uppercase tracking-wider text-muted-foreground block mb-1">
+                  Target completion
+                </label>
+                <Input
+                  type="date"
+                  value={targetCompletion}
+                  onChange={(e) => setTargetCompletion(e.target.value)}
+                  disabled={submitting}
+                />
+              </div>
+              <div>
+                <label className="text-[10px] uppercase tracking-wider text-muted-foreground block mb-1">
+                  Grant-match tags (for auto-suggest)
+                </label>
+                <Input
+                  value={manualTags}
+                  onChange={(e) => setManualTags(e.target.value)}
+                  placeholder="e.g. cleantech manufacturing export"
+                  disabled={submitting}
+                />
+              </div>
+            </div>
+
+            {/* Programme suggestions + manual selection */}
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">
+                Tag grant programmes for pursuit ({selectedProgrammes.length} selected)
+              </p>
+              {data.programmes.length === 0 ? (
+                <p className="text-xs italic text-muted-foreground">
+                  No programmes on the watchlist. Tag tags above and the list will suggest
+                  matches once there are programmes.
+                </p>
+              ) : (
+                <>
+                  {suggestedProgrammes.length > 0 && (
+                    <div className="mb-3">
+                      <p className="text-[10px] text-fuchsia-400 font-semibold mb-1">
+                        Auto-suggested matches
+                      </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {suggestedProgrammes.map((p) => {
+                          const selected = selectedProgrammes.includes(p.id);
+                          return (
+                            <button
+                              key={p.id}
+                              type="button"
+                              onClick={() => toggleProgramme(p.id)}
+                              className={cn(
+                                "rounded-lg border px-2 py-1.5 text-[11px] text-left transition-colors",
+                                selected
+                                  ? "border-fuchsia-500/60 bg-fuchsia-500/10 text-foreground"
+                                  : "border-border/40 bg-card/40 hover:border-fuchsia-500/40"
+                              )}
+                            >
+                              <span className="font-medium">{p.programmeName}</span>
+                              <span className="text-muted-foreground ml-1">
+                                · {p.programmeBody}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                  <details>
+                    <summary className="text-[10px] text-muted-foreground cursor-pointer hover:text-foreground">
+                      Browse all {data.programmes.length} programmes
+                    </summary>
+                    <div className="flex flex-wrap gap-1.5 mt-2">
+                      {data.programmes.map((p) => {
+                        const selected = selectedProgrammes.includes(p.id);
+                        return (
+                          <button
+                            key={p.id}
+                            type="button"
+                            onClick={() => toggleProgramme(p.id)}
+                            className={cn(
+                              "rounded-lg border px-2 py-1.5 text-[11px] text-left transition-colors",
+                              selected
+                                ? "border-fuchsia-500/60 bg-fuchsia-500/10 text-foreground"
+                                : "border-border/40 bg-card/40 hover:border-fuchsia-500/40"
+                            )}
+                          >
+                            {p.programmeName}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </details>
+                </>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2 pt-2">
+              <Button
+                size="sm"
+                className="bg-fuchsia-600 hover:bg-fuchsia-700"
+                onClick={handleSubmit}
+                disabled={submitting || !title.trim() || !rationale.trim()}
+              >
+                <Check className="h-3.5 w-3.5 mr-1.5" />
+                Submit to Sophie
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  resetForm();
+                  setShowForm(false);
+                }}
+                disabled={submitting}
+              >
+                Cancel
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Awaiting approval (these also show in Approvals tab but mirror here) */}
+      {awaitingApproval.length > 0 && (
+        <div>
+          <p className="text-[10px] uppercase tracking-wider font-semibold mb-2 flex items-center gap-1.5 text-fuchsia-400">
+            <Gavel className="h-3 w-3" />
+            Awaiting your approval ({awaitingApproval.length})
+          </p>
+          <div className="space-y-2">
+            {awaitingApproval.map((n) => (
+              <NominationSummaryCard
+                key={n.id}
+                nomination={n}
+                programmes={data.programmes}
+                showWithdraw={n.submittedBy === user?.uid || isAdmin}
+                onWithdraw={() => handleWithdraw(n.id)}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* In progress */}
+      {inProgress.length > 0 && (
+        <div>
+          <p className="text-[10px] uppercase tracking-wider font-semibold mb-2 flex items-center gap-1.5 text-amber-400">
+            <Clock className="h-3 w-3" />
+            In progress ({inProgress.length})
+          </p>
+          <div className="space-y-2">
+            {inProgress.map((n) => (
+              <NominationSummaryCard
+                key={n.id}
+                nomination={n}
+                programmes={data.programmes}
+                showWithdraw={n.submittedBy === user?.uid || isAdmin}
+                onWithdraw={() => handleWithdraw(n.id)}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Resolved */}
+      {resolved.length > 0 && (
+        <div>
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-2">
+            Resolved ({resolved.length})
+          </p>
+          <div className="space-y-2">
+            {resolved.slice(0, 10).map((n) => (
+              <NominationSummaryCard
+                key={n.id}
+                nomination={n}
+                programmes={data.programmes}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {nominations.length === 0 && !showForm && (
+        <div className="text-center py-10 space-y-2">
+          <Sparkles className="h-10 w-10 text-fuchsia-400/40 mx-auto" />
+          <p className="text-sm font-medium">No nominations yet</p>
+          <p className="text-xs text-muted-foreground">
+            Submit your first R&D nomination to kick off Sophie's pre-feas workflow.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function NominationSummaryCard({
+  nomination,
+  programmes,
+  showWithdraw,
+  onWithdraw,
+}: {
+  nomination: NominationRecord;
+  programmes: ProgrammeRecord[];
+  showWithdraw?: boolean;
+  onWithdraw?: () => void;
+}) {
+  const statusCfg: Record<string, { color: string; bg: string; label: string }> = {
+    submitted: { color: "text-amber-400", bg: "bg-amber-500/10", label: "Awaiting pre-feas" },
+    in_prefeas: { color: "text-blue-400", bg: "bg-blue-500/10", label: "In pre-feas" },
+    prefeas_complete: {
+      color: "text-fuchsia-400",
+      bg: "bg-fuchsia-500/10",
+      label: "Awaiting approval",
+    },
+    approved: { color: "text-green-400", bg: "bg-green-500/10", label: "Approved" },
+    rejected: { color: "text-red-400", bg: "bg-red-500/10", label: "Rejected" },
+    withdrawn: { color: "text-zinc-500", bg: "bg-zinc-500/10", label: "Withdrawn" },
+  };
+  const cfg = statusCfg[nomination.status || "submitted"] || statusCfg.submitted;
+  const canWithdraw =
+    showWithdraw &&
+    (nomination.status === "submitted" || nomination.status === "in_prefeas");
+
+  const programmeNames = (nomination.selectedProgrammeIds || [])
+    .map((id) => programmes.find((p) => p.id === id)?.programmeName)
+    .filter(Boolean) as string[];
+
+  return (
+    <div className="rounded-lg border border-border/40 bg-card/40 p-3">
+      <div className="flex items-start justify-between gap-2 flex-wrap mb-1">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+            <Badge className={cn("text-[9px] border-0", cfg.color, cfg.bg)}>{cfg.label}</Badge>
+            {nomination.priority && (
+              <Badge variant="outline" className="text-[9px] capitalize">
+                {nomination.priority}
+              </Badge>
+            )}
+            {nomination.domain && (
+              <Badge variant="outline" className="text-[9px] capitalize">
+                {nomination.domain}
+              </Badge>
+            )}
+          </div>
+          <p className="text-sm font-semibold leading-tight">{nomination.title}</p>
+        </div>
+        {canWithdraw && (
+          <Button size="sm" variant="ghost" className="h-6 text-[10px]" onClick={onWithdraw}>
+            Withdraw
+          </Button>
+        )}
+      </div>
+      <p className="text-[11px] text-muted-foreground leading-snug line-clamp-2 mt-1">
+        {nomination.rationale}
+      </p>
+      {programmeNames.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mt-2">
+          {programmeNames.map((n) => (
+            <Badge key={n} variant="outline" className="text-[9px]">
+              <Landmark className="h-2.5 w-2.5 mr-1" />
+              {n}
+            </Badge>
+          ))}
+        </div>
+      )}
+      {nomination.preFeas && (
+        <div className="mt-2 rounded border border-fuchsia-500/30 bg-fuchsia-500/5 p-2 space-y-1 text-[10px]">
+          <p className="font-semibold text-fuchsia-400">Pre-feas brief</p>
+          <div className="flex gap-3 flex-wrap">
+            <span>
+              Strategic fit:{" "}
+              <span className="text-foreground">{nomination.preFeas.strategicFitScore}/5</span>
+            </span>
+            <span>
+              Feasibility:{" "}
+              <span className="text-foreground">
+                {nomination.preFeas.technicalFeasibilityScore}/5
+              </span>
+            </span>
+            <span>
+              Verdict:{" "}
+              <span
+                className={cn(
+                  "font-semibold",
+                  nomination.preFeas.verdict === "pursue"
+                    ? "text-green-400"
+                    : nomination.preFeas.verdict === "park"
+                      ? "text-orange-400"
+                      : "text-red-400"
+                )}
+              >
+                {nomination.preFeas.verdict}
+              </span>
+            </span>
+          </div>
+          {nomination.preFeas.grantMatch && (
+            <p className="text-muted-foreground italic">
+              Grant match: {nomination.preFeas.grantMatch}
+            </p>
+          )}
+        </div>
+      )}
+      {nomination.directorNote && (
+        <div className="mt-2 rounded border border-blue-500/30 bg-blue-500/5 p-2 text-[10px]">
+          <p className="font-semibold text-blue-400">
+            Director decision: {nomination.directorDecision}
+          </p>
+          <p className="text-muted-foreground italic">&quot;{nomination.directorNote}&quot;</p>
+        </div>
+      )}
+      {nomination.convertedProjectId && (
+        <p className="text-[10px] text-green-400 mt-2">
+          → Converted to project {nomination.convertedProjectId}
+          {nomination.convertedGrantIds && nomination.convertedGrantIds.length > 0 && (
+            <span> + {nomination.convertedGrantIds.length} draft grant application(s)</span>
+          )}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function NominationApprovalCard({
+  nomination,
+  programmes,
+  busy,
+  onApprove,
+  onReject,
+}: {
+  nomination: NominationRecord;
+  programmes: ProgrammeRecord[];
+  busy: boolean;
+  onApprove: (note: string) => Promise<boolean>;
+  onReject: (note: string) => Promise<boolean>;
+}) {
+  const [note, setNote] = useState("");
+  const [open, setOpen] = useState(false);
+
+  const programmeNames = (nomination.selectedProgrammeIds || [])
+    .map((id) => programmes.find((p) => p.id === id)?.programmeName)
+    .filter(Boolean) as string[];
+
+  const handle = async (action: "approve" | "reject") => {
+    const ok = action === "approve" ? await onApprove(note) : await onReject(note);
+    if (ok) {
+      setNote("");
+      setOpen(false);
+    }
+  };
+
+  return (
+    <ApprovalCardShell highlight>
+      <div className="flex items-start justify-between gap-2 mb-1.5 flex-wrap">
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold leading-tight">{nomination.title}</p>
+          <p className="text-[10px] text-muted-foreground mt-0.5">
+            Submitted by {nomination.submittedByName || "unknown"}
+          </p>
+        </div>
+        {nomination.priority && (
+          <Badge variant="outline" className="text-[9px] capitalize">
+            {nomination.priority}
+          </Badge>
+        )}
+      </div>
+      <p className="text-[11px] text-muted-foreground leading-snug mb-2 line-clamp-3">
+        {nomination.rationale}
+      </p>
+
+      {nomination.preFeas && (
+        <div className="rounded border border-fuchsia-500/30 bg-fuchsia-500/5 p-2 space-y-1 text-[10px] mb-2">
+          <p className="font-semibold text-fuchsia-400 flex items-center gap-1">
+            <Sparkles className="h-3 w-3" />
+            Sophie&apos;s pre-feas brief
+          </p>
+          <div className="grid grid-cols-2 gap-1">
+            <span>
+              Strategic fit:{" "}
+              <span className="text-foreground font-semibold">
+                {nomination.preFeas.strategicFitScore}/5
+              </span>
+            </span>
+            <span>
+              Technical feasibility:{" "}
+              <span className="text-foreground font-semibold">
+                {nomination.preFeas.technicalFeasibilityScore}/5
+              </span>
+            </span>
+          </div>
+          {nomination.preFeas.marketRegulatoryContext && (
+            <p className="mt-1">
+              <span className="text-muted-foreground">Context:</span>{" "}
+              {nomination.preFeas.marketRegulatoryContext}
+            </p>
+          )}
+          {nomination.preFeas.grantMatch && (
+            <p>
+              <span className="text-muted-foreground">Grant match:</span>{" "}
+              {nomination.preFeas.grantMatch}
+            </p>
+          )}
+          {(nomination.preFeas.costEnvelopeMin !== null &&
+            nomination.preFeas.costEnvelopeMin !== undefined) ||
+          (nomination.preFeas.costEnvelopeMax !== null &&
+            nomination.preFeas.costEnvelopeMax !== undefined) ? (
+            <p>
+              <span className="text-muted-foreground">Cost envelope:</span>{" "}
+              {formatCurrency(nomination.preFeas.costEnvelopeMin || undefined)} –{" "}
+              {formatCurrency(nomination.preFeas.costEnvelopeMax || undefined)}
+            </p>
+          ) : null}
+          {nomination.preFeas.flagsAndRisks && nomination.preFeas.flagsAndRisks.length > 0 && (
+            <p>
+              <span className="text-muted-foreground">Flags:</span>{" "}
+              {nomination.preFeas.flagsAndRisks.join(" · ")}
+            </p>
+          )}
+          <p className="pt-1">
+            <span className="text-muted-foreground">Verdict:</span>{" "}
+            <span
+              className={cn(
+                "font-semibold",
+                nomination.preFeas.verdict === "pursue"
+                  ? "text-green-400"
+                  : nomination.preFeas.verdict === "park"
+                    ? "text-orange-400"
+                    : "text-red-400"
+              )}
+            >
+              {nomination.preFeas.verdict}
+            </span>
+          </p>
+        </div>
+      )}
+
+      {programmeNames.length > 0 && (
+        <div className="mb-2">
+          <p className="text-[10px] text-muted-foreground mb-1">
+            Approval will draft grant applications against:
+          </p>
+          <div className="flex flex-wrap gap-1">
+            {programmeNames.map((n) => (
+              <Badge key={n} variant="outline" className="text-[9px]">
+                <Landmark className="h-2.5 w-2.5 mr-1" />
+                {n}
+              </Badge>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {!open ? (
+        <Button
+          size="sm"
+          variant="outline"
+          className="w-full h-7 text-[11px]"
+          onClick={() => setOpen(true)}
+          disabled={busy}
+        >
+          <Gavel className="h-3 w-3 mr-1.5" />
+          Review &amp; decide
+        </Button>
+      ) : (
+        <div className="space-y-2">
+          <Textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="Optional note for the decision…"
+            rows={2}
+            className="text-xs"
+            disabled={busy}
+          />
+          <div className="flex flex-wrap gap-1.5">
+            <Button
+              size="sm"
+              className="h-7 text-[11px] bg-green-600 hover:bg-green-700"
+              onClick={() => handle("approve")}
+              disabled={busy}
+              title="Approve: creates the R&D project + drafts grant applications against tagged programmes"
+            >
+              <Check className="h-3 w-3 mr-1" />
+              Approve &amp; create project
+            </Button>
+            <Button
+              size="sm"
+              className="h-7 text-[11px] bg-red-600 hover:bg-red-700"
+              onClick={() => handle("reject")}
+              disabled={busy}
+            >
+              <X className="h-3 w-3 mr-1" />
+              Reject
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 text-[11px] ml-auto"
+              onClick={() => {
+                setOpen(false);
+                setNote("");
+              }}
+              disabled={busy}
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
+    </ApprovalCardShell>
+  );
+}
+

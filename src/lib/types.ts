@@ -2932,3 +2932,67 @@ export interface GrantProgramme {
   lastCheckedAt?: Timestamp;    // When Sophie last verified programme status
   notes?: string;
 }
+
+// ─── R&D Project Nominations ─────────────────────────────────────────────
+// Lightweight pre-project intake. Josh (or any admin) submits a
+// nomination → Archer writes a pre-feasibility brief → Josh approves,
+// which converts the nomination to a full RndProject (and optionally
+// drafts GrantApplications against suggested programmes).
+
+export type RndNominationStatus =
+  | "submitted"           // Waiting for Archer to start pre-feas
+  | "in_prefeas"          // Archer is working on it
+  | "prefeas_complete"    // Pre-feas brief written, awaiting Director approval
+  | "approved"            // Approved + converted to RndProject
+  | "rejected"            // Director rejected
+  | "withdrawn";          // Submitter withdrew
+
+export type RndNominationVerdict = "pursue" | "park" | "reject";
+
+export interface RndProjectPreFeas {
+  strategicFitScore: number;       // 1-5
+  technicalFeasibilityScore: number; // 1-5
+  marketRegulatoryContext: string;
+  grantMatch: string;              // Prose summary of the best-fit programme(s)
+  costEnvelopeMin?: number;
+  costEnvelopeMax?: number;
+  flagsAndRisks: string[];
+  verdict: RndNominationVerdict;
+  writtenBy: string;               // "ARCHER" or a user id
+  writtenAt: Timestamp | string;
+}
+
+export interface RndProjectNomination {
+  id: string;
+  title: string;
+  rationale: string;                 // Why this, why now
+
+  // Routing hints
+  domain?: string;
+  priority?: "low" | "medium" | "high" | "critical";
+  targetCompletionDate?: string;
+
+  // Grant programme tagging — both auto-suggested + admin-picked IDs.
+  // Values reference rndGrantProgrammes doc IDs.
+  suggestedProgrammeIds?: string[]; // auto-suggest at submission
+  selectedProgrammeIds?: string[];  // admin's confirmed picks
+
+  status: RndNominationStatus;
+  preFeas?: RndProjectPreFeas;
+
+  // Director decision
+  directorDecision?: "approved" | "rejected";
+  directorNote?: string;
+  directorDecidedAt?: Timestamp | string;
+  directorDecidedBy?: string;
+
+  // Conversion outcome
+  convertedProjectId?: string;
+  convertedGrantIds?: string[];     // GrantApplications auto-drafted on approval
+
+  // Audit
+  submittedBy: string;              // user id
+  submittedByName: string;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}

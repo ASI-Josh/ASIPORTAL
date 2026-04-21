@@ -47,8 +47,9 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Staff access required." }, { status: 403 });
     }
 
-    // Fetch all four collections in parallel
-    const [projectsSnap, grantsSnap, oppsSnap, programmesSnap] = await Promise.all([
+    // Fetch all five collections in parallel. Nominations may be absent on
+    // older tenants — catch + empty list, don't fail the whole dashboard.
+    const [projectsSnap, grantsSnap, oppsSnap, programmesSnap, nominationsSnap] = await Promise.all([
       db.collection(COLLECTIONS.RND_PROJECTS)
         .orderBy("updatedAt", "desc")
         .limit(100)
@@ -65,12 +66,18 @@ export async function GET(req: NextRequest) {
         .where("isActive", "==", true)
         .limit(100)
         .get(),
+      db.collection(COLLECTIONS.RND_PROJECT_NOMINATIONS)
+        .orderBy("createdAt", "desc")
+        .limit(100)
+        .get()
+        .catch(() => null),
     ]);
 
     const projects = projectsSnap.docs.map(serializeDoc);
     const grants = grantsSnap.docs.map(serializeDoc);
     const opportunities = oppsSnap.docs.map(serializeDoc);
     const programmes = programmesSnap.docs.map(serializeDoc);
+    const nominations = nominationsSnap ? nominationsSnap.docs.map(serializeDoc) : [];
 
     // Summary metrics computed server-side
     const now = new Date();
@@ -187,15 +194,31 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    // Nomination metrics
+    const nominationMetrics = {
+      total: nominations.length,
+      byStatus: {} as Record<string, number>,
+      submittedAwaitingPreFeas: 0,
+      prefeasCompleteAwaitingApproval: 0,
+    };
+    for (const n of nominations) {
+      const status = String(n.status || "submitted");
+      nominationMetrics.byStatus[status] = (nominationMetrics.byStatus[status] || 0) + 1;
+      if (status === "submitted") nominationMetrics.submittedAwaitingPreFeas++;
+      if (status === "prefeas_complete") nominationMetrics.prefeasCompleteAwaitingApproval++;
+    }
+
     return NextResponse.json({
       projects,
       grants,
       opportunities,
       programmes,
+      nominations,
       metrics: {
         projects: projectMetrics,
         grants: grantMetrics,
         opportunities: opportunityMetrics,
+        nominations: nominationMetrics,
       },
       generatedAt: now.toISOString(),
     });

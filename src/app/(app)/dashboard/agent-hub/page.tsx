@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
 import ArcherWorkspace from "@/components/agent-hub/archer-workspace";
+import ArcherChat from "@/components/agent-hub/archer-chat";
 
 // ─── Agent org chart data ─────────────────────────────────────────────────────
 
@@ -839,6 +840,7 @@ export default function AgentHubPage() {
           <div className="h-px flex-1 bg-border/40" />
         </div>
         <ArcherWorkspace />
+        <ArcherChat />
       </div>
 
       {/* ATHENA Chat */}
