@@ -547,6 +547,24 @@ export async function POST(req: NextRequest) {
       memory,
     });
 
+    // ─── OSINT-hook discipline (shared) ──────────────────────────────────────
+    // Hard rule flagged by SENTINEL: "NO HOOK, NO SEND." Every lead in
+    // leadsRegister / leads must carry osintHook (full sentence) and
+    // osintHookShort (≤6 words / ≤160 chars) before any outreach template
+    // can populate. Agents that create or update leads MUST set these
+    // fields or explicitly flag that they couldn't substantiate a hook
+    // (rather than fabricating). MCP tools that accept them:
+    //   create_lead / create_leads_register_entry / update_leads_register_entry
+    const OSINT_HOOK_DISCIPLINE = [
+      "",
+      "OSINT HOOK DISCIPLINE — binding rule when you touch any lead:",
+      "1. Every lead (leadsRegister or leads) MUST carry BOTH `osintHook` (a full-sentence, verifiable, company-specific hook) AND `osintHookShort` (≤160 chars, ≤6 words where possible, usable as an email subject/opener). Outreach templates hard-gate on these — SENTINEL's rule is 'NO HOOK, NO SEND'.",
+      "2. When you create_lead, create_leads_register_entry, or update_leads_register_entry, pass osintHook and osintHookShort if you have substantiation. If you don't, say so in `warnings` — never invent or generalise a hook. Fabrication triggers the MRP Gate 2 phantom-metric interrupt downstream.",
+      "3. Hooks must be company-specific, not category-generic. 'Operates fleet of buses' is NOT a hook. 'Announced Volvo 9700 order March 2026' IS a hook. Drawn from OSINT, supplier intel, news, LinkedIn, tenders, or client signals.",
+      "4. If a lead is missing hooks and you can't substantiate new ones, recommend: (a) VANGUARD scan of the company domain, (b) CAIRN/ATHENA pass on public sources, (c) Director-authored hook, or (d) defer Touch 1 until hooks land.",
+      "5. Named-contact discipline: if contact.name is null or a role ('Fleet Manager'), flag it — {{FirstName}} can't populate. Recommend a LinkedIn sweep before outreach runs.",
+    ].join("\n");
+
     const agentInstructions = isAthena ? [
       "You are ATHENA, ASI Australia's Chief of Staff and Executive Intelligence Engine.",
       "ASI has multiple administrators. Always address the user by the name provided in the prompt — they are NOT always Josh Hyde. Current ASI admins include Josh Hyde, Jaydan, and Bobby. Treat whichever admin is speaking as your principal for this conversation.",
@@ -557,6 +575,7 @@ export async function POST(req: NextRequest) {
       "When asked for a brief or report, structure it clearly with sections. Flag overdue items, risks, and strategic patterns.",
       "Present the Flywheel check in weekly reports. Test recommendations against the Hedgehog Concept.",
       "Australian English. Never use hyperportal.online — the portal is asiportal.live.",
+      OSINT_HOOK_DISCIPLINE,
       "You ONLY output valid JSON with an `answer` field, optional `followUps`, `warnings`, `actionSuggestions`, and `knowledgeUpdates` arrays.",
     ].join("\n") : isGuardian ? [
       "You are GUARDIAN, ASI Australia's IMS Lead Auditor. You hold Lead Auditor certification across ISO 9001:2015 (Quality), ISO 14001:2015 (Environmental), and ISO 45001:2018 (WHS).",
@@ -582,6 +601,7 @@ export async function POST(req: NextRequest) {
       "When discussing grants: reference specific programmes by name, note the next-round-opens date if known, flag acquittal obligations before they become overdue.",
       "Task-capable: any admin can ask you to create a nomination, write a pre-feas, recommend a grant programme match, or propose a project. Reference the live R&D portfolio data in the prompt (projects, grants, opportunities, programmes). When the admin asks 'pre-feas this' or 'write up a nomination', produce the structured brief.",
       "Australian English. The portal is asiportal.live.",
+      OSINT_HOOK_DISCIPLINE,
       "You ONLY output valid JSON with an `answer` field, optional `followUps`, `warnings`, `actionSuggestions`, and `knowledgeUpdates` arrays.",
     ].join("\n") : undefined;
 
