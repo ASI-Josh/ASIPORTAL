@@ -768,6 +768,83 @@ const TOOLS: McpTool[] = [
     },
   },
   {
+    name: "soft_delete_lead",
+    description:
+      "Soft-delete a CRM pipeline lead (sets isDeleted=true, preserves the record for audit trail — R&DTI substantiation + ISO 9001 records stay intact). Self-service for SENTINEL/VANGUARD/SHIELD/MERCER for hygiene only. Valid reasons limited to three enumerated options; rationale is required (not optional). The UI hides isDeleted=true leads automatically. Hard-delete is admin-UI only and destroys evidence — use this tool instead.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Lead Firestore document ID." },
+        reason: {
+          type: "string",
+          enum: ["duplicate", "wrong_stream", "bad_data"],
+          description: "Why this lead is being deleted. duplicate=another lead exists for the same company/contact; wrong_stream=belongs to a different stream owner (e.g. sales lead accidentally filed as supply_chain); bad_data=fabricated, hallucinated, or unverifiable signal source.",
+        },
+        rationale: {
+          type: "string",
+          description: "Required free-text explanation (≥10 chars). Example: 'Dup of lead LD-2026-0089 Rockleigh Tours; this one has weaker BANT.' Logged to the lead's deletionLog for audit.",
+        },
+        deletedBy: {
+          type: "string",
+          description: "Agent or user identifier performing the delete. Default: mcp-agent.",
+        },
+      },
+      required: ["id", "reason", "rationale"],
+    },
+  },
+  {
+    name: "soft_delete_leads_register_entry",
+    description:
+      "Soft-delete a Leads Register entry (pre-pipeline qualification layer). Same discipline as soft_delete_lead — sets isDeleted=true, preserves record. Use for hygiene on register entries that are dupes, mis-streamed, or based on bad data.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        entryId: { type: "string", description: "Leads Register entry Firestore document ID." },
+        reason: {
+          type: "string",
+          enum: ["duplicate", "wrong_stream", "bad_data"],
+          description: "Why this register entry is being deleted.",
+        },
+        rationale: {
+          type: "string",
+          description: "Required free-text explanation (≥10 chars). Logged to the entry's deletionLog for audit.",
+        },
+        deletedBy: {
+          type: "string",
+          description: "Agent or user identifier performing the delete. Default: mcp-agent.",
+        },
+      },
+      required: ["entryId", "reason", "rationale"],
+    },
+  },
+  {
+    name: "restore_lead",
+    description:
+      "Undo a soft-delete on a CRM pipeline lead. Sets isDeleted=false, appends to deletionLog with action='restored'. Use if a delete was done in error.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Lead Firestore document ID." },
+        rationale: { type: "string", description: "Why this lead is being restored." },
+        restoredBy: { type: "string", description: "Agent or user identifier performing the restore." },
+      },
+      required: ["id"],
+    },
+  },
+  {
+    name: "restore_leads_register_entry",
+    description: "Undo a soft-delete on a Leads Register entry.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        entryId: { type: "string", description: "Leads Register entry Firestore document ID." },
+        rationale: { type: "string", description: "Why this entry is being restored." },
+        restoredBy: { type: "string", description: "Agent or user identifier performing the restore." },
+      },
+      required: ["entryId"],
+    },
+  },
+  {
     name: "log_outreach_event",
     description: "Log an outreach event against a lead (LinkedIn message, email, phone call, meeting, etc.).",
     inputSchema: {
@@ -3914,6 +3991,133 @@ async function handleUpdateLeadStage(args: Record<string, unknown>) {
   return { ok: true, leadId: id, stage };
 }
 
+// ─── Soft-delete helpers (shared lead + register path) ───────────────────────
+
+const VALID_DELETION_REASONS = new Set(["duplicate", "wrong_stream", "bad_data"]);
+
+/**
+ * Soft-delete an arbitrary document by id, preserving audit trail.
+ * Sets isDeleted=true, appends a structured entry to deletionLog, and
+ * captures rationale + reason. Used by both soft_delete_lead and
+ * soft_delete_leads_register_entry.
+ */
+async function softDeleteDoc(
+  collectionName: string,
+  docId: string,
+  reason: string,
+  rationale: string,
+  actor: string
+): Promise<{ ok: true; id: string; isDeleted: true }> {
+  if (!VALID_DELETION_REASONS.has(reason)) {
+    throw new Error(`reason must be one of: duplicate, wrong_stream, bad_data. Received '${reason}'.`);
+  }
+  if (!rationale || rationale.trim().length < 10) {
+    throw new Error("rationale is required and must be at least 10 characters explaining the delete.");
+  }
+
+  const db = admin.firestore();
+  const ref = db.collection(collectionName).doc(docId);
+  const snap = await ref.get();
+  if (!snap.exists) throw new Error(`Document '${docId}' not found in ${collectionName}.`);
+  const existing = snap.data()!;
+  if (existing.isDeleted === true) {
+    throw new Error(`Document '${docId}' is already soft-deleted. Use restore_* to undo.`);
+  }
+
+  const nowIso = new Date().toISOString();
+  const logEntry = {
+    action: "deleted",
+    reason,
+    rationale: rationale.trim(),
+    at: nowIso,
+    by: actor,
+  };
+
+  await ref.set(
+    {
+      isDeleted: true,
+      deletedAt: nowIso,
+      deletedBy: actor,
+      deletionReason: reason,
+      deletionRationale: rationale.trim(),
+      deletionLog: admin.firestore.FieldValue.arrayUnion(logEntry),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    },
+    { merge: true }
+  );
+
+  return { ok: true, id: docId, isDeleted: true };
+}
+
+async function restoreDoc(
+  collectionName: string,
+  docId: string,
+  rationale: string,
+  actor: string
+): Promise<{ ok: true; id: string; isDeleted: false }> {
+  const db = admin.firestore();
+  const ref = db.collection(collectionName).doc(docId);
+  const snap = await ref.get();
+  if (!snap.exists) throw new Error(`Document '${docId}' not found in ${collectionName}.`);
+  const existing = snap.data()!;
+  if (existing.isDeleted !== true) {
+    throw new Error(`Document '${docId}' is not deleted — nothing to restore.`);
+  }
+
+  const nowIso = new Date().toISOString();
+  const logEntry = {
+    action: "restored",
+    rationale: rationale ? rationale.trim() : "",
+    at: nowIso,
+    by: actor,
+  };
+
+  await ref.set(
+    {
+      isDeleted: false,
+      deletedAt: null,
+      deletedBy: null,
+      deletionReason: null,
+      deletionRationale: null,
+      restoredAt: nowIso,
+      restoredBy: actor,
+      deletionLog: admin.firestore.FieldValue.arrayUnion(logEntry),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    },
+    { merge: true }
+  );
+
+  return { ok: true, id: docId, isDeleted: false };
+}
+
+async function handleSoftDeleteLead(args: Record<string, unknown>) {
+  const id = String(args.id || "");
+  if (!id) throw new Error("id is required.");
+  const actor = typeof args.deletedBy === "string" && args.deletedBy.trim() ? args.deletedBy.trim() : "mcp-agent";
+  return softDeleteDoc(COLLECTIONS.LEADS, id, String(args.reason || ""), String(args.rationale || ""), actor);
+}
+
+async function handleSoftDeleteLeadsRegisterEntry(args: Record<string, unknown>) {
+  const id = String(args.entryId || "");
+  if (!id) throw new Error("entryId is required.");
+  const actor = typeof args.deletedBy === "string" && args.deletedBy.trim() ? args.deletedBy.trim() : "mcp-agent";
+  return softDeleteDoc(COLLECTIONS.LEADS_REGISTER, id, String(args.reason || ""), String(args.rationale || ""), actor);
+}
+
+async function handleRestoreLead(args: Record<string, unknown>) {
+  const id = String(args.id || "");
+  if (!id) throw new Error("id is required.");
+  const actor = typeof args.restoredBy === "string" && args.restoredBy.trim() ? args.restoredBy.trim() : "mcp-agent";
+  return restoreDoc(COLLECTIONS.LEADS, id, typeof args.rationale === "string" ? args.rationale : "", actor);
+}
+
+async function handleRestoreLeadsRegisterEntry(args: Record<string, unknown>) {
+  const id = String(args.entryId || "");
+  if (!id) throw new Error("entryId is required.");
+  const actor = typeof args.restoredBy === "string" && args.restoredBy.trim() ? args.restoredBy.trim() : "mcp-agent";
+  return restoreDoc(COLLECTIONS.LEADS_REGISTER, id, typeof args.rationale === "string" ? args.rationale : "", actor);
+}
+
 async function handleLogOutreachEvent(args: Record<string, unknown>) {
   const id = String(args.id);
   const db = admin.firestore();
@@ -4265,7 +4469,11 @@ async function handleGetLeadsRegister(args: Record<string, unknown>) {
   if (typeof args.status === "string") q = q.where("status", "==", args.status);
   q = q.limit(limit + (typeof args.offset === "number" ? (args.offset as number) : 0));
   const snap = await q.get();
-  let entries = snap.docs.map((d) => serializeDoc(d.id, d.data()));
+  let entries = snap.docs
+    .map((d) => serializeDoc(d.id, d.data()))
+    // Hide soft-deleted entries unless caller explicitly asks for them
+    // (e.g. admin hygiene audit: includeDeleted=true).
+    .filter((e) => args.includeDeleted === true || e.isDeleted !== true);
   if (typeof args.roeGrade === "string") entries = entries.filter((e) => (e.roeScore as Record<string, unknown> | null)?.grade === args.roeGrade);
   if (args.urgencyFlag === true) entries = entries.filter((e) => (e.opportunity as Record<string, unknown> | null)?.urgencyFlag === true);
   if (typeof args.createdAfter === "string") entries = entries.filter((e) => String(e.createdAt || "") > String(args.createdAfter));
@@ -4428,7 +4636,9 @@ async function handleGetLeadsRegisterWeeklyShortlist(args: Record<string, unknow
     .orderBy("createdAt", "desc")
     .limit(100);
   const snap = await q.get();
-  let entries = snap.docs.map((d) => serializeDoc(d.id, d.data()));
+  let entries = snap.docs
+    .map((d) => serializeDoc(d.id, d.data()))
+    .filter((e) => e.isDeleted !== true);
   if (typeof args.streamType === "string") entries = entries.filter((e) => e.streamType === args.streamType);
   // Sort by ROE score descending
   entries.sort((a, b) => ((b.roeScore as Record<string, number> | null)?.total || 0) - ((a.roeScore as Record<string, number> | null)?.total || 0));
@@ -4441,7 +4651,9 @@ async function handleGetLeadsRegisterActivePursuits(args: Record<string, unknown
     .where("status", "==", "promoted")
     .where("promotedToPipeline", "==", true);
   const snap = await q.get();
-  let entries = snap.docs.map((d) => serializeDoc(d.id, d.data()));
+  let entries = snap.docs
+    .map((d) => serializeDoc(d.id, d.data()))
+    .filter((e) => e.isDeleted !== true);
   if (typeof args.streamType === "string") entries = entries.filter((e) => e.streamType === args.streamType);
 
   // Cross-reference with CRM to check if lead is still active
@@ -4464,7 +4676,7 @@ async function handleGetLeadsRegisterActivePursuits(args: Record<string, unknown
 async function handleGetLeadsRegisterStats(args: Record<string, unknown>) {
   const db = admin.firestore();
   const snap = await db.collection(COLLECTIONS.LEADS_REGISTER).limit(500).get();
-  const entries = snap.docs.map((d) => d.data());
+  const entries = snap.docs.map((d) => d.data()).filter((e) => e.isDeleted !== true);
   const streamFilter = typeof args.streamType === "string" ? args.streamType : null;
 
   const buildStreamStats = (stream: string) => {
@@ -7616,6 +7828,10 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
     case "get_pipeline_stats":   return handleGetPipelineStats(args);
     case "create_lead":          return handleCreateLead(args);
     case "update_lead_stage":    return handleUpdateLeadStage(args);
+    case "soft_delete_lead":     return handleSoftDeleteLead(args);
+    case "restore_lead":         return handleRestoreLead(args);
+    case "soft_delete_leads_register_entry": return handleSoftDeleteLeadsRegisterEntry(args);
+    case "restore_leads_register_entry":     return handleRestoreLeadsRegisterEntry(args);
     case "log_outreach_event":   return handleLogOutreachEvent(args);
     case "enrich_pipeline_from_osint": return handleEnrichPipelineFromOsint(args);
     case "import_leads_from_osint": return handleImportLeadsFromOsint(args);

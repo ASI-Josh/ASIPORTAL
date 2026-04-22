@@ -356,14 +356,18 @@ export default function LeadsRegisterPage() {
   const [sortDir, setSortDir] = useState<"desc" | "asc">("desc");
   const [selectedEntry, setSelectedEntry] = useState<RegisterEntry | null>(null);
 
-  // Real-time Firestore listener
+  // Real-time Firestore listener. Filter out soft-deleted entries
+  // (agents can soft_delete_leads_register_entry for hygiene; the record
+  // stays for audit but shouldn't appear in operational views).
   useEffect(() => {
     const q = query(
       collection(db, COLLECTIONS.LEADS_REGISTER),
       orderBy("createdAt", "desc"),
     );
     const unsub = onSnapshot(q, (snap) => {
-      const data = snap.docs.map((d) => ({ id: d.id, ...d.data() })) as RegisterEntry[];
+      const data = snap.docs
+        .map((d) => ({ id: d.id, ...d.data() }))
+        .filter((d) => (d as { isDeleted?: boolean }).isDeleted !== true) as RegisterEntry[];
       setEntries(data);
       setLoading(false);
     });
