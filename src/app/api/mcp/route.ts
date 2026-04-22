@@ -768,6 +768,40 @@ const TOOLS: McpTool[] = [
     },
   },
   {
+    name: "update_lead",
+    description:
+      "Update fields on a CRM pipeline lead (not the register entry — use update_leads_register_entry for that). Accepts any whitelisted field set in one call: osintHook, osintHookShort, nextAction, nextActionDate, notes, tags, bantScore, bantBreakdown, leadGrade, estimatedValue, estimatedServices, painPoints, asiSolutionFit, outreachSequence, marketMode. Use for: enriching a lead post-promotion (e.g. VANGUARD pushing osintHook onto the pipeline doc as a belt-and-braces copy), correcting BANT after discovery, updating next-action, amending notes. To change stage use update_lead_stage (tracks stage history). To delete use soft_delete_lead.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Lead Firestore document ID." },
+        osintHook: { type: "string", description: "Full-sentence, verifiable, company-specific outreach hook." },
+        osintHookShort: { type: "string", description: "≤160 chars, ≤6 words; subject-line form. Auto-truncates to 160 server-side." },
+        nextAction: { type: "string" },
+        nextActionDate: { type: "string", description: "ISO date (YYYY-MM-DD)." },
+        notes: { type: "string", description: "Replaces the notes field. To append, read first + concatenate." },
+        tags: { type: "array", items: { type: "string" }, description: "Replaces the tags array." },
+        bantScore: { type: "number", description: "0-100 overall BANT-Plus score." },
+        bantBreakdown: {
+          type: "object",
+          properties: {
+            budget: { type: "number" }, authority: { type: "number" },
+            need: { type: "number" }, timing: { type: "number" }, fit: { type: "number" },
+          },
+        },
+        leadGrade: { type: "string", enum: ["A", "B", "C", "D", "E"] },
+        estimatedValue: { type: "number", description: "Estimated annual AUD value." },
+        estimatedServices: { type: "array", items: { type: "string" } },
+        painPoints: { type: "array", items: { type: "string" } },
+        asiSolutionFit: { type: "array", items: { type: "string" } },
+        outreachSequence: { type: "string", enum: ["A", "B", "C"] },
+        marketMode: { type: "string", enum: ["growth", "downturn", "neutral"] },
+        updatedBy: { type: "string", description: "Agent/user identifier. Default: mcp-agent." },
+      },
+      required: ["id"],
+    },
+  },
+  {
     name: "soft_delete_lead",
     description:
       "Soft-delete a CRM pipeline lead (sets isDeleted=true, preserves the record for audit trail — R&DTI substantiation + ISO 9001 records stay intact). Self-service for SENTINEL/VANGUARD/SHIELD/MERCER for hygiene only. Valid reasons limited to three enumerated options; rationale is required (not optional). The UI hides isDeleted=true leads automatically. Hard-delete is admin-UI only and destroys evidence — use this tool instead.",
@@ -3989,6 +4023,79 @@ async function handleUpdateLeadStage(args: Record<string, unknown>) {
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
   }, { merge: true });
   return { ok: true, leadId: id, stage };
+}
+
+/**
+ * Update arbitrary whitelisted fields on a CRM pipeline lead.
+ * Kept separate from update_lead_stage so stage changes stay auditable
+ * via stageHistory, while data-correction updates (hooks, BANT, notes,
+ * next-action) have a clean path that doesn't spuriously touch stage
+ * history.
+ */
+async function handleUpdateLead(args: Record<string, unknown>) {
+  const id = String(args.id || "");
+  if (!id) throw new Error("id is required.");
+  const db = admin.firestore();
+  const ref = db.collection(COLLECTIONS.LEADS).doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) throw new Error(`Lead '${id}' not found.`);
+
+  const patch: Record<string, unknown> = {};
+
+  // String fields
+  if (typeof args.osintHook === "string") patch.osintHook = args.osintHook;
+  if (typeof args.osintHookShort === "string") {
+    const s = args.osintHookShort;
+    patch.osintHookShort = s.length > 160 ? s.slice(0, 160) : s;
+  }
+  if (typeof args.nextAction === "string") patch.nextAction = args.nextAction;
+  if (typeof args.nextActionDate === "string") patch.nextActionDate = args.nextActionDate;
+  if (typeof args.notes === "string") patch.notes = args.notes;
+
+  // Arrays
+  if (Array.isArray(args.tags)) patch.tags = args.tags;
+  if (Array.isArray(args.estimatedServices)) patch.estimatedServices = args.estimatedServices;
+  if (Array.isArray(args.painPoints)) patch.painPoints = args.painPoints;
+  if (Array.isArray(args.asiSolutionFit)) patch.asiSolutionFit = args.asiSolutionFit;
+
+  // Numbers
+  if (typeof args.bantScore === "number") patch.bantScore = args.bantScore;
+  if (typeof args.estimatedValue === "number") patch.estimatedValue = args.estimatedValue;
+
+  // Objects (replace whole object on update — caller sends complete shape)
+  if (args.bantBreakdown && typeof args.bantBreakdown === "object") {
+    patch.bantBreakdown = args.bantBreakdown;
+  }
+
+  // Enums
+  const grade = args.leadGrade;
+  if (typeof grade === "string" && ["A", "B", "C", "D", "E"].includes(grade)) {
+    patch.leadGrade = grade;
+  }
+  const seq = args.outreachSequence;
+  if (typeof seq === "string" && ["A", "B", "C"].includes(seq)) {
+    patch.outreachSequence = seq;
+  }
+  const mode = args.marketMode;
+  if (typeof mode === "string" && ["growth", "downturn", "neutral"].includes(mode)) {
+    patch.marketMode = mode;
+  }
+
+  if (Object.keys(patch).length === 0) {
+    throw new Error("No valid fields to update. See tool description for whitelisted fields.");
+  }
+
+  patch.updatedAt = admin.firestore.FieldValue.serverTimestamp();
+  patch.updatedByAgent = typeof args.updatedBy === "string" && args.updatedBy.trim()
+    ? args.updatedBy.trim()
+    : "mcp-agent";
+
+  await ref.set(patch, { merge: true });
+
+  // Return the updated record so caller can read-back confirm (e.g. for
+  // David's one-lead dry-run pattern).
+  const updated = await ref.get();
+  return { ok: true, leadId: id, updatedFields: Object.keys(patch), lead: serializeDoc(updated.id, updated.data()!) };
 }
 
 // ─── Soft-delete helpers (shared lead + register path) ───────────────────────
@@ -7828,6 +7935,7 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
     case "get_pipeline_stats":   return handleGetPipelineStats(args);
     case "create_lead":          return handleCreateLead(args);
     case "update_lead_stage":    return handleUpdateLeadStage(args);
+    case "update_lead":          return handleUpdateLead(args);
     case "soft_delete_lead":     return handleSoftDeleteLead(args);
     case "restore_lead":         return handleRestoreLead(args);
     case "soft_delete_leads_register_entry": return handleSoftDeleteLeadsRegisterEntry(args);
