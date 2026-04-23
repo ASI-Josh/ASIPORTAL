@@ -191,12 +191,14 @@ export default function OSINTPage() {
     try {
       const token = await getToken();
       // Build import payload from opportunity matrix
-      const leads = scan.opportunityMatrix.map((opp) => ({
-        company: opp.name.split("—")[0].trim(),
-        sector: opp.pillar.toLowerCase().includes("bus") || opp.pillar.toLowerCase().includes("transit") ? "mass-transit"
-          : opp.pillar.toLowerCase().includes("glass") ? "manufacturing"
-          : opp.pillar.toLowerCase().includes("sustain") ? "mass-transit"
-          : opp.pillar.toLowerCase().includes("fleet") ? "wholesale-trade"
+      const leads = (scan.opportunityMatrix || []).map((opp) => {
+        const pillarLc = String(opp.pillar || "").toLowerCase();
+        return ({
+        company: String(opp.name || "").split("—")[0].trim() || "Unknown",
+        sector: pillarLc.includes("bus") || pillarLc.includes("transit") ? "mass-transit"
+          : pillarLc.includes("glass") ? "manufacturing"
+          : pillarLc.includes("sustain") ? "mass-transit"
+          : pillarLc.includes("fleet") ? "wholesale-trade"
           : "other",
         pipeline_stage: 1,
         bant_score: opp.relevanceScore * 16,
@@ -207,7 +209,8 @@ export default function OSINTPage() {
         notes: `From OSINT scan ${scan.date}. Opportunity Matrix rank #${opp.rank}. Urgency: ${opp.urgency}. Suggested action: ${opp.action}`,
         tags: ["osint", opp.urgency === "immediate" ? "urgent" : opp.urgency],
         market_mode: "growth" as const,
-      }));
+        });
+      });
       const res = await fetch("/api/leads/import", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
@@ -223,12 +226,17 @@ export default function OSINTPage() {
     }
   };
 
-  const filteredPillars = scan?.pillars
+  // Defence-in-depth: guard every array on the scan object. /api/osint/[date]
+  // can return a partial payload on flaky mobile networks or server edge
+  // cases, and any missing array below would throw in the render tree and
+  // show Next.js's generic "client-side error" screen — mobile-only because
+  // desktop typically has the happy-path cached from prior loads.
+  const filteredPillars = (scan?.pillars || [])
     .filter((p) => activePillar === "all" || p.id === activePillar)
     .map((p) => ({
       ...p,
-      findings: p.findings.filter((f) => f.relevance >= minRelevance),
-    })) || [];
+      findings: (p.findings || []).filter((f) => f.relevance >= minRelevance),
+    }));
 
   return (
     <div className="flex flex-col gap-6 p-6">
@@ -344,7 +352,7 @@ export default function OSINTPage() {
             </CardHeader>
             <CardContent>
               <ul className="space-y-2">
-                {scan.executiveSummary.map((item, i) => (
+                {(scan.executiveSummary || []).map((item, i) => (
                   <li key={i} className="text-sm text-muted-foreground flex gap-2">
                     <span className="text-primary mt-0.5 flex-shrink-0">▸</span>
                     {item}
@@ -384,7 +392,7 @@ export default function OSINTPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {scan.opportunityMatrix.map((opp) => (
+                    {(scan.opportunityMatrix || []).map((opp) => (
                       <tr key={opp.rank} className="border-b border-border/30 hover:bg-muted/20 transition-colors">
                         <td className="px-4 py-3 text-muted-foreground font-medium">{opp.rank}</td>
                         <td className="px-4 py-3 font-medium text-foreground">{opp.name}</td>
