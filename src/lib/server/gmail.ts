@@ -1,3 +1,5 @@
+import * as fs from "fs/promises";
+import * as path from "path";
 import { admin } from "@/lib/firebaseAdmin";
 import { AGENT_MAILBOXES, isAgentMailbox, type AgentMailboxKey, COLLECTIONS } from "@/lib/collections";
 
@@ -375,6 +377,7 @@ export interface AgentEmailAuditEntry {
   draftId?: string;
   labelsAdded?: string[];
   labelsRemoved?: string[];
+  attachmentNames?: string[]; // Filenames of files attached to this message (for audit)
   success: boolean;
   errorMessage?: string;
   createdAt: admin.firestore.FieldValue;
@@ -616,6 +619,126 @@ export async function gmailTrashMessage(accessToken: string, messageId: string) 
 // mailbox. All send/draft/modify actions are logged to the
 // agentEmailAudit Firestore collection for full traceability.
 
+// ── Attachment handling ──────────────────────────────────────────────────────
+// Agents can attach files to gmail_send / gmail_create_draft. To prevent an
+// agent from accidentally (or maliciously) attaching .env files, secrets,
+// or arbitrary disk content, every attachment path is normalised and
+// validated against an allowlist of approved roots.
+
+const ATTACHMENT_ALLOWLIST_ROOTS = [
+  // ASI Approved Sales Materials — primary location for agent brochure/case-study attachments
+  "C:\\Users\\jhyde_zzz3b9b\\Documents\\Claude\\Projects\\ASI CENTCOM\\ASI Approved Sales Materials",
+  // Common project asset roots used by agents
+  "C:\\Users\\jhyde_zzz3b9b\\Documents\\Claude\\Projects\\ASI CENTCOM",
+  "C:\\Users\\jhyde_zzz3b9b\\Documents\\Claude\\Projects\\Accounts Team",
+  // Linux-style allowlist for non-Windows runtimes (e.g. CI / Linux containers)
+  "/mnt/asi-attachments",
+  "/tmp/asi-attachments",
+];
+
+const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;       // 20MB per attachment
+const MAX_TOTAL_ATTACHMENT_BYTES = 24 * 1024 * 1024; // 24MB total (Gmail caps at ~25MB)
+
+const CONTENT_TYPE_BY_EXT: Record<string, string> = {
+  ".pdf": "application/pdf",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".doc": "application/msword",
+  ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  ".xls": "application/vnd.ms-excel",
+  ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  ".ppt": "application/vnd.ms-powerpoint",
+  ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  ".txt": "text/plain",
+  ".csv": "text/csv",
+  ".html": "text/html",
+  ".zip": "application/zip",
+};
+
+export interface AttachmentInput {
+  path: string;
+  filename?: string;
+  contentType?: string;
+}
+
+interface ResolvedAttachment {
+  filename: string;
+  contentType: string;
+  data: Buffer;
+}
+
+function isPathUnderAllowlist(absPath: string): boolean {
+  // Normalise both sides for case-insensitive Windows comparison + trailing-slash stability.
+  const norm = path.normalize(absPath);
+  for (const root of ATTACHMENT_ALLOWLIST_ROOTS) {
+    const normRoot = path.normalize(root);
+    if (norm.toLowerCase().startsWith(normRoot.toLowerCase() + path.sep) ||
+        norm.toLowerCase() === normRoot.toLowerCase()) {
+      return true;
+    }
+    // Forward-slash form (some callers pass POSIX paths on Windows)
+    if (norm.replace(/\\/g, "/").toLowerCase().startsWith(normRoot.replace(/\\/g, "/").toLowerCase() + "/")) {
+      return true;
+    }
+  }
+  return false;
+}
+
+async function resolveAttachments(inputs: AttachmentInput[]): Promise<ResolvedAttachment[]> {
+  if (!inputs.length) return [];
+
+  const resolved: ResolvedAttachment[] = [];
+  let totalBytes = 0;
+
+  for (const input of inputs) {
+    if (!input || typeof input.path !== "string" || !input.path.trim()) {
+      throw new Error("Attachment path is required.");
+    }
+    const abs = path.resolve(input.path);
+
+    if (!isPathUnderAllowlist(abs)) {
+      throw new Error(
+        `Attachment path not in allowlist: '${input.path}'. Approved roots: ASI CENTCOM, ASI Approved Sales Materials, Accounts Team. Add new roots to ATTACHMENT_ALLOWLIST_ROOTS in src/lib/server/gmail.ts if a new location is needed.`
+      );
+    }
+
+    let data: Buffer;
+    try {
+      data = await fs.readFile(abs);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(`Failed to read attachment '${input.path}': ${msg}`);
+    }
+
+    if (data.length > MAX_ATTACHMENT_BYTES) {
+      throw new Error(
+        `Attachment '${input.path}' is ${(data.length / 1024 / 1024).toFixed(1)}MB. Per-file limit is ${MAX_ATTACHMENT_BYTES / 1024 / 1024}MB.`
+      );
+    }
+    totalBytes += data.length;
+    if (totalBytes > MAX_TOTAL_ATTACHMENT_BYTES) {
+      throw new Error(
+        `Total attachment size exceeds ${MAX_TOTAL_ATTACHMENT_BYTES / 1024 / 1024}MB (Gmail's outbound cap is ~25MB). Split into multiple sends.`
+      );
+    }
+
+    const ext = path.extname(abs).toLowerCase();
+    const contentType =
+      input.contentType ||
+      CONTENT_TYPE_BY_EXT[ext] ||
+      "application/octet-stream";
+
+    const filename = (input.filename || path.basename(abs)).replace(/[\r\n"]/g, "_");
+
+    resolved.push({ filename, contentType, data });
+  }
+
+  return resolved;
+}
+
 function buildRawMimeMessage(opts: {
   fromAddress: string;
   displayName?: string;
@@ -626,22 +749,56 @@ function buildRawMimeMessage(opts: {
   bcc?: string;
   replyTo?: string;
   inReplyTo?: string;
+  attachments?: ResolvedAttachment[];
 }): string {
   const fromHeader = opts.displayName
     ? `${opts.displayName} <${opts.fromAddress}>`
     : opts.fromAddress;
-  const lines: string[] = [];
-  lines.push(`From: ${fromHeader}`);
-  lines.push(`To: ${opts.to}`);
-  if (opts.cc) lines.push(`Cc: ${opts.cc}`);
-  if (opts.bcc) lines.push(`Bcc: ${opts.bcc}`);
-  lines.push(`Subject: ${opts.subject}`);
-  if (opts.replyTo) lines.push(`Reply-To: ${opts.replyTo}`);
-  if (opts.inReplyTo) lines.push(`In-Reply-To: ${opts.inReplyTo}`);
-  lines.push("Content-Type: text/plain; charset=utf-8");
-  lines.push("");
-  lines.push(opts.body);
-  return Buffer.from(lines.join("\r\n")).toString("base64url");
+  const headers: string[] = [];
+  headers.push(`From: ${fromHeader}`);
+  headers.push(`To: ${opts.to}`);
+  if (opts.cc) headers.push(`Cc: ${opts.cc}`);
+  if (opts.bcc) headers.push(`Bcc: ${opts.bcc}`);
+  headers.push(`Subject: ${opts.subject}`);
+  if (opts.replyTo) headers.push(`Reply-To: ${opts.replyTo}`);
+  if (opts.inReplyTo) headers.push(`In-Reply-To: ${opts.inReplyTo}`);
+  headers.push("MIME-Version: 1.0");
+
+  const attachments = opts.attachments || [];
+  if (attachments.length === 0) {
+    headers.push("Content-Type: text/plain; charset=utf-8");
+    const message = headers.join("\r\n") + "\r\n\r\n" + opts.body;
+    return Buffer.from(message).toString("base64url");
+  }
+
+  // Multipart/mixed boundary. Gmail accepts standard MIME, RFC 2045/2046.
+  const boundary = `=_asi_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+  headers.push(`Content-Type: multipart/mixed; boundary="${boundary}"`);
+
+  const parts: string[] = [];
+  // Body part
+  parts.push(`--${boundary}`);
+  parts.push("Content-Type: text/plain; charset=utf-8");
+  parts.push("Content-Transfer-Encoding: 7bit");
+  parts.push("");
+  parts.push(opts.body);
+  parts.push("");
+
+  // Attachment parts — base64-encoded, 76-char lines per RFC 2045
+  for (const a of attachments) {
+    parts.push(`--${boundary}`);
+    parts.push(`Content-Type: ${a.contentType}; name="${a.filename}"`);
+    parts.push("Content-Transfer-Encoding: base64");
+    parts.push(`Content-Disposition: attachment; filename="${a.filename}"`);
+    parts.push("");
+    parts.push(a.data.toString("base64").replace(/(.{76})/g, "$1\r\n"));
+    parts.push("");
+  }
+  parts.push(`--${boundary}--`);
+  parts.push("");
+
+  const message = headers.join("\r\n") + "\r\n\r\n" + parts.join("\r\n");
+  return Buffer.from(message).toString("base64url");
 }
 
 export async function gmailGetProfileForAccount(fromAccount: string) {
@@ -720,9 +877,12 @@ export async function gmailSendMessageForAccount(
     inReplyTo?: string;
     threadId?: string;
     agentIdentity?: string;
+    attachments?: AttachmentInput[];
   }
 ) {
   const ctx = await resolveGmailAuth(fromAccount);
+  const resolvedAttachments = await resolveAttachments(opts.attachments || []);
+  const attachmentNames = resolvedAttachments.map((a) => a.filename);
   const raw = buildRawMimeMessage({
     fromAddress: ctx.fromAddress,
     displayName: ctx.displayName,
@@ -733,6 +893,7 @@ export async function gmailSendMessageForAccount(
     bcc: opts.bcc,
     replyTo: opts.replyTo,
     inReplyTo: opts.inReplyTo,
+    attachments: resolvedAttachments,
   });
 
   let result: { id?: string; threadId?: string } | null = null;
@@ -744,7 +905,7 @@ export async function gmailSendMessageForAccount(
       ...(opts.threadId && { threadId: opts.threadId }),
     }) as { id?: string; threadId?: string };
     success = true;
-    return result;
+    return { ...result, attachmentNames };
   } catch (err) {
     errorMessage = err instanceof Error ? err.message : String(err);
     throw err;
@@ -762,6 +923,7 @@ export async function gmailSendMessageForAccount(
       bodyPreview: opts.body.slice(0, 500),
       messageId: result?.id,
       threadId: result?.threadId || opts.threadId,
+      attachmentNames: attachmentNames.length > 0 ? attachmentNames : undefined,
       success,
       errorMessage,
     }).catch((logErr) => {
@@ -779,9 +941,12 @@ export async function gmailCreateDraftForAccount(
     cc?: string;
     bcc?: string;
     agentIdentity?: string;
+    attachments?: AttachmentInput[];
   }
 ) {
   const ctx = await resolveGmailAuth(fromAccount);
+  const resolvedAttachments = await resolveAttachments(opts.attachments || []);
+  const attachmentNames = resolvedAttachments.map((a) => a.filename);
   const raw = buildRawMimeMessage({
     fromAddress: ctx.fromAddress,
     displayName: ctx.displayName,
@@ -790,6 +955,7 @@ export async function gmailCreateDraftForAccount(
     body: opts.body,
     cc: opts.cc,
     bcc: opts.bcc,
+    attachments: resolvedAttachments,
   });
 
   let result: { id?: string; message?: { id?: string; threadId?: string } } | null = null;
@@ -800,7 +966,7 @@ export async function gmailCreateDraftForAccount(
       message: { raw },
     }) as { id?: string; message?: { id?: string; threadId?: string } };
     success = true;
-    return result;
+    return { ...result, attachmentNames };
   } catch (err) {
     errorMessage = err instanceof Error ? err.message : String(err);
     throw err;
@@ -819,6 +985,7 @@ export async function gmailCreateDraftForAccount(
       draftId: result?.id,
       messageId: result?.message?.id,
       threadId: result?.message?.threadId,
+      attachmentNames: attachmentNames.length > 0 ? attachmentNames : undefined,
       success,
       errorMessage,
     }).catch((logErr) => {

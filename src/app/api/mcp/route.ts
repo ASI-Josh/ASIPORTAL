@@ -2048,7 +2048,7 @@ const TOOLS: McpTool[] = [
   },
   {
     name: "gmail_send",
-    description: "Send an email from a specific mailbox. Use 'accountmanager' for LEDGER (signs as 'James Ledger'), 'development' for sales/R&D correspondence, or omit from_account for Joshua's personal account. All sends are audit-logged to agentEmailAudit with the agent_identity (pass your agent name e.g. 'LEDGER').",
+    description: "Send an email from a specific mailbox. Use 'accountmanager' for LEDGER (signs as 'James Ledger'), 'development' for sales/R&D correspondence, or omit from_account for Joshua's personal account. All sends are audit-logged to agentEmailAudit with the agent_identity (pass your agent name e.g. 'LEDGER'). Supports file attachments via the `attachments` array — pass absolute paths under approved roots (ASI Approved Sales Materials, ASI CENTCOM, Accounts Team). Per-file cap 20MB, total cap 24MB. Attachment filenames are recorded on the audit log.",
     inputSchema: {
       type: "object",
       properties: {
@@ -2062,13 +2062,26 @@ const TOOLS: McpTool[] = [
         reply_to: { type: "string", description: "Reply-to address if different from sender" },
         in_reply_to: { type: "string", description: "Message-ID to reply to (for threading)" },
         thread_id: { type: "string", description: "Thread ID to add this message to (for replies)" },
+        attachments: {
+          type: "array",
+          description: "Optional file attachments. Each entry is an object with `path` (absolute path under an approved root, e.g. C:\\\\Users\\\\jhyde_zzz3b9b\\\\Documents\\\\Claude\\\\Projects\\\\ASI CENTCOM\\\\ASI Approved Sales Materials\\\\ASI HV PDI & Fleet Support Services.pdf), optional `filename` (display name in the email; defaults to the file's basename), optional `contentType` (MIME type; auto-detected from extension if omitted).",
+          items: {
+            type: "object",
+            properties: {
+              path: { type: "string", description: "Absolute file path on disk." },
+              filename: { type: "string", description: "Display filename in the email (optional)." },
+              contentType: { type: "string", description: "MIME type override (optional, auto-detected from extension)." },
+            },
+            required: ["path"],
+          },
+        },
       },
       required: ["to", "subject", "body"],
     },
   },
   {
     name: "gmail_create_draft",
-    description: "Create an email draft in a specific mailbox for review before sending. Logged to the audit trail.",
+    description: "Create an email draft in a specific mailbox for review before sending. Logged to the audit trail. Supports the same `attachments` array as gmail_send — drafts can carry attachments through to the eventual send.",
     inputSchema: {
       type: "object",
       properties: {
@@ -2079,6 +2092,19 @@ const TOOLS: McpTool[] = [
         body: { type: "string", description: "Plain text email body" },
         cc: { type: "string", description: "CC recipients" },
         bcc: { type: "string", description: "BCC recipients" },
+        attachments: {
+          type: "array",
+          description: "Optional file attachments. Same shape as gmail_send.attachments. Approved roots: ASI Approved Sales Materials, ASI CENTCOM, Accounts Team. Per-file cap 20MB, total cap 24MB.",
+          items: {
+            type: "object",
+            properties: {
+              path: { type: "string", description: "Absolute file path on disk." },
+              filename: { type: "string", description: "Display filename (optional)." },
+              contentType: { type: "string", description: "MIME type override (optional)." },
+            },
+            required: ["path"],
+          },
+        },
       },
       required: ["to", "subject", "body"],
     },
@@ -9860,6 +9886,28 @@ async function handleGmailReadThread(args: Record<string, unknown>) {
   return gmailGetThreadForAccount(getFromAccount(args), String(args.thread_id));
 }
 
+/**
+ * Normalise the attachments param into the shape gmail.ts expects.
+ * Accepts the array of {path, filename?, contentType?} objects, drops
+ * anything malformed silently rather than throwing — the gmail-side
+ * resolver does the real validation (path allowlist + size caps + read).
+ */
+function normaliseAttachments(raw: unknown): Array<{ path: string; filename?: string; contentType?: string }> | undefined {
+  if (!Array.isArray(raw) || raw.length === 0) return undefined;
+  const out: Array<{ path: string; filename?: string; contentType?: string }> = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const a = item as Record<string, unknown>;
+    if (typeof a.path !== "string" || !a.path.trim()) continue;
+    out.push({
+      path: a.path.trim(),
+      ...(typeof a.filename === "string" && a.filename.trim() ? { filename: a.filename.trim() } : {}),
+      ...(typeof a.contentType === "string" && a.contentType.trim() ? { contentType: a.contentType.trim() } : {}),
+    });
+  }
+  return out.length > 0 ? out : undefined;
+}
+
 async function handleGmailSend(args: Record<string, unknown>) {
   return gmailSendMessageForAccount(getFromAccount(args), {
     to: String(args.to),
@@ -9871,6 +9919,7 @@ async function handleGmailSend(args: Record<string, unknown>) {
     inReplyTo: args.in_reply_to ? String(args.in_reply_to) : undefined,
     threadId: args.thread_id ? String(args.thread_id) : undefined,
     agentIdentity: getAgentIdentity(args),
+    attachments: normaliseAttachments(args.attachments),
   });
 }
 
@@ -9882,6 +9931,7 @@ async function handleGmailCreateDraft(args: Record<string, unknown>) {
     cc: args.cc ? String(args.cc) : undefined,
     bcc: args.bcc ? String(args.bcc) : undefined,
     agentIdentity: getAgentIdentity(args),
+    attachments: normaliseAttachments(args.attachments),
   });
 }
 
