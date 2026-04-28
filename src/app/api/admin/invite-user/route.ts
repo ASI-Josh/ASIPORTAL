@@ -11,6 +11,10 @@ type InvitePayload = {
   lastName?: string;
   role: "admin" | "technician" | "client" | "contractor";
   organizationId?: string;
+  // JV partner: external collaborator (e.g. Wash'd, NewCo). Skips
+  // the ASI org requirement and tags the invite for filtering.
+  jvPartner?: boolean;
+  jvPartnerOrg?: string;
 };
 
 const ASI_DOMAIN = "asi-australia.com.au";
@@ -130,7 +134,14 @@ export async function POST(req: NextRequest) {
 
     let organizationId = payload.organizationId?.trim();
     let organizationName = "";
-    if (inviteRole === "admin" || inviteRole === "technician") {
+    let contactId: string | undefined;
+
+    if (payload.jvPartner) {
+      // JV partner — no ASI org binding. Skip contact creation
+      // entirely; the invite carries the partner-org name only.
+      organizationId = undefined;
+      organizationName = payload.jvPartnerOrg?.trim() || "";
+    } else if (inviteRole === "admin" || inviteRole === "technician") {
       const asiOrg = await ensureAsiOrganization();
       organizationId = asiOrg.id;
       organizationName = asiOrg.name || "ASI Australia";
@@ -152,19 +163,21 @@ export async function POST(req: NextRequest) {
       organizationName = (orgSnap.data()?.name as string) || "";
     }
 
-    const contactRole =
-      inviteRole === "admin"
-        ? "management"
-        : inviteRole === "technician"
-          ? "technical"
-          : "primary";
-    const contactId = await ensureContact({
-      organizationId,
-      email,
-      firstName,
-      lastName,
-      role: contactRole,
-    });
+    if (organizationId && !payload.jvPartner) {
+      const contactRole =
+        inviteRole === "admin"
+          ? "management"
+          : inviteRole === "technician"
+            ? "technical"
+            : "primary";
+      contactId = await ensureContact({
+        organizationId,
+        email,
+        firstName,
+        lastName,
+        role: contactRole,
+      });
+    }
 
     const invitesRef = admin.firestore().collection(COLLECTIONS.USER_INVITES);
     const existing = await invitesRef.where("email", "==", email).get();
@@ -172,23 +185,25 @@ export async function POST(req: NextRequest) {
       (docSnap) => docSnap.data().status === "pending"
     );
     const inviteRef = existingPending ? existingPending.ref : invitesRef.doc();
-    await inviteRef.set(
-      {
-        email,
-        name: displayName,
-        role: inviteRole,
-        organizationId,
-        organizationName,
-        contactId,
-        invitedBy: userId,
-        status: "pending",
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        createdAt: existingPending
-          ? existingPending.data().createdAt
-          : admin.firestore.FieldValue.serverTimestamp(),
-      },
-      { merge: true }
-    );
+    const invitePayload: Record<string, unknown> = {
+      email,
+      name: displayName,
+      role: inviteRole,
+      invitedBy: userId,
+      status: "pending",
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      createdAt: existingPending
+        ? existingPending.data().createdAt
+        : admin.firestore.FieldValue.serverTimestamp(),
+    };
+    if (organizationId) invitePayload.organizationId = organizationId;
+    if (organizationName) invitePayload.organizationName = organizationName;
+    if (contactId) invitePayload.contactId = contactId;
+    if (payload.jvPartner) {
+      invitePayload.jvPartner = true;
+      if (payload.jvPartnerOrg) invitePayload.jvPartnerOrg = payload.jvPartnerOrg;
+    }
+    await inviteRef.set(invitePayload, { merge: true });
 
     // DISABLED: External email notifications disabled — all notifications stay in-app only
     // const appUrl = normalizeAppUrl(process.env.NEXT_PUBLIC_APP_URL || DEFAULT_APP_URL);

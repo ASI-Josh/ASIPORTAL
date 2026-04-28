@@ -77,6 +77,10 @@ export const COLLECTIONS = {
   RND_COUNTERS: "rndCounters",
   RND_GRANT_PROGRAMMES: "rndGrantProgrammes",
   RND_PROJECT_NOMINATIONS: "rndProjectNominations",
+  // Cutting workflow (Phase 0 — standalone, multi-tenant ready)
+  CUTTING_JOBS: "cuttingJobs",
+  CUTTING_MATERIAL_PROFILES: "cuttingMaterialProfiles",
+  CUTTING_COUNTERS: "cuttingCounters",
 } as const;
 
 /**

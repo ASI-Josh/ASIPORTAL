@@ -12,6 +12,8 @@ type InviteRecord = {
   organizationName?: string;
   contactId?: string;
   status?: string;
+  jvPartner?: boolean;
+  jvPartnerOrg?: string;
 };
 
 function splitName(fullName: string) {
@@ -108,7 +110,9 @@ export async function POST(req: NextRequest) {
 
     const invite = inviteDoc.data() as InviteRecord;
     const organizationId = invite.organizationId;
-    if (!organizationId) {
+    // JV partner invites (Wash'd, NewCo etc) may not have an ASI org
+    // attached. All other invites still require organisation.
+    if (!organizationId && !invite.jvPartner) {
       return NextResponse.json({ error: "Invite missing organisation." }, { status: 400 });
     }
 
@@ -120,13 +124,15 @@ export async function POST(req: NextRequest) {
           ? "technical"
           : "primary";
 
-    const contactId = await ensureContact({
-      organizationId,
-      email,
-      name,
-      role: contactRole,
-      contactId: invite.contactId,
-    });
+    const contactId = organizationId
+      ? await ensureContact({
+          organizationId,
+          email,
+          name,
+          role: contactRole,
+          contactId: invite.contactId,
+        })
+      : undefined;
 
     const organizationName = invite.organizationName || "";
 
@@ -136,9 +142,11 @@ export async function POST(req: NextRequest) {
       email: authUser.email || email,
       role: invite.role,
       name,
-      organizationId,
-      organizationName,
-      contactId,
+      ...(organizationId ? { organizationId } : {}),
+      ...(organizationName ? { organizationName } : {}),
+      ...(contactId ? { contactId } : {}),
+      ...(invite.jvPartner ? { jvPartner: true } : {}),
+      ...(invite.jvPartnerOrg ? { jvPartnerOrg: invite.jvPartnerOrg } : {}),
       createdAt: now as unknown as User["createdAt"],
       updatedAt: now as unknown as User["updatedAt"],
     };

@@ -28,6 +28,7 @@ import {
   Radar,
   PackageCheck,
   BarChart3,
+  Scissors,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import {
@@ -65,6 +66,7 @@ const adminMenuItems = [
   { href: "/dashboard/meetings", label: "Meetings", icon: Users },
   { href: "/dashboard/contacts", label: "Contacts", icon: Building2 },
   { href: "/dashboard/films", label: "Film Management", icon: FileText },
+  { href: "/cutting", label: "Cutting Workflow", icon: Scissors },
   { href: "/dashboard/kpi", label: "KPI Traceability", icon: BarChart3 },
   { href: "/dashboard/works-register", label: "Works Register", icon: ClipboardList },
   { href: "/dashboard/ims", label: "ASI IMS", icon: Layers },
@@ -85,6 +87,7 @@ export function AppSidebar() {
         technician: [
           { href: "/technician", label: "Technician Dashboard", icon: Wrench },
           { href: "/dashboard/daily-prestart", label: "Daily Prestart", icon: ClipboardCheck },
+          { href: "/cutting", label: "Cutting Workflow", icon: Scissors },
           { href: "/dashboard/ims/incidents", label: "Incidents", icon: AlertTriangle },
           { href: "/dashboard/ims/library", label: "IMS Library", icon: Layers },
         ],
@@ -94,6 +97,7 @@ export function AppSidebar() {
           { href: "/client/bookings", label: "Bookings", icon: Briefcase },
           { href: "/client/inspections", label: "Inspections", icon: ClipboardCheck },
           { href: "/client/works-register", label: "Works Register", icon: ClipboardList },
+          { href: "/cutting", label: "Cutting Workflow", icon: Scissors },
           { href: "/client/athena", label: "Ask Athena", icon: Bot },
           { href: "/client/contacts", label: "ASI Contacts", icon: Users },
         ],

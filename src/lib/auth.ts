@@ -39,6 +39,27 @@ export function determineUserRole(email: string, fallbackRole: UserRole = "clien
 }
 
 // ============================================
+// CUTTING WORKFLOW ACCESS (declared early so route helpers can use it)
+// Standalone module — designed for clean extraction into its own app
+// later. Roles allowed to access cutting are kept as a list so future
+// roles (installer, plotter_renter, washd_admin) can be added without
+// touching gate logic. Today: admin + technician + client.
+// ============================================
+
+export const CUTTING_ACCESS_ROLES: UserRole[] = ["admin", "technician", "client"];
+
+export function canAccessCutting(role: UserRole | undefined | null): boolean {
+  if (!role) return false;
+  return CUTTING_ACCESS_ROLES.includes(role);
+}
+
+export function cuttingScopeForRole(role: UserRole): "all" | "own" | "none" {
+  if (role === "admin" || role === "technician") return "all";
+  if (role === "client") return "own";
+  return "none";
+}
+
+// ============================================
 // ROUTE HELPERS
 // ============================================
 
@@ -62,6 +83,12 @@ export function getDefaultRouteForRole(role: UserRole): string {
 export function isAuthorizedForRoute(role: UserRole, path: string): boolean {
   // Admin can access everything
   if (role === "admin") return true;
+
+  // Cutting workflow is its own standalone module — admin/tech/client all allowed.
+  // Designed to be liftable into its own app/program later.
+  if (path.startsWith("/cutting")) {
+    return CUTTING_ACCESS_ROLES.includes(role);
+  }
 
   // Technicians can access technician routes and shared jobs/inspections
   if (role === "technician") {
@@ -105,6 +132,8 @@ export function isAuthorizedForRoute(role: UserRole, path: string): boolean {
 
   return false;
 }
+
+
 
 // ============================================
 // PERMISSION HELPERS

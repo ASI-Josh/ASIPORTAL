@@ -16,6 +16,10 @@ export interface User {
   organizationId?: string;
   organizationName?: string;
   contactId?: string;
+  // JV partner flag — surfaced for filtering/audit when external
+  // partners (e.g. Wash'd / NewCo) are given access for testing.
+  jvPartner?: boolean;
+  jvPartnerOrg?: string;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
@@ -30,6 +34,8 @@ export interface UserInvite {
   contactId?: string;
   invitedBy?: string;
   status: "pending" | "accepted" | "revoked";
+  jvPartner?: boolean;
+  jvPartnerOrg?: string;
   createdAt?: Timestamp;
   updatedAt?: Timestamp;
   acceptedAt?: Timestamp;
@@ -2996,3 +3002,135 @@ export interface RndProjectNomination {
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
+
+// ============================================
+// CUTTING WORKFLOW (Plotter / film cutting)
+// Standalone module — designed for clean extraction into its own
+// app/program once dialled in. Includes tenantId from day 1 so the
+// same code can serve ASI today, Wash'd / NewCo tomorrow.
+// ============================================
+
+export type CuttingTenantId = "asi" | "washd" | "newco" | string;
+
+export type PatternSource =
+  | "3m_marketplace"
+  | "summa_gosign"
+  | "manual_trace"
+  | "custom"
+  | "other";
+
+export const PATTERN_SOURCE_LABELS: Record<PatternSource, string> = {
+  "3m_marketplace": "3M Pattern Marketplace",
+  summa_gosign: "Summa GoSign",
+  manual_trace: "Manual trace",
+  custom: "Custom",
+  other: "Other",
+};
+
+export type CuttingQcStatus = "not_yet_checked" | "pass" | "fail";
+
+export type CuttingIssueTag =
+  | "template_wrong"
+  | "fitment_off"
+  | "weeding_problem"
+  | "plotter_issue"
+  | "material_defect"
+  | "other";
+
+export const CUTTING_ISSUE_TAG_LABELS: Record<CuttingIssueTag, string> = {
+  template_wrong: "Template wrong",
+  fitment_off: "Fitment off",
+  weeding_problem: "Weeding problem",
+  plotter_issue: "Plotter issue",
+  material_defect: "Material defect",
+  other: "Other",
+};
+
+export interface CuttingPhoto {
+  id: string;
+  url: string;
+  kind: "before" | "in_progress" | "after" | "other";
+  uploadedAt: Timestamp;
+  uploadedBy: { id: string; name: string };
+}
+
+export interface CuttingVehicle {
+  year?: number;
+  make: string;
+  model: string;
+  trim?: string;
+  registration?: string;
+  vin?: string;
+}
+
+export interface CuttingJob {
+  id: string;
+  tenantId: CuttingTenantId;          // 'asi' default; 'washd' / 'newco' future
+  cuttingNumber: string;              // CUT-YYYY-#### display id
+  // Optional link back to a regular ASI Job record. Standalone first —
+  // a Cutting Job can exist without a parent Job.
+  jobId?: string;
+  jobNumber?: string;
+  // Ownership
+  clientId?: string;
+  clientName?: string;
+  clientEmail?: string;
+  // Vehicle
+  vehicle: CuttingVehicle;
+  photos: CuttingPhoto[];             // min 3 enforced at completion
+  // Pattern
+  patternSource: PatternSource;
+  patternReference?: string;          // free text
+  patternUrl?: string;                // marketplace / drive link
+  patternFileUrl?: string;            // uploaded SVG / source file in Storage
+  // Material
+  filmStockItemId?: string;           // FK to stockItems
+  filmStockDescription?: string;      // denormalised for display
+  rollConsumedMetres?: number;
+  // Operator
+  operatorId?: string;
+  operatorName?: string;
+  // Timing
+  cutStartAt?: Timestamp;
+  cutEndAt?: Timestamp;
+  // Outcome
+  qcStatus: CuttingQcStatus;
+  qcCheckedAt?: Timestamp;
+  qcCheckedBy?: string;
+  issuesText?: string;
+  issueTags: CuttingIssueTag[];
+  notes?: string;
+  // HPGL output
+  materialProfileId?: string;
+  lastPlotGeneratedAt?: Timestamp;
+  // Stock decrement bookkeeping (idempotency — never decrement twice)
+  stockDecrementedAt?: Timestamp;
+  stockDecrementedAmount?: number;
+  // Audit
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+  createdBy: string;
+  createdByName?: string;
+}
+
+export interface MaterialProfile {
+  id: string;
+  tenantId: CuttingTenantId;
+  name: string;                       // e.g. "APEAX PPF Standard"
+  filmType?: string;                  // free-form classification
+  // Bound to a stock item where possible so cutters pick by SKU
+  stockItemId?: string;
+  // Plotter parameters
+  cuttingForceGrams: number;          // e.g. 120
+  speedMmPerSec: number;              // e.g. 400
+  bladeDepthMm?: number;              // e.g. 0.25
+  passCount: number;                  // 1..n
+  // Optional Summa-flavoured defaults — passed through to HPGL
+  // module verbatim so plotter-agnostic stays clean.
+  toolNumber?: number;                // Summa tool select (1..)
+  notes?: string;
+  isActive: boolean;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
