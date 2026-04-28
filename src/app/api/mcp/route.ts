@@ -168,6 +168,37 @@ const TOOLS: McpTool[] = [
     },
   },
   {
+    name: "create_job",
+    description:
+      "Create a new Job (Job Card) in the ASI Portal. Use this when a CRM lead is won and needs to convert into a scheduled job. Two input modes: (a) pass `leadId` to pull client/contact/org from the won lead and back-link the resulting jobId to the lead's opportunity; (b) pass client details directly for a manual job. If `bookingDate` is supplied the job is created with status='scheduled' and scheduledDate set; otherwise status='pending'. Returns the new job document.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        leadId: { type: "string", description: "Optional. Won-lead Firestore ID to pull client/org/contact details from. Lead must be at stage 'won'." },
+        organizationId: { type: "string", description: "Optional. Existing organisation ID. Overrides the lead's organisation if also passing leadId." },
+        clientName: { type: "string", description: "Required if no leadId. Client/organisation name." },
+        clientEmail: { type: "string", description: "Required if no leadId. Primary contact email." },
+        clientPhone: { type: "string", description: "Optional contact phone." },
+        clientId: { type: "string", description: "Optional. Existing client user/org ID. Defaults to organizationId if not supplied." },
+        jobDescription: { type: "string", description: "Short description of the work (appears on the Job Card)." },
+        notes: { type: "string", description: "Internal notes / scope detail." },
+        bookingDate: { type: "string", description: "ISO date or datetime. If supplied, status='scheduled' and scheduledDate is set." },
+        bookingType: { type: "string", description: "Booking type label (e.g. 'on_site_install', 'workshop_repair', 'inspection')." },
+        siteLocation: {
+          type: "object",
+          description: "Site/job location.",
+          properties: { name: { type: "string" }, address: { type: "string" } },
+        },
+        division: { type: "string", enum: ["service", "distribution"], description: "Default 'service'. Use 'distribution' for APEAX product-only orders (CIPHER path)." },
+        jobType: { type: "string", description: "Free-text job type tag (e.g. 'PPF_INSTALL', 'INSPECTION', 'COMMERCIAL_FIT_OUT')." },
+        estimatedValue: { type: "number", description: "Optional estimated total job cost in AUD. Maps to totalJobCost." },
+        services: { type: "array", items: { type: "string" }, description: "Optional list of services / SKUs to perform on the job." },
+        sourceSystem: { type: "string", description: "Optional source-system tag for audit (e.g. 'sentinel_crm', 'athena_chat')." },
+        createdBy: { type: "string", description: "Agent/user creating the job. Defaults to 'mcp-agent'." },
+      },
+    },
+  },
+  {
     name: "get_bookings",
     description: "List bookings from the ASI Portal. Optionally filter by status or limit results.",
     inputSchema: {
@@ -3050,6 +3081,168 @@ async function handleUpdateJob(args: Record<string, unknown>) {
 
   const updated = await ref.get();
   return serializeDoc(updated.id, updated.data()!);
+}
+
+async function nextMcpJobNumber(): Promise<string> {
+  const year = new Date().getFullYear();
+  const yearSuffix = String(year).slice(-2);
+  const db = admin.firestore();
+  const counterRef = db.collection("counters").doc("jobs");
+  let num = 1;
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(counterRef);
+    const data = snap.data() as { seq?: number; year?: number } | undefined;
+    if (!snap.exists || data?.year !== year) {
+      tx.set(counterRef, { seq: 1, year });
+      num = 1;
+    } else {
+      num = (data?.seq || 0) + 1;
+      tx.update(counterRef, { seq: num });
+    }
+  });
+  return `JOB-${yearSuffix}-${String(num).padStart(4, "0")}`;
+}
+
+async function handleCreateJob(args: Record<string, unknown>) {
+  const db = admin.firestore();
+  const now = admin.firestore.FieldValue.serverTimestamp();
+  const nowIso = new Date().toISOString();
+  const createdBy = typeof args.createdBy === "string" && args.createdBy ? args.createdBy : "mcp-agent";
+
+  // Resolve client/org details — either from leadId or from direct args.
+  let clientName = typeof args.clientName === "string" ? args.clientName : "";
+  let clientEmail = typeof args.clientEmail === "string" ? args.clientEmail : "";
+  let clientPhone = typeof args.clientPhone === "string" ? args.clientPhone : "";
+  let organizationId = typeof args.organizationId === "string" ? args.organizationId : "";
+  let clientId = typeof args.clientId === "string" ? args.clientId : "";
+
+  let leadDoc: FirebaseFirestore.DocumentData | null = null;
+  let leadId = "";
+  if (typeof args.leadId === "string" && args.leadId) {
+    leadId = args.leadId;
+    const leadRef = db.collection(COLLECTIONS.LEADS).doc(leadId);
+    const leadSnap = await leadRef.get();
+    if (!leadSnap.exists) throw new Error(`Lead '${leadId}' not found.`);
+    leadDoc = leadSnap.data()!;
+    if (leadDoc.stage !== "won") {
+      throw new Error(`Lead '${leadId}' must be at stage 'won' before creating a Job. Current stage: '${leadDoc.stage}'.`);
+    }
+    if (!clientName) clientName = String(leadDoc.companyName || "");
+    const contacts = Array.isArray(leadDoc.contacts) ? leadDoc.contacts : [];
+    const primary = contacts.find((c: Record<string, unknown>) => c.isPrimary) || contacts[0];
+    if (primary && typeof primary === "object") {
+      const p = primary as Record<string, unknown>;
+      if (!clientEmail && typeof p.email === "string") clientEmail = p.email;
+      if (!clientPhone && typeof p.phone === "string") clientPhone = p.phone;
+    }
+    if (!organizationId && typeof leadDoc.existingOrganizationId === "string") {
+      organizationId = leadDoc.existingOrganizationId;
+    }
+  }
+
+  if (!clientName) throw new Error("clientName is required (or pass a won leadId to inherit from the lead).");
+  if (!clientId) clientId = organizationId || `mcp-${Date.now()}`;
+
+  const services = Array.isArray(args.services)
+    ? (args.services as unknown[]).filter((s) => typeof s === "string") as string[]
+    : [];
+  const totalJobCost = typeof args.estimatedValue === "number" ? args.estimatedValue : undefined;
+  const jobDescription = typeof args.jobDescription === "string" && args.jobDescription
+    ? args.jobDescription
+    : (services.length > 0 ? `Job: ${services.join(", ")}` : `Job for ${clientName}`);
+
+  // Booking handling
+  let status: string = "pending";
+  let scheduledDate: FirebaseFirestore.Timestamp | undefined;
+  let booking: Record<string, unknown> | undefined;
+  if (typeof args.bookingDate === "string" && args.bookingDate) {
+    const parsed = new Date(args.bookingDate.length === 10 ? `${args.bookingDate}T00:00:00` : args.bookingDate);
+    if (Number.isNaN(parsed.getTime())) throw new Error(`Invalid bookingDate: '${args.bookingDate}'.`);
+    scheduledDate = admin.firestore.Timestamp.fromDate(parsed);
+    status = "scheduled";
+    booking = stripUndefined({
+      scheduledDate,
+      bookingType: typeof args.bookingType === "string" ? args.bookingType : undefined,
+      bookedAt: now,
+      bookedBy: createdBy,
+    });
+  }
+
+  const division = args.division === "distribution" ? "distribution" : "service";
+  const jobType = typeof args.jobType === "string" ? args.jobType : undefined;
+
+  const siteLocationRaw = (args.siteLocation || {}) as Record<string, unknown>;
+  const siteLocation = (typeof siteLocationRaw.name === "string" || typeof siteLocationRaw.address === "string")
+    ? stripUndefined({
+        name: typeof siteLocationRaw.name === "string" ? siteLocationRaw.name : undefined,
+        address: typeof siteLocationRaw.address === "string" ? siteLocationRaw.address : undefined,
+      })
+    : undefined;
+
+  const jobNumber = await nextMcpJobNumber();
+  const initialNote = leadId
+    ? `Created from won lead ${leadDoc?.leadNumber || leadId} via MCP create_job.`
+    : `Created via MCP create_job by ${createdBy}.`;
+
+  const payload = stripUndefined({
+    jobNumber,
+    jobDescription,
+    division,
+    jobType,
+    sourceSystem: typeof args.sourceSystem === "string" ? args.sourceSystem : (leadId ? "crm_lead_won" : "mcp_create_job"),
+    clientId,
+    clientName,
+    clientEmail: clientEmail || "",
+    clientPhone: clientPhone || undefined,
+    organizationId: organizationId || undefined,
+    vehicles: [],
+    jobVehicles: [],
+    damage: [],
+    status,
+    assignedTechnicians: [],
+    assignedTechnicianIds: [],
+    booking,
+    scheduledDate,
+    siteLocation,
+    statusLog: [{
+      status,
+      changedAt: nowIso,
+      changedBy: createdBy,
+      note: initialNote,
+    }],
+    totalJobCost,
+    sourceLeadId: leadId || undefined,
+    services: services.length > 0 ? services : undefined,
+    notes: typeof args.notes === "string" ? args.notes : undefined,
+    createdAt: now,
+    createdBy,
+    updatedAt: now,
+    isDeleted: false,
+  });
+
+  const jobRef = await db.collection(COLLECTIONS.JOBS).add(payload);
+
+  // Back-link to the opportunity (the won-lead conversion creates an Opportunity
+  // doc — we append the new jobId to its convertedJobIds array so the CRM/Sales
+  // Engine can show the realised work against the opportunity).
+  if (leadId) {
+    const oppQuery = await db.collection(COLLECTIONS.OPPORTUNITIES)
+      .where("leadId", "==", leadId)
+      .orderBy("createdAt", "desc")
+      .limit(1)
+      .get()
+      .catch(() => null);
+    if (oppQuery && !oppQuery.empty) {
+      const oppRef = oppQuery.docs[0].ref;
+      await oppRef.set({
+        convertedJobIds: admin.firestore.FieldValue.arrayUnion(jobRef.id),
+        updatedAt: now,
+      }, { merge: true });
+    }
+  }
+
+  const created = await jobRef.get();
+  return serializeDoc(created.id, created.data()!);
 }
 
 async function handleGetBookings(args: Record<string, unknown>) {
@@ -7933,6 +8126,7 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
     case "get_jobs":             return handleGetJobs(args);
     case "get_job":              return handleGetJob(args);
     case "update_job":           return handleUpdateJob(args);
+    case "create_job":           return handleCreateJob(args);
     case "get_bookings":         return handleGetBookings(args);
     case "get_inspections":      return handleGetInspections(args);
     case "get_ims_documents":    return handleGetImsDocuments(args);
