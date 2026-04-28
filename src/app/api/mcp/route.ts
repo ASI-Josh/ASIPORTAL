@@ -3980,15 +3980,28 @@ async function handleCreateLead(args: Record<string, unknown>) {
     ? (supplierTypeRaw && validSupplierTypes.includes(supplierTypeRaw) ? supplierTypeRaw : "vendor")
     : undefined;
 
-  const payload = {
+  // Build the source sub-object with undefined values stripped so
+  // Firestore doesn't reject the whole write. Admin SDK throws
+  // "Cannot use 'undefined' as a Firestore value" on any nested
+  // undefined — that was SENTINEL's "Firestore undefined error on
+  // companyWebsite" symptom.
+  const source = stripUndefined({
+    type: "osint",
+    osintScanDate: sourceRaw.osint_scan_date as string | undefined,
+    osintFinding: sourceRaw.finding as string | undefined,
+    osintPillar: sourceRaw.pillar as string | undefined,
+    osintRelevanceScore: sourceRaw.relevance_score as number | undefined,
+  });
+
+  const payload = stripUndefined({
     leadNumber,
     streamType,
-    ...(marketSegment ? { marketSegment } : {}),
-    ...(supplierType ? { supplierType } : {}),
+    marketSegment,
+    supplierType,
     companyName: String(args.company),
-    companyWebsite: args.companyWebsite as string | undefined,
+    companyWebsite: typeof args.companyWebsite === "string" ? args.companyWebsite : undefined,
     sector: String(args.sector || "other"),
-    existingOrganizationId: args.existingOrganizationId as string | undefined,
+    existingOrganizationId: typeof args.existingOrganizationId === "string" ? args.existingOrganizationId : undefined,
     isExistingClient: Boolean(args.isExistingClient),
     contacts,
     bantScore,
@@ -3997,14 +4010,8 @@ async function handleCreateLead(args: Record<string, unknown>) {
     stage,
     stageHistory: [],
     stageEnteredAt: new Date().toISOString(),
-    source: {
-      type: "osint",
-      osintScanDate: sourceRaw.osint_scan_date as string | undefined,
-      osintFinding: sourceRaw.finding as string | undefined,
-      osintPillar: sourceRaw.pillar as string | undefined,
-      osintRelevanceScore: sourceRaw.relevance_score as number | undefined,
-    },
-    estimatedValue: args.estimated_value as number | undefined,
+    source,
+    estimatedValue: typeof args.estimated_value === "number" ? args.estimated_value : undefined,
     estimatedServices: (args.estimated_services as string[]) || [],
     painPoints: (args.pain_points as string[]) || [],
     asiSolutionFit: (args.asi_solution_fit as string[]) || [],
@@ -4015,8 +4022,8 @@ async function handleCreateLead(args: Record<string, unknown>) {
     },
     outreachHistory: [],
     marketMode: String(args.market_mode || "growth"),
-    nextAction: args.next_action as string | undefined,
-    nextActionDate: args.follow_up_date as string | undefined,
+    nextAction: typeof args.next_action === "string" ? args.next_action : undefined,
+    nextActionDate: typeof args.follow_up_date === "string" ? args.follow_up_date : undefined,
     notes: String(args.notes || ""),
     tags: ((args.tags as string[]) || []).concat(["osint"]).filter((v, i, a) => a.indexOf(v) === i),
     osintHook: typeof args.osintHook === "string" ? args.osintHook : null,
@@ -4027,7 +4034,7 @@ async function handleCreateLead(args: Record<string, unknown>) {
     updatedAt: now,
     createdBy: "mcp-agent",
     isDeleted: false,
-  };
+  });
 
   const ref = await db.collection(COLLECTIONS.LEADS).add(payload);
   return { id: ref.id, leadNumber, stage, bantScore, leadGrade, companyName: payload.companyName };
