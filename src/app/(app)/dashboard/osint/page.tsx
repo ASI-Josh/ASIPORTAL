@@ -177,11 +177,34 @@ export default function OSINTPage() {
     if (!selectedDate || !firebaseUser) return;
     setLoading(true);
     setError("");
+    setScan(null);
     getToken().then((token) =>
       fetch(`/api/osint/${selectedDate}`, { headers: { Authorization: `Bearer ${token}` } })
-        .then((r) => r.json())
-        .then((data) => { setScan(data); setLoading(false); })
-        .catch(() => { setError("Failed to load scan data."); setLoading(false); })
+        .then(async (r) => {
+          // Don't blindly setScan — a 404/400 response is JSON like
+          // { error: "..." } and would pass the `scan &&` truthy check
+          // below, then crash on scan.metadata.totalFindings. Treat any
+          // non-OK status (or any payload missing the metadata block) as
+          // an error and keep scan null so the error card renders cleanly.
+          if (!r.ok) {
+            let msg = `Server returned ${r.status}.`;
+            try {
+              const body = await r.json();
+              if (body?.error) msg = String(body.error);
+            } catch { /* fall through with default */ }
+            throw new Error(msg);
+          }
+          const data = await r.json();
+          if (!data || typeof data !== "object" || !data.metadata) {
+            throw new Error("Scan payload is missing metadata — Firestore document may be incomplete.");
+          }
+          setScan(data);
+          setLoading(false);
+        })
+        .catch((err) => {
+          setError(err instanceof Error && err.message ? err.message : "Failed to load scan data.");
+          setLoading(false);
+        })
     ).catch(() => { setError("Auth error."); setLoading(false); });
   }, [selectedDate, firebaseUser]);
 
@@ -274,13 +297,13 @@ export default function OSINTPage() {
               </SelectContent>
             </Select>
           )}
-          {scan && (
+          {scan && scan.metadata && (
             <div className="flex items-center gap-2 flex-wrap">
-              <Badge variant="outline">{scan.metadata.totalFindings} findings</Badge>
+              <Badge variant="outline">{scan.metadata.totalFindings ?? 0} findings</Badge>
               <Badge className="bg-emerald-500/15 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/15">
-                {scan.metadata.highRelevanceCount} high relevance
+                {scan.metadata.highRelevanceCount ?? 0} high relevance
               </Badge>
-              {scan.metadata.urgentCount > 0 && (
+              {(scan.metadata.urgentCount ?? 0) > 0 && (
                 <Badge className="bg-red-500/15 text-red-400 border-red-500/30 hover:bg-red-500/15">
                   <AlertTriangle className="w-3 h-3 mr-1" />
                   {scan.metadata.urgentCount} urgent
@@ -404,8 +427,8 @@ export default function OSINTPage() {
                         </td>
                         <td className="px-4 py-3 text-muted-foreground">{opp.action}</td>
                         <td className="px-4 py-3">
-                          <span className={`px-2 py-1 rounded text-xs font-semibold capitalize ${URGENCY_STYLES[opp.urgency]}`}>
-                            {opp.urgency}
+                          <span className={`px-2 py-1 rounded text-xs font-semibold capitalize ${URGENCY_STYLES[opp.urgency] || "bg-muted text-muted-foreground"}`}>
+                            {opp.urgency || "—"}
                           </span>
                         </td>
                       </tr>
