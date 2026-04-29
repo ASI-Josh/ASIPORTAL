@@ -3083,24 +3083,97 @@ async function handleUpdateJob(args: Record<string, unknown>) {
   return serializeDoc(updated.id, updated.data()!);
 }
 
-async function nextMcpJobNumber(): Promise<string> {
+// Mirrors src/lib/firestore.ts normaliseJobCode — keeps the MCP path in lockstep
+// with the historical Client-SDK job-numbering convention (NUL-26-0017 etc).
+function normaliseJobCodeForMcp(value: string): string {
+  const cleaned = value.replace(/[^a-zA-Z0-9]/g, "");
+  if (!cleaned) return "JOB";
+  const upper = cleaned.toUpperCase();
+  return upper.length >= 3 ? upper.slice(0, 3) : upper.padEnd(3, "X");
+}
+
+const ORG_NAME_STOPWORDS = new Set([
+  "pty", "ltd", "limited", "the", "and", "group", "company", "co", "inc",
+  "australia", "aust",
+]);
+
+// Mirrors src/lib/firestore.ts getOrganizationJobCode but reads from a plain
+// Firestore document data object (Admin SDK shape) rather than the typed
+// ContactOrganization. Falls back to clientName if no org doc was found.
+function deriveJobCodeFromOrgOrName(
+  orgData: FirebaseFirestore.DocumentData | null,
+  fallbackClientName: string
+): string {
+  // 1. Explicit jobCode on the org doc wins.
+  if (orgData?.jobCode && typeof orgData.jobCode === "string" && orgData.jobCode.trim()) {
+    return normaliseJobCodeForMcp(orgData.jobCode.trim());
+  }
+
+  // 2. Domain-derived code.
+  const domains = Array.isArray(orgData?.domains) ? (orgData!.domains as string[]) : [];
+  const firstDomain = domains.find((d) => typeof d === "string" && d);
+  if (firstDomain) {
+    const base = firstDomain.replace(/^www\./i, "").split(".")[0] || "";
+    const domainCode = normaliseJobCodeForMcp(base);
+    if (domainCode !== "JOB") return domainCode;
+  }
+
+  // 3. First non-stopword token of org name (or fall back to clientName arg).
+  const sourceName =
+    (typeof orgData?.name === "string" && orgData.name) ? orgData.name : fallbackClientName;
+  const cleanedName = sourceName.replace(/[^a-zA-Z0-9 ]/g, " ");
+  const words = cleanedName
+    .split(/\s+/)
+    .filter((word: string) => word && !ORG_NAME_STOPWORDS.has(word.toLowerCase()));
+  const base = words[0] || cleanedName || "JOB";
+  return normaliseJobCodeForMcp(base);
+}
+
+// Per-client sequential job number for the current calendar year. Mirrors the
+// existing Client-SDK generateJobNumber: query the highest jobNumber matching
+// the prefix, increment by 1. No global counter — keeps continuity with the
+// historical NUL-26-XXXX series.
+async function nextMcpJobNumber(
+  jobCode: string,
+  organizationId: string | undefined
+): Promise<string> {
   const year = new Date().getFullYear();
   const yearSuffix = String(year).slice(-2);
+  const prefix = `${jobCode}-${yearSuffix}-`;
   const db = admin.firestore();
-  const counterRef = db.collection("counters").doc("jobs");
-  let num = 1;
-  await db.runTransaction(async (tx) => {
-    const snap = await tx.get(counterRef);
-    const data = snap.data() as { seq?: number; year?: number } | undefined;
-    if (!snap.exists || data?.year !== year) {
-      tx.set(counterRef, { seq: 1, year });
-      num = 1;
-    } else {
-      num = (data?.seq || 0) + 1;
-      tx.update(counterRef, { seq: num });
+
+  // Prefer organizationId-scoped query when we have one (matches Client SDK
+  // behaviour); fall back to scanning by jobNumber prefix otherwise.
+  let highestSeq = 0;
+  if (organizationId) {
+    const snap = await db
+      .collection(COLLECTIONS.JOBS)
+      .where("organizationId", "==", organizationId)
+      .get();
+    for (const doc of snap.docs) {
+      const jn = doc.data().jobNumber as string | undefined;
+      if (jn && jn.startsWith(prefix)) {
+        const n = parseInt(jn.split("-")[2] || "", 10);
+        if (Number.isFinite(n) && n > highestSeq) highestSeq = n;
+      }
     }
-  });
-  return `JOB-${yearSuffix}-${String(num).padStart(4, "0")}`;
+  } else {
+    // No org link — scan a recent slice and filter by prefix.
+    const snap = await db
+      .collection(COLLECTIONS.JOBS)
+      .orderBy("createdAt", "desc")
+      .limit(500)
+      .get();
+    for (const doc of snap.docs) {
+      const jn = doc.data().jobNumber as string | undefined;
+      if (jn && jn.startsWith(prefix)) {
+        const n = parseInt(jn.split("-")[2] || "", 10);
+        if (Number.isFinite(n) && n > highestSeq) highestSeq = n;
+      }
+    }
+  }
+
+  return `${prefix}${String(highestSeq + 1).padStart(4, "0")}`;
 }
 
 async function handleCreateJob(args: Record<string, unknown>) {
@@ -3179,7 +3252,16 @@ async function handleCreateJob(args: Record<string, unknown>) {
       })
     : undefined;
 
-  const jobNumber = await nextMcpJobNumber();
+  // Resolve the org doc (if we have one) so we can mirror the historical
+  // client-prefixed job-number convention (NUL-26-0017 etc). Falls back to
+  // deriving the prefix from clientName when no org link is present.
+  let orgData: FirebaseFirestore.DocumentData | null = null;
+  if (organizationId) {
+    const orgSnap = await db.collection(COLLECTIONS.CONTACT_ORGANIZATIONS).doc(organizationId).get();
+    if (orgSnap.exists) orgData = orgSnap.data()!;
+  }
+  const jobCode = deriveJobCodeFromOrgOrName(orgData, clientName);
+  const jobNumber = await nextMcpJobNumber(jobCode, organizationId || undefined);
   const initialNote = leadId
     ? `Created from won lead ${leadDoc?.leadNumber || leadId} via MCP create_job.`
     : `Created via MCP create_job by ${createdBy}.`;
