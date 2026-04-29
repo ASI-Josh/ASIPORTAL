@@ -10125,7 +10125,30 @@ async function handleGmailStatus(args: Record<string, unknown>) {
     const profile = await gmailGetProfileForAccount(fromAccount) as { emailAddress?: string; messagesTotal?: number; threadsTotal?: number };
     return { connected: true, fromAccount, email: profile.emailAddress, messagesTotal: profile.messagesTotal, threadsTotal: profile.threadsTotal };
   } catch (err) {
-    return { connected: false, fromAccount, error: err instanceof Error ? err.message : "Not connected" };
+    const errorMsg = err instanceof Error ? err.message : "Not connected";
+    // Distinguish three failure classes so agents can act on the result
+    // without the operator hand-decoding the Google error JSON:
+    //   - tokenExchangeFailed: JWT-to-access-token call rejected (DWD/scope/SA-key issue)
+    //   - apiCallFailed: token issued but Gmail API rejected the user (impersonated user not provisioned, suspended, or DWD propagation lag)
+    //   - unknown: anything else (network, code bug)
+    let failureClass: "tokenExchangeFailed" | "apiCallFailed" | "unknown" = "unknown";
+    let remediation = "";
+    if (errorMsg.includes("Service account token exchange failed")) {
+      failureClass = "tokenExchangeFailed";
+      remediation =
+        "Check Workspace Admin → Security → API controls → Domain-wide Delegation: confirm the service account Client ID has the gmail scopes authorised. Also verify GOOGLE_SERVICE_ACCOUNT_B64 in Netlify env vars hasn't drifted.";
+    } else if (errorMsg.includes("UNAUTHENTICATED") || errorMsg.includes("Invalid Credentials") || errorMsg.includes("authError")) {
+      failureClass = "apiCallFailed";
+      remediation =
+        "Service-account JWT exchange succeeded, but Gmail rejected the impersonation. Most likely causes: (1) the impersonated user account was recently created/recreated and DWD hasn't propagated (wait up to 24h, typically 5-15min), (2) Gmail service is OFF for that user's OU in Workspace Admin → Apps → Google Workspace → Gmail → Service status, (3) the user is suspended. The other agent mailboxes working confirms the service-account credentials and DWD scopes are intact.";
+    }
+    return {
+      connected: false,
+      fromAccount,
+      error: errorMsg,
+      failureClass,
+      remediation: remediation || undefined,
+    };
   }
 }
 
@@ -10171,19 +10194,25 @@ async function handleGmailReadThread(args: Record<string, unknown>) {
 
 /**
  * Normalise the attachments param into the shape gmail.ts expects.
- * Accepts the array of {path, filename?, contentType?} objects, drops
- * anything malformed silently rather than throwing — the gmail-side
- * resolver does the real validation (path allowlist + size caps + read).
+ * Accepts items with either `brochure` (server-resident alias) or `path`
+ * (absolute path). Drops anything malformed silently — the gmail-side
+ * resolver does the real validation (alias map + path allowlist + size
+ * caps + file read).
  */
-function normaliseAttachments(raw: unknown): Array<{ path: string; filename?: string; contentType?: string }> | undefined {
+function normaliseAttachments(raw: unknown): Array<{ path?: string; brochure?: string; filename?: string; contentType?: string }> | undefined {
   if (!Array.isArray(raw) || raw.length === 0) return undefined;
-  const out: Array<{ path: string; filename?: string; contentType?: string }> = [];
+  const out: Array<{ path?: string; brochure?: string; filename?: string; contentType?: string }> = [];
   for (const item of raw) {
     if (!item || typeof item !== "object") continue;
     const a = item as Record<string, unknown>;
-    if (typeof a.path !== "string" || !a.path.trim()) continue;
+    const hasBrochure = typeof a.brochure === "string" && a.brochure.trim();
+    const hasPath = typeof a.path === "string" && a.path.trim();
+    // Item must carry one of the two — drop entries that have neither so a
+    // typo doesn't silently send an empty attachments array.
+    if (!hasBrochure && !hasPath) continue;
     out.push({
-      path: a.path.trim(),
+      ...(hasBrochure ? { brochure: (a.brochure as string).trim() } : {}),
+      ...(hasPath ? { path: (a.path as string).trim() } : {}),
       ...(typeof a.filename === "string" && a.filename.trim() ? { filename: a.filename.trim() } : {}),
       ...(typeof a.contentType === "string" && a.contentType.trim() ? { contentType: a.contentType.trim() } : {}),
     });
