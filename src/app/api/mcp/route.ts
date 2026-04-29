@@ -2079,7 +2079,7 @@ const TOOLS: McpTool[] = [
   },
   {
     name: "gmail_send",
-    description: "Send an email from a specific mailbox. Use 'accountmanager' for LEDGER (signs as 'James Ledger'), 'development' for sales/R&D correspondence, or omit from_account for Joshua's personal account. All sends are audit-logged to agentEmailAudit with the agent_identity (pass your agent name e.g. 'LEDGER'). Supports file attachments via the `attachments` array — pass absolute paths under approved roots (ASI Approved Sales Materials, ASI CENTCOM, Accounts Team). Per-file cap 20MB, total cap 24MB. Attachment filenames are recorded on the audit log.",
+    description: "Send an email from a specific mailbox. Use 'accountmanager' for LEDGER (signs as 'James Ledger'), 'development' for sales/R&D correspondence, or omit from_account for Joshua's personal account. All sends are audit-logged to agentEmailAudit with the agent_identity (pass your agent name e.g. 'LEDGER'). Supports file attachments via the `attachments` array. SERVER-RESIDENT AGENTS (SENTINEL/MERCER/VANGUARD/ATHENA/ARCHER): use the `brochure` alias key — `hv_services` (HV PDI brochure for SENTINEL), `lv_services` (Passenger/LV brochure for MERCER), `apeax_catalogue` (APEAX 2026 catalogue), `nuline_case_study` (Nuline Bus 52 proof point). Local-dev callers can pass an absolute `path` instead. Per-file cap 20MB, total cap 24MB. Attachment filenames are recorded on the audit log.",
     inputSchema: {
       type: "object",
       properties: {
@@ -2095,15 +2095,15 @@ const TOOLS: McpTool[] = [
         thread_id: { type: "string", description: "Thread ID to add this message to (for replies)" },
         attachments: {
           type: "array",
-          description: "Optional file attachments. Each entry is an object with `path` (absolute path under an approved root, e.g. C:\\\\Users\\\\jhyde_zzz3b9b\\\\Documents\\\\Claude\\\\Projects\\\\ASI CENTCOM\\\\ASI Approved Sales Materials\\\\ASI HV PDI & Fleet Support Services.pdf), optional `filename` (display name in the email; defaults to the file's basename), optional `contentType` (MIME type; auto-detected from extension if omitted).",
+          description: "Optional file attachments. Each entry is either { brochure: '<alias>' } (preferred for server-resident agents) or { path: '<absolute path>' } (local-dev callers only — server can't reach DIRECTOR's local disk). Brochure aliases: 'hv_services' (SENTINEL HV PDI brochure), 'lv_services' (MERCER passenger/LV brochure), 'apeax_catalogue' (APEAX 2026 catalogue), 'nuline_case_study' (Nuline Bus 52 case study). Optional `filename` overrides the display name; optional `contentType` overrides the auto-detected MIME type.",
           items: {
             type: "object",
             properties: {
-              path: { type: "string", description: "Absolute file path on disk." },
+              brochure: { type: "string", enum: ["hv_services", "lv_services", "apeax_catalogue", "nuline_case_study"], description: "Approved brochure alias (server-resident; preferred for SENTINEL/MERCER/VANGUARD/ATHENA/ARCHER)." },
+              path: { type: "string", description: "Absolute file path on disk. Local-dev only — server can't reach C:\\Users\\... paths." },
               filename: { type: "string", description: "Display filename in the email (optional)." },
               contentType: { type: "string", description: "MIME type override (optional, auto-detected from extension)." },
             },
-            required: ["path"],
           },
         },
       },
@@ -2125,15 +2125,15 @@ const TOOLS: McpTool[] = [
         bcc: { type: "string", description: "BCC recipients" },
         attachments: {
           type: "array",
-          description: "Optional file attachments. Same shape as gmail_send.attachments. Approved roots: ASI Approved Sales Materials, ASI CENTCOM, Accounts Team. Per-file cap 20MB, total cap 24MB.",
+          description: "Optional file attachments. Same shape as gmail_send.attachments. Server-resident agents (SENTINEL/MERCER/VANGUARD/ATHENA/ARCHER): use `brochure` alias key. Local-dev callers can pass `path`. Aliases: 'hv_services', 'lv_services', 'apeax_catalogue', 'nuline_case_study'. Per-file cap 20MB, total cap 24MB.",
           items: {
             type: "object",
             properties: {
-              path: { type: "string", description: "Absolute file path on disk." },
+              brochure: { type: "string", enum: ["hv_services", "lv_services", "apeax_catalogue", "nuline_case_study"], description: "Approved brochure alias." },
+              path: { type: "string", description: "Absolute file path on disk (local-dev only)." },
               filename: { type: "string", description: "Display filename (optional)." },
               contentType: { type: "string", description: "MIME type override (optional)." },
             },
-            required: ["path"],
           },
         },
       },

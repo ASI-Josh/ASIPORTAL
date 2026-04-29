@@ -625,13 +625,40 @@ export async function gmailTrashMessage(accessToken: string, messageId: string) 
 // or arbitrary disk content, every attachment path is normalised and
 // validated against an allowlist of approved roots.
 
+// Server-resident brochure directory: ships with the deployment under
+// public/brochures/ so MCP-server-resident agents (SENTINEL, MERCER, VANGUARD,
+// ATHENA, ARCHER) can attach approved sales materials regardless of where the
+// caller's local disk is mounted. Same dir is exposed publicly via Next's
+// /public route, but the gmail.ts path uses the filesystem read directly.
+const BROCHURES_DIR = path.join(process.cwd(), "public", "brochures");
+
+// Brochure alias map: stable keys agents pass instead of full paths. Resolves
+// against BROCHURES_DIR. Update both this map and public/brochures/ when new
+// approved brochures are added. Agents are encouraged to call with
+// `{ brochure: "<key>" }` rather than full paths — survives any future move
+// of BROCHURES_DIR.
+//
+// Canonical aliases (keep in sync with public/brochures/ contents):
+//   hv_services       → ASI HV PDI & Fleet Support Services brochure (SENTINEL HV outreach)
+//   lv_services       → ASI Pre-Delivery Passenger/LV Services brochure (MERCER passenger/trade outreach)
+//   apeax_catalogue   → ASI × APEAX 2026 catalogue (SHIELD/MERCER/SENTINEL APEAX cross-sell)
+//   nuline_case_study → ASI/Nuline Bus 52 case study (SENTINEL HV proof point)
+export const BROCHURE_ALIASES: Record<string, string> = {
+  hv_services: "asi-hv-pdi-fleet-support.pdf",
+  lv_services: "asi-pre-delivery-passenger-lv.pdf",
+  apeax_catalogue: "asi-apeax-catalogue-2026.pdf",
+  nuline_case_study: "asi-nuline-bus52-case-study.pdf",
+};
+
 const ATTACHMENT_ALLOWLIST_ROOTS = [
-  // ASI Approved Sales Materials — primary location for agent brochure/case-study attachments
+  // Primary: server-bundled brochures dir — works on Netlify Linux runtime.
+  BROCHURES_DIR,
+  // Local-dev paths (DIRECTOR's machine): kept so agents called from a local
+  // dev session can still attach files from the canonical local locations.
   "C:\\Users\\jhyde_zzz3b9b\\Documents\\Claude\\Projects\\ASI CENTCOM\\ASI Approved Sales Materials",
-  // Common project asset roots used by agents
   "C:\\Users\\jhyde_zzz3b9b\\Documents\\Claude\\Projects\\ASI CENTCOM",
   "C:\\Users\\jhyde_zzz3b9b\\Documents\\Claude\\Projects\\Accounts Team",
-  // Linux-style allowlist for non-Windows runtimes (e.g. CI / Linux containers)
+  // Linux-style mount paths for any future shared-volume setup
   "/mnt/asi-attachments",
   "/tmp/asi-attachments",
 ];
@@ -659,7 +686,17 @@ const CONTENT_TYPE_BY_EXT: Record<string, string> = {
 };
 
 export interface AttachmentInput {
-  path: string;
+  /**
+   * Absolute file path under an approved allowlist root. Either `path` or
+   * `brochure` must be supplied (brochure takes precedence if both are set).
+   */
+  path?: string;
+  /**
+   * Approved-brochure alias key (see BROCHURE_ALIASES). Recommended path for
+   * MCP-server-resident agents — resolves to a server-bundled file regardless
+   * of caller machine.
+   */
+  brochure?: string;
   filename?: string;
   contentType?: string;
 }
@@ -694,14 +731,41 @@ async function resolveAttachments(inputs: AttachmentInput[]): Promise<ResolvedAt
   let totalBytes = 0;
 
   for (const input of inputs) {
-    if (!input || typeof input.path !== "string" || !input.path.trim()) {
-      throw new Error("Attachment path is required.");
+    if (!input || (typeof input.path !== "string" && typeof input.brochure !== "string")) {
+      throw new Error("Attachment requires either `path` or `brochure` (alias key).");
     }
-    const abs = path.resolve(input.path);
+
+    // Alias path: agent passed `brochure: "hv_services"`. Resolve from
+    // BROCHURE_ALIASES against the server-bundled BROCHURES_DIR.
+    let rawPath: string;
+    let sourceLabel: string;
+    if (typeof input.brochure === "string" && input.brochure.trim()) {
+      const aliasKey = input.brochure.trim();
+      const filename = BROCHURE_ALIASES[aliasKey];
+      if (!filename) {
+        const available = Object.keys(BROCHURE_ALIASES).join(", ");
+        throw new Error(
+          `Unknown brochure alias '${aliasKey}'. Available aliases: ${available}. Add new entries to BROCHURE_ALIASES in src/lib/server/gmail.ts.`
+        );
+      }
+      rawPath = path.join(BROCHURES_DIR, filename);
+      sourceLabel = `brochure:${aliasKey}`;
+    } else if (typeof input.path === "string" && input.path.trim()) {
+      rawPath = input.path;
+      sourceLabel = input.path;
+    } else {
+      throw new Error("Attachment requires either `path` or `brochure` (alias key).");
+    }
+
+    const abs = path.resolve(rawPath);
 
     if (!isPathUnderAllowlist(abs)) {
+      const aliases = Object.keys(BROCHURE_ALIASES).join(", ");
       throw new Error(
-        `Attachment path not in allowlist: '${input.path}'. Approved roots: ASI CENTCOM, ASI Approved Sales Materials, Accounts Team. Add new roots to ATTACHMENT_ALLOWLIST_ROOTS in src/lib/server/gmail.ts if a new location is needed.`
+        `Attachment path not in allowlist: '${sourceLabel}'. ` +
+        `MCP-server-resident agents (SENTINEL/MERCER/VANGUARD/ATHENA/ARCHER) cannot reach DIRECTOR's local disk — ` +
+        `use the \`brochure\` alias instead of \`path\`. Approved aliases: ${aliases}. ` +
+        `For non-brochure attachments add new roots to ATTACHMENT_ALLOWLIST_ROOTS in src/lib/server/gmail.ts.`
       );
     }
 
@@ -710,12 +774,12 @@ async function resolveAttachments(inputs: AttachmentInput[]): Promise<ResolvedAt
       data = await fs.readFile(abs);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      throw new Error(`Failed to read attachment '${input.path}': ${msg}`);
+      throw new Error(`Failed to read attachment '${sourceLabel}': ${msg}`);
     }
 
     if (data.length > MAX_ATTACHMENT_BYTES) {
       throw new Error(
-        `Attachment '${input.path}' is ${(data.length / 1024 / 1024).toFixed(1)}MB. Per-file limit is ${MAX_ATTACHMENT_BYTES / 1024 / 1024}MB.`
+        `Attachment '${sourceLabel}' is ${(data.length / 1024 / 1024).toFixed(1)}MB. Per-file limit is ${MAX_ATTACHMENT_BYTES / 1024 / 1024}MB.`
       );
     }
     totalBytes += data.length;
