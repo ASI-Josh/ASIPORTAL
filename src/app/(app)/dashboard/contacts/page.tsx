@@ -23,6 +23,7 @@ import {
   Mail,
   Phone,
   MapPin,
+  Truck,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -74,6 +75,8 @@ import {
   OrganizationStatus,
   UserInvite,
   UserRole,
+  getOrganizationCategories,
+  organizationHasCategory,
 } from "@/lib/types";
 import { initialOrganizations, initialContacts } from "@/lib/contacts-data";
 import { COLLECTIONS, addDocument, createDocument } from "@/lib/firestore";
@@ -82,6 +85,7 @@ import { db } from "@/lib/firebaseClient";
 type OrganizationFormData = {
   name: string;
   category: ContactCategory;
+  categories: ContactCategory[];
   abn: string;
   accountsEmail: string;
   marketStream: MarketStream | "";
@@ -109,6 +113,7 @@ type ContactFormData = {
 const initialOrgForm: OrganizationFormData = {
   name: "",
   category: "trade_client",
+  categories: ["trade_client"],
   abn: "",
   accountsEmail: "",
   marketStream: "",
@@ -417,7 +422,7 @@ export default function ContactsPage() {
 
   const filteredOrganizations = organizations.filter(
     (org) =>
-      org.category === activeTab &&
+      organizationHasCategory(org, activeTab) &&
       org.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
@@ -449,12 +454,39 @@ export default function ContactsPage() {
     return "customer";
   };
 
+  // When an org wears multiple hats, pick the "most customer-facing" type:
+  // customer > partner > supplier. Used so a Trade + Subcontractor + Distribution
+  // org is treated as a customer for invoicing/CRM purposes.
+  const getOrganizationTypeForCategories = (cats: ContactCategory[]) => {
+    const types = cats.map(getOrganizationTypeForCategory);
+    if (types.includes("customer")) return "customer" as const;
+    if (types.includes("partner")) return "partner" as const;
+    return "supplier" as const;
+  };
+
+  const toggleFormCategory = (cat: ContactCategory) => {
+    setOrgForm((prev) => {
+      const has = prev.categories.includes(cat);
+      let next = has
+        ? prev.categories.filter((c) => c !== cat)
+        : [...prev.categories, cat];
+      if (next.length === 0) next = [cat];
+      return {
+        ...prev,
+        categories: next,
+        category: next[0],
+      };
+    });
+  };
+
   const handleOpenOrgDialog = (org?: ContactOrganization) => {
     if (org) {
       setEditingOrg(org);
+      const orgCategories = getOrganizationCategories(org);
       setOrgForm({
         name: org.name,
         category: org.category,
+        categories: orgCategories,
         abn: org.abn || "",
         accountsEmail: org.accountsEmail || "",
         marketStream: org.marketStream || "",
@@ -475,6 +507,7 @@ export default function ContactsPage() {
       setOrgForm({
         ...initialOrgForm,
         category: activeTab,
+        categories: [activeTab],
         portalRole: getDefaultPortalRoleForCategory(activeTab),
       });
     }
@@ -523,7 +556,9 @@ export default function ContactsPage() {
       }
       await updateDoc(doc(db, COLLECTIONS.CONTACT_ORGANIZATIONS, editingOrg.id), {
         name: orgForm.name,
-        category: orgForm.category,
+        category: orgForm.categories[0],
+        categories: orgForm.categories,
+        type: getOrganizationTypeForCategories(orgForm.categories),
         abn: orgForm.abn.trim(),
         accountsEmail: orgForm.accountsEmail.trim(),
         marketStream: orgForm.marketStream || "",
@@ -538,8 +573,9 @@ export default function ContactsPage() {
     } else {
       await addDocument(COLLECTIONS.CONTACT_ORGANIZATIONS, {
         name: orgForm.name,
-        category: orgForm.category,
-        type: getOrganizationTypeForCategory(orgForm.category),
+        category: orgForm.categories[0],
+        categories: orgForm.categories,
+        type: getOrganizationTypeForCategories(orgForm.categories),
         status: orgForm.status,
         abn: orgForm.abn.trim(),
         accountsEmail: orgForm.accountsEmail.trim(),
@@ -958,6 +994,8 @@ export default function ContactsPage() {
                 <TabsTrigger key={cat} value={cat} className="gap-2">
                   {cat === "asi_staff" ? (
                     <Users className="h-4 w-4" />
+                  ) : cat === "distribution_client" ? (
+                    <Truck className="h-4 w-4" />
                   ) : (
                     <Building2 className="h-4 w-4" />
                   )}
@@ -992,10 +1030,19 @@ export default function ContactsPage() {
                                 </div>
                                 <div>
                                   <CardTitle className="text-lg">{org.name}</CardTitle>
-                                  <div className="flex items-center gap-2 mt-1">
+                                  <div className="flex items-center gap-2 mt-1 flex-wrap">
                                     <Badge variant={org.status === "active" ? "default" : "secondary"}>
                                       {org.status}
                                     </Badge>
+                                    {getOrganizationCategories(org).map((c) => (
+                                      <Badge
+                                        key={c}
+                                        variant={c === activeTab ? "default" : "outline"}
+                                        className={c === activeTab ? "" : "border-primary/40 text-primary"}
+                                      >
+                                        {CONTACT_CATEGORY_LABELS[c]}
+                                      </Badge>
+                                    ))}
                                     {org.marketStream && (
                                       <Badge variant="outline">{org.marketStream}</Badge>
                                     )}
@@ -1184,22 +1231,24 @@ export default function ContactsPage() {
                 />
               </div>
               <div className="grid gap-2">
-                <Label htmlFor="org-category">Category</Label>
-                <Select
-                  value={orgForm.category}
-                  onValueChange={(v) => setOrgForm({ ...orgForm, category: v as ContactCategory })}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(Object.keys(CONTACT_CATEGORY_LABELS) as ContactCategory[]).map((cat) => (
-                      <SelectItem key={cat} value={cat}>
-                        {CONTACT_CATEGORY_LABELS[cat]}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Label>Categories</Label>
+                <p className="text-xs text-muted-foreground -mt-1">
+                  An organisation can wear multiple hats (e.g. Trade + Subcontractor + Distribution).
+                </p>
+                <div className="grid grid-cols-2 gap-2 rounded-md border border-border/40 p-3">
+                  {(Object.keys(CONTACT_CATEGORY_LABELS) as ContactCategory[]).map((cat) => (
+                    <label
+                      key={cat}
+                      className="flex items-center gap-2 cursor-pointer text-sm"
+                    >
+                      <Checkbox
+                        checked={orgForm.categories.includes(cat)}
+                        onCheckedChange={() => toggleFormCategory(cat)}
+                      />
+                      <span>{CONTACT_CATEGORY_LABELS[cat]}</span>
+                    </label>
+                  ))}
+                </div>
               </div>
               <div className="grid gap-2">
                 <Label htmlFor="org-portal-role">Portal Role</Label>

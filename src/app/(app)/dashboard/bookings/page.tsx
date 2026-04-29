@@ -98,6 +98,8 @@ import {
   OrganizationContact,
   SiteLocation,
   Address,
+  organizationHasCategory,
+  organizationHasAnyCategory,
 } from "@/lib/types";
 import { initialOrganizations, initialContacts } from "@/lib/contacts-data";
 import { COLLECTIONS, addDocument, createDocument } from "@/lib/firestore";
@@ -467,7 +469,10 @@ export default function BookingsPage() {
   const [orgSearchQuery, setOrgSearchQuery] = useState("");
   const [isCreatingBooking, setIsCreatingBooking] = useState(false);
   const clientOrganizations = useMemo(
-    () => organizations.filter((org) => CLIENT_CONTACT_CATEGORIES.includes(org.category)),
+    () =>
+      organizations.filter((org) =>
+        organizationHasAnyCategory(org, CLIENT_CONTACT_CATEGORIES)
+      ),
     [organizations]
   );
   const filteredOrganizations = clientOrganizations.filter((org) => {
@@ -576,7 +581,7 @@ export default function BookingsPage() {
     const staffOrgs = organizations
       .map((org) => {
         const isAsiOrg =
-          org.category === "asi_staff" ||
+          organizationHasCategory(org, "asi_staff") ||
           org.domains?.some(
             (domain) => domain.toLowerCase().trim() === "asi-australia.com.au"
           );
@@ -584,7 +589,7 @@ export default function BookingsPage() {
           return { id: org.id, type: "asi_staff" as const };
         }
         const isSubcontractorOrg =
-          org.category === "subcontractor" || org.portalRole === "contractor";
+          organizationHasCategory(org, "subcontractor") || org.portalRole === "contractor";
         if (isSubcontractorOrg) {
           return { id: org.id, type: "subcontractor" as const };
         }

@@ -78,6 +78,8 @@ import {
   SiteLocation,
   Vehicle,
   VehicleReport,
+  organizationHasCategory,
+  organizationHasAnyCategory,
 } from "@/lib/types";
 import { createWorksRegisterEntry } from "@/lib/jobs-data";
 
@@ -473,7 +475,10 @@ export default function InspectionDetailPage() {
   });
 
   const clientOrganizations = useMemo(
-    () => organizations.filter((org) => CLIENT_CONTACT_CATEGORIES.includes(org.category)),
+    () =>
+      organizations.filter((org) =>
+        organizationHasAnyCategory(org, CLIENT_CONTACT_CATEGORIES)
+      ),
     [organizations]
   );
 
@@ -582,7 +587,7 @@ export default function InspectionDetailPage() {
     const asiOrgIds = organizations
       .filter(
         (org) =>
-          org.category === "asi_staff" ||
+          organizationHasCategory(org, "asi_staff") ||
           org.domains?.some(
             (domain) => domain.toLowerCase().trim() === "asi-australia.com.au"
           )

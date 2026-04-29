@@ -1394,6 +1394,7 @@ export type ContactCategory =
   | "retail_client"
   | "supplier_vendor"
   | "subcontractor"
+  | "distribution_client"
   | "asi_staff";
 
 export const CONTACT_CATEGORY_LABELS: Record<ContactCategory, string> = {
@@ -1401,10 +1402,37 @@ export const CONTACT_CATEGORY_LABELS: Record<ContactCategory, string> = {
   retail_client: "Retail Client",
   supplier_vendor: "Supplier/Vendor",
   subcontractor: "Subcontractor",
+  distribution_client: "Distribution Client",
   asi_staff: "ASI Staff",
 };
 
-export const CLIENT_CONTACT_CATEGORIES: ContactCategory[] = ["trade_client", "retail_client"];
+export const CLIENT_CONTACT_CATEGORIES: ContactCategory[] = [
+  "trade_client",
+  "retail_client",
+  "distribution_client",
+];
+
+export function getOrganizationCategories(
+  org: Pick<ContactOrganization, "category" | "categories">
+): ContactCategory[] {
+  if (org.categories && org.categories.length > 0) return org.categories;
+  return [org.category];
+}
+
+export function organizationHasCategory(
+  org: Pick<ContactOrganization, "category" | "categories">,
+  category: ContactCategory
+): boolean {
+  return getOrganizationCategories(org).includes(category);
+}
+
+export function organizationHasAnyCategory(
+  org: Pick<ContactOrganization, "category" | "categories">,
+  categories: ContactCategory[]
+): boolean {
+  const orgCats = getOrganizationCategories(org);
+  return categories.some((c) => orgCats.includes(c));
+}
 
 export type OrganizationType = "customer" | "supplier" | "partner";
 export type OrganizationStatus = "active" | "inactive" | "prospect";
@@ -1449,6 +1477,7 @@ export interface ContactOrganization {
   id: string;
   name: string;
   category: ContactCategory;
+  categories?: ContactCategory[];
   type: OrganizationType;
   status: OrganizationStatus;
   jobCode?: string;

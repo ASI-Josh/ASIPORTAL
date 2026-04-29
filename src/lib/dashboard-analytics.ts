@@ -1,5 +1,6 @@
 import {
   CLIENT_CONTACT_CATEGORIES,
+  organizationHasAnyCategory,
   type BookingType,
   type ContactOrganization,
   type Job,
@@ -307,7 +308,7 @@ export function calculateDashboardMetrics(params: {
   const inactiveClients: { name: string; daysInactive: number; lastActivity?: string }[] = [];
   const orgSources = params.organizations || [];
   orgSources
-    .filter((org) => CLIENT_CONTACT_CATEGORIES.includes(org.category))
+    .filter((org) => organizationHasAnyCategory(org, CLIENT_CONTACT_CATEGORIES))
     .forEach((org) => {
     const lastActivity = lastActivityByOrg.get(org.id) || toDate(org.updatedAt);
     const days = daysBetween(now, lastActivity);

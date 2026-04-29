@@ -46,6 +46,7 @@ import {
   MICROFIBER_DISK_GRADES,
   MICROFIBER_DISK_SIZES,
   calculateCostBreakdown,
+  organizationHasCategory,
 } from "@/lib/types";
 import {
   HSE_CONSEQUENCE,
@@ -763,14 +764,14 @@ export default function JobCardPage() {
     const staffOrgs = organizations
       .map((org) => {
         const isAsiOrg =
-          org.category === "asi_staff" ||
+          organizationHasCategory(org, "asi_staff") ||
           org.domains?.some(
             (domain) => domain.toLowerCase().trim() === "asi-australia.com.au"
           );
         if (isAsiOrg) return { id: org.id, type: "asi_staff" as const };
 
         const isSubcontractorOrg =
-          org.category === "subcontractor" || org.portalRole === "contractor";
+          organizationHasCategory(org, "subcontractor") || org.portalRole === "contractor";
         if (isSubcontractorOrg) return { id: org.id, type: "subcontractor" as const };
 
         return null;
