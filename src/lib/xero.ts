@@ -23,13 +23,18 @@ const XERO_CONNECTIONS_URL = "https://api.xero.com/connections";
 // Dropped the second-half scopes (manualjournals, the rest of
 // contacts/settings/attachments/journals) because one of them was
 // triggering "Invalid scope for client" and we didn't finish
-// isolating which. Manualjournals + journals.read aren't needed for
-// LEDGER's current reconciliation work. Contacts + settings +
-// attachments also aren't strictly needed for reconciliation
-// (contact creation already works through the existing token).
+// isolating which.
 //
-// If LEDGER needs any of the dropped scopes later, add them back
-// ONE at a time — the bad string will surface immediately.
+// 2026-04-30: added `accounting.attachments` after LEDGER hit
+// 401 attaching a job report PDF to an invoice via the Xero MCP.
+// This is the first re-add from the dropped batch — if Xero rejects
+// it with "Invalid scope for client" on next consent, drop it again
+// and we know which one it was. Keep adding the rest one at a time.
+//
+// IMPORTANT: scope changes don't take effect until the Xero org
+// owner disconnects + re-authorises the app (per the prompt=consent
+// note below). After deploy, do: Xero → Settings → Connected apps
+// → Disconnect ASI Portal → re-auth via /api/xero/connect.
 const SCOPES = [
   "openid",
   "profile",
@@ -41,6 +46,7 @@ const SCOPES = [
   "accounting.payments.read",
   "accounting.banktransactions",
   "accounting.banktransactions.read",
+  "accounting.attachments",
 ].join(" ");
 
 function getClientId() {
