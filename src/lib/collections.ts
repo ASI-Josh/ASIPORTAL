@@ -107,8 +107,14 @@ export const AGENT_MAILBOXES = {
   development: {
     address: "development@asi-australia.com.au",
     displayName: "ASI Development",
-    authorisedAgents: ["SENTINEL", "MERCER", "VANGUARD", "ARCHER"],
-    description: "Sales — HV/Bus/Coach (David Sentinel), Sales — Passenger/Trade (Emily Mercer), innovation/supply chain (Peter Vanguard), R&D & grants (Sophie Archer) correspondence",
+    authorisedAgents: ["SENTINEL", "MERCER", "VANGUARD"],
+    description: "Sales — HV/Bus/Coach (David Sentinel), Sales — Passenger/Trade (Emily Mercer), innovation/supply chain (Peter Vanguard) correspondence",
+  },
+  research: {
+    address: "research@asi-australia.com.au",
+    displayName: "Sophie Archer",
+    authorisedAgents: ["ARCHER"],
+    description: "ARCHER — R&D, grants, innovation projects, technical research correspondence (Sophie Archer)",
   },
   resources: {
     address: "resources@asi-australia.com.au",

@@ -2007,13 +2007,17 @@ const TOOLS: McpTool[] = [
   //   - "default" (or omit): Joshua's personal mailbox via OAuth
   //   - "accountmanager": LEDGER mailbox (accountmanager@asi-australia.com.au,
   //      human name "James Ledger") — service account delegation
-  //   - "development": Sales/pipeline/R&D mailbox
-  //      (development@asi-australia.com.au) — service account delegation
+  //   - "development": Sales/innovation mailbox
+  //      (development@asi-australia.com.au — SENTINEL/MERCER/VANGUARD)
+  //   - "research": R&D/grants mailbox
+  //      (research@asi-australia.com.au — ARCHER, "Sophie Archer")
+  //   - "resources": HR/training mailbox
+  //      (resources@asi-australia.com.au — VESTA, "Vesta Hearth")
   //
   // All send/draft/modify/trash actions are logged to the agentEmailAudit
   // Firestore collection for full traceability. Pass agent_identity
-  // (e.g. "LEDGER", "SENTINEL") so the audit log captures which agent
-  // initiated the action.
+  // (e.g. "LEDGER", "SENTINEL", "ARCHER") so the audit log captures which
+  // agent initiated the action.
   {
     name: "gmail_connect",
     description: "Get the Gmail OAuth authorization URL for the DEFAULT (Joshua's personal) account only. Agent mailboxes use service account delegation and do NOT need OAuth — no gmail_connect call needed for them.",
@@ -2025,7 +2029,7 @@ const TOOLS: McpTool[] = [
     inputSchema: {
       type: "object",
       properties: {
-        from_account: { type: "string", description: "Mailbox key: 'default' (Joshua), 'accountmanager' (LEDGER), 'development' (Sales/R&D). Defaults to 'default'." },
+        from_account: { type: "string", description: "Mailbox key: 'default' (Joshua), 'accountmanager' (LEDGER), 'development' (SENTINEL/MERCER/VANGUARD), 'research' (ARCHER), 'resources' (VESTA). Defaults to 'default'." },
       },
     },
   },
@@ -2035,7 +2039,7 @@ const TOOLS: McpTool[] = [
     inputSchema: {
       type: "object",
       properties: {
-        from_account: { type: "string", description: "Mailbox key: 'default', 'accountmanager', 'development'. Defaults to 'default'." },
+        from_account: { type: "string", description: "Mailbox key: 'default', 'accountmanager', 'development', 'research', 'resources'. Defaults to 'default'." },
       },
     },
   },
@@ -2045,7 +2049,7 @@ const TOOLS: McpTool[] = [
     inputSchema: {
       type: "object",
       properties: {
-        from_account: { type: "string", description: "Mailbox to search: 'default', 'accountmanager', 'development'. Defaults to 'default'." },
+        from_account: { type: "string", description: "Mailbox to search: 'default', 'accountmanager', 'development', 'research', 'resources'. Defaults to 'default'." },
         query: { type: "string", description: "Gmail search query (same syntax as Gmail search bar)" },
         max_results: { type: "number", description: "Max messages to return (default 20, max 100)" },
         page_token: { type: "string", description: "Pagination token from previous search" },
@@ -2079,11 +2083,11 @@ const TOOLS: McpTool[] = [
   },
   {
     name: "gmail_send",
-    description: "Send an email from a specific mailbox. Use 'accountmanager' for LEDGER (signs as 'James Ledger'), 'development' for sales/R&D correspondence, or omit from_account for Joshua's personal account. All sends are audit-logged to agentEmailAudit with the agent_identity (pass your agent name e.g. 'LEDGER'). Supports file attachments via the `attachments` array. SERVER-RESIDENT AGENTS (SENTINEL/MERCER/VANGUARD/ATHENA/ARCHER): use the `brochure` alias key — `hv_services` (HV PDI brochure for SENTINEL), `lv_services` (Passenger/LV brochure for MERCER), `apeax_catalogue` (APEAX 2026 catalogue), `nuline_case_study` (Nuline Bus 52 proof point). Local-dev callers can pass an absolute `path` instead. Per-file cap 20MB, total cap 24MB. Attachment filenames are recorded on the audit log.",
+    description: "Send an email from a specific mailbox. Use 'accountmanager' for LEDGER (signs as 'James Ledger'), 'development' for sales correspondence (SENTINEL/MERCER/VANGUARD), 'research' for ARCHER (signs as 'Sophie Archer' — R&D, grants, innovation), 'resources' for VESTA (HR/training), or omit from_account for Joshua's personal account. All sends are audit-logged to agentEmailAudit with the agent_identity (pass your agent name e.g. 'LEDGER'). Supports file attachments via the `attachments` array. SERVER-RESIDENT AGENTS (SENTINEL/MERCER/VANGUARD/ATHENA/ARCHER): use the `brochure` alias key — `hv_services` (HV PDI brochure for SENTINEL), `lv_services` (Passenger/LV brochure for MERCER), `apeax_catalogue` (APEAX 2026 catalogue), `nuline_case_study` (Nuline Bus 52 proof point). Local-dev callers can pass an absolute `path` instead. Per-file cap 20MB, total cap 24MB. Attachment filenames are recorded on the audit log.",
     inputSchema: {
       type: "object",
       properties: {
-        from_account: { type: "string", description: "Sending mailbox: 'default', 'accountmanager' (LEDGER/James Ledger), 'development' (Sales/R&D)." },
+        from_account: { type: "string", description: "Sending mailbox: 'default', 'accountmanager' (LEDGER/James Ledger), 'development' (Sales — SENTINEL/MERCER/VANGUARD), 'research' (ARCHER/Sophie Archer — R&D/grants), 'resources' (VESTA — HR/training)." },
         agent_identity: { type: "string", description: "Name of the agent sending (e.g. 'LEDGER', 'SENTINEL', 'VANGUARD'). Recorded in the audit log." },
         to: { type: "string", description: "Recipient email address(es), comma-separated for multiple" },
         subject: { type: "string", description: "Email subject line" },
@@ -2116,7 +2120,7 @@ const TOOLS: McpTool[] = [
     inputSchema: {
       type: "object",
       properties: {
-        from_account: { type: "string", description: "Mailbox to draft from: 'default', 'accountmanager', 'development'." },
+        from_account: { type: "string", description: "Mailbox to draft from: 'default', 'accountmanager', 'development', 'research', 'resources'." },
         agent_identity: { type: "string", description: "Name of the agent drafting (audit log)." },
         to: { type: "string", description: "Recipient email address(es)" },
         subject: { type: "string", description: "Email subject line" },
@@ -2209,7 +2213,7 @@ const TOOLS: McpTool[] = [
     inputSchema: {
       type: "object",
       properties: {
-        accountKey: { type: "string", description: "Filter by mailbox key: 'default', 'accountmanager', 'development'." },
+        accountKey: { type: "string", description: "Filter by mailbox key: 'default', 'accountmanager', 'development', 'research', 'resources'." },
         agentIdentity: { type: "string", description: "Filter by agent name (e.g. 'LEDGER')." },
         action: { type: "string", enum: ["send", "draft", "send_draft", "modify_labels", "trash"], description: "Filter by action type." },
         success: { type: "boolean", description: "Filter by success (true) or failures only (false)." },
@@ -10106,7 +10110,7 @@ async function handleGmailConnect() {
   const { randomBytes } = await import("crypto");
   const state = randomBytes(16).toString("hex");
   const url = buildGmailAuthUrl(state);
-  return { authUrl: url, instructions: "Open this URL in a browser to authorize Gmail access for Joshua's personal account. Agent mailboxes (accountmanager, development) use service account delegation and do NOT need OAuth." };
+  return { authUrl: url, instructions: "Open this URL in a browser to authorize Gmail access for Joshua's personal account. Agent mailboxes (accountmanager, development, research, resources) use service account delegation and do NOT need OAuth." };
 }
 
 function getFromAccount(args: Record<string, unknown>): string {
