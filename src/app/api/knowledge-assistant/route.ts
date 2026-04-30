@@ -218,12 +218,13 @@ export async function POST(req: NextRequest) {
       job: jobSummary,
     };
 
-    // When talking to Archer, skip the generic admin-wide live context.
-    // She doesn't need jobs/inspections/IMS — she needs R&D data, which
-    // we build directly below. The admin block adds ~6 Firestore reads
-    // and tens of KB of prompt text that bloats Anthropic's input tokens
-    // and pushes past the Netlify 60s function limit on cold starts.
-    if (role === "admin" && !isArcher) {
+    // When talking to Archer or Guardian, skip the generic admin-wide
+    // live context. They need narrow, role-specific data (R&D for Archer,
+    // IMS for Guardian) — the admin block adds ~10 Firestore reads and
+    // tens of KB of prompt text that bloats Anthropic input tokens and
+    // pushes past the Netlify function timeout on cold starts. Each
+    // agent branch builds its own slimmer context below.
+    if (role === "admin" && !isArcher && !isGuardian) {
       const { start, end, dateKey, timeZone } = getDayRange(DEFAULT_TIMEZONE);
       const startTs = admin.firestore.Timestamp.fromDate(start);
       const endTs = admin.firestore.Timestamp.fromDate(end);
@@ -465,6 +466,100 @@ export async function POST(req: NextRequest) {
             selectedProgrammeIds: d.selectedProgrammeIds,
             preFeas: d.preFeas,
             submittedByName: d.submittedByName,
+          };
+        });
+      }
+    } else if (isGuardian) {
+      // Guardian-specific live context — IMS posture only. Same reasoning
+      // as Archer: the generic admin block was bloating the prompt and
+      // tipping cold-start latency over the function limit. Guardian
+      // needs document state, open CAPAs, recent incidents, and risk
+      // register — nothing else.
+      const [docsSnap, capasSnap, incidentsSnap, risksSnap] = await Promise.all([
+        admin
+          .firestore()
+          .collection(COLLECTIONS.IMS_DOCUMENTS)
+          .orderBy("updatedAt", "desc")
+          .limit(25)
+          .get(),
+        admin
+          .firestore()
+          .collection(COLLECTIONS.IMS_CORRECTIVE_ACTIONS)
+          .where("status", "in", ["open", "in_progress"])
+          .limit(15)
+          .get()
+          .catch(() => null),
+        admin
+          .firestore()
+          .collection(COLLECTIONS.IMS_INCIDENTS)
+          .orderBy("createdAt", "desc")
+          .limit(10)
+          .get()
+          .catch(() => null),
+        admin
+          .firestore()
+          .collection(COLLECTIONS.IMS_RISK_REGISTER)
+          .limit(20)
+          .get()
+          .catch(() => null),
+      ]);
+
+      liveContext.imsDocuments = docsSnap.docs.map((docSnap) => {
+        const d = docSnap.data();
+        return {
+          id: docSnap.id,
+          docId: d.docId,
+          title: d.title,
+          type: d.type,
+          status: d.status,
+          approvalStatus: d.approvalStatus,
+          revisionNumber: d.revisionNumber,
+          processOwner: d.processOwner,
+          isoClauses: d.isoClauses,
+          nextReviewDate: d.nextReviewDate,
+          reviewOverdue: d.reviewOverdue,
+        };
+      });
+
+      if (capasSnap && !capasSnap.empty) {
+        liveContext.openCapas = capasSnap.docs.map((docSnap) => {
+          const d = docSnap.data();
+          return {
+            id: docSnap.id,
+            capaNumber: d.capaNumber,
+            title: d.title,
+            status: d.status,
+            severity: d.severity,
+            dueDate: d.dueDate,
+          };
+        });
+      }
+
+      if (incidentsSnap && !incidentsSnap.empty) {
+        liveContext.recentIncidents = incidentsSnap.docs.map((docSnap) => {
+          const d = docSnap.data();
+          return {
+            id: docSnap.id,
+            incidentNumber: d.incidentNumber,
+            title: d.title,
+            category: d.category,
+            severity: d.severity,
+            status: d.status,
+          };
+        });
+      }
+
+      if (risksSnap && !risksSnap.empty) {
+        liveContext.riskRegister = risksSnap.docs.map((docSnap) => {
+          const d = docSnap.data();
+          return {
+            id: docSnap.id,
+            title: d.title,
+            domain: d.domain,
+            likelihood: d.likelihood,
+            consequence: d.consequence,
+            ratingResidual: d.ratingResidual,
+            owner: d.owner,
           };
         });
       }

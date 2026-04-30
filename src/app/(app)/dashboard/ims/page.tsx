@@ -277,6 +277,26 @@ export default function ImsHubPage() {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ message: text, history: historyPayload, context: "dashboard", agentOverride: "guardian" }),
       });
+
+      // Netlify can return an HTML error page when the function times out
+      // (cold-start + Anthropic round-trip occasionally pushes past the
+      // function limit). Detect non-JSON responses up front so the user
+      // sees a clean "timed out" message instead of "Unexpected token <".
+      const contentType = res.headers.get("content-type") || "";
+      if (!contentType.includes("application/json")) {
+        const bodyText = await res.text().catch(() => "");
+        const looksLikeTimeout =
+          res.status === 504 ||
+          res.status === 502 ||
+          bodyText.toLowerCase().includes("timeout") ||
+          bodyText.toLowerCase().includes("<html");
+        throw new Error(
+          looksLikeTimeout
+            ? "GUARDIAN took too long to respond (likely a cold-start timeout). Try again — the second request usually succeeds because the function is warm."
+            : `GUARDIAN returned a non-JSON response (HTTP ${res.status}). Try again.`
+        );
+      }
+
       const data = (await res.json()) as {
         answer?: string;
         proposedActions?: ProposedAction[];
