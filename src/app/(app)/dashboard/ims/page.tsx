@@ -29,17 +29,20 @@ import { useSearchParams } from "next/navigation";
 import { collection, onSnapshot } from "firebase/firestore";
 import {
   ArrowDown,
+  CheckCircle2,
   ChevronDown,
   ChevronRight,
   ClipboardCheck,
   FileText,
   FolderTree,
   Layers,
+  Loader2,
   SendHorizonal,
   ShieldAlert,
   ShieldCheck,
   Eye,
   FlaskConical,
+  X,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -64,7 +67,51 @@ import {
 
 // ─── Chat types ───────────────────────────────────────────────────────────────
 
-type ChatMessage = { id: string; role: "assistant" | "user"; content: string };
+import type { ProposedAction } from "@/lib/assistant/internal-knowledge-schema";
+
+type ProposedActionState =
+  | { status: "pending" }
+  | { status: "confirming" }
+  | { status: "confirmed"; result?: unknown }
+  | { status: "dismissed" }
+  | { status: "error"; message: string };
+
+type ChatMessage = {
+  id: string;
+  role: "assistant" | "user";
+  content: string;
+  proposedActions?: Array<{ action: ProposedAction; state: ProposedActionState }>;
+};
+
+const ACTION_LABELS: Record<ProposedAction["kind"], { verb: string; subject: (a: ProposedAction) => string }> = {
+  create_ims_document_draft: {
+    verb: "Create draft",
+    subject: (a) =>
+      a.kind === "create_ims_document_draft"
+        ? `${a.payload.type.replace("_", " ")} — ${a.payload.title}`
+        : "",
+  },
+  update_ims_document: {
+    verb: "Update document",
+    subject: (a) => (a.kind === "update_ims_document" ? a.payload.id : ""),
+  },
+  submit_ims_document_for_review: {
+    verb: "Submit for review",
+    subject: (a) => (a.kind === "submit_ims_document_for_review" ? a.payload.id : ""),
+  },
+  approve_ims_document: {
+    verb: "Approve (Director only)",
+    subject: (a) => (a.kind === "approve_ims_document" ? a.payload.id : ""),
+  },
+  activate_ims_document: {
+    verb: "Activate (Director only)",
+    subject: (a) => (a.kind === "activate_ims_document" ? a.payload.id : ""),
+  },
+  obsolete_ims_document: {
+    verb: "Obsolete (Director only)",
+    subject: (a) => (a.kind === "obsolete_ims_document" ? a.payload.id : ""),
+  },
+};
 
 const GUARDIAN_PROMPTS = [
   "What's the current IMS status?",
@@ -230,11 +277,24 @@ export default function ImsHubPage() {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ message: text, history: historyPayload, context: "dashboard", agentOverride: "guardian" }),
       });
-      const data = await res.json();
+      const data = (await res.json()) as {
+        answer?: string;
+        proposedActions?: ProposedAction[];
+        error?: string;
+      };
       if (!res.ok) throw new Error(data.error || "Request failed.");
+      const proposedActions = (data.proposedActions || []).map((action) => ({
+        action,
+        state: { status: "pending" as const },
+      }));
       setMessages((prev) => [
         ...prev,
-        { id: `${Date.now()}-assistant`, role: "assistant", content: data.answer || "Ready." },
+        {
+          id: `${Date.now()}-assistant`,
+          role: "assistant",
+          content: data.answer || "Ready.",
+          proposedActions: proposedActions.length > 0 ? proposedActions : undefined,
+        },
       ]);
     } catch (err) {
       setMessages((prev) => [
@@ -244,6 +304,70 @@ export default function ImsHubPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  // Confirm a single proposed action — POSTs to the assistant-action
+  // route, which re-validates the payload, role-gates Director-only
+  // actions, and writes through to Firestore. Updates only the entry
+  // for the given (messageId, actionIndex) so other actions in the
+  // same message stay clickable.
+  const confirmAction = async (messageId: string, actionIndex: number) => {
+    if (!firebaseUser) return;
+    setMessages((prev) =>
+      prev.map((m) => {
+        if (m.id !== messageId || !m.proposedActions) return m;
+        const next = m.proposedActions.map((entry, i) =>
+          i === actionIndex ? { ...entry, state: { status: "confirming" as const } } : entry
+        );
+        return { ...m, proposedActions: next };
+      })
+    );
+    try {
+      const token = await firebaseUser.getIdToken();
+      const target = messages.find((m) => m.id === messageId)?.proposedActions?.[actionIndex];
+      if (!target) throw new Error("Action no longer in state.");
+      const res = await fetch("/api/assistant-action", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action: target.action }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Action failed.");
+      setMessages((prev) =>
+        prev.map((m) => {
+          if (m.id !== messageId || !m.proposedActions) return m;
+          const next = m.proposedActions.map((entry, i) =>
+            i === actionIndex
+              ? { ...entry, state: { status: "confirmed" as const, result: data.result } }
+              : entry
+          );
+          return { ...m, proposedActions: next };
+        })
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Action failed.";
+      setMessages((prev) =>
+        prev.map((m) => {
+          if (m.id !== messageId || !m.proposedActions) return m;
+          const next = m.proposedActions.map((entry, i) =>
+            i === actionIndex ? { ...entry, state: { status: "error" as const, message } } : entry
+          );
+          return { ...m, proposedActions: next };
+        })
+      );
+    }
+  };
+
+  const dismissAction = (messageId: string, actionIndex: number) => {
+    setMessages((prev) =>
+      prev.map((m) => {
+        if (m.id !== messageId || !m.proposedActions) return m;
+        const next = m.proposedActions.map((entry, i) =>
+          i === actionIndex ? { ...entry, state: { status: "dismissed" as const } } : entry
+        );
+        return { ...m, proposedActions: next };
+      })
+    );
   };
 
   return (
@@ -294,7 +418,7 @@ export default function ImsHubPage() {
 
             <div ref={scrollRef} className="h-[300px] overflow-y-auto px-5 py-3 space-y-3">
               {messages.map((msg) => (
-                <div key={msg.id} className={cn("flex", msg.role === "user" ? "justify-end" : "justify-start")}>
+                <div key={msg.id} className={cn("flex flex-col", msg.role === "user" ? "items-end" : "items-start")}>
                   <div className={cn(
                     "max-w-[80%] whitespace-pre-line rounded-2xl px-4 py-2.5 text-sm",
                     msg.role === "user"
@@ -309,6 +433,66 @@ export default function ImsHubPage() {
                     )}
                     {msg.content}
                   </div>
+                  {msg.role === "assistant" && msg.proposedActions && msg.proposedActions.length > 0 && (
+                    <div className="mt-2 max-w-[80%] w-full space-y-2">
+                      {msg.proposedActions.map((entry, idx) => {
+                        const meta = ACTION_LABELS[entry.action.kind];
+                        const subject = meta.subject(entry.action);
+                        return (
+                          <div
+                            key={`${msg.id}-action-${idx}`}
+                            className={cn(
+                              "rounded-xl border px-3 py-2 text-xs flex items-center gap-3",
+                              entry.state.status === "confirmed"
+                                ? "border-green-500/40 bg-green-500/10"
+                                : entry.state.status === "error"
+                                  ? "border-red-500/40 bg-red-500/10"
+                                  : entry.state.status === "dismissed"
+                                    ? "border-border/30 bg-background/40 opacity-50"
+                                    : "border-orange-500/30 bg-orange-500/5"
+                            )}
+                          >
+                            <div className="flex-1 min-w-0">
+                              <div className="font-semibold text-foreground">{meta.verb}</div>
+                              {subject && (
+                                <div className="text-muted-foreground truncate">{subject}</div>
+                              )}
+                              {entry.state.status === "confirmed" && (
+                                <div className="text-green-400 mt-1 flex items-center gap-1">
+                                  <CheckCircle2 className="h-3 w-3" /> Action committed.
+                                </div>
+                              )}
+                              {entry.state.status === "error" && (
+                                <div className="text-red-400 mt-1">{entry.state.message}</div>
+                              )}
+                            </div>
+                            {entry.state.status === "pending" && (
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                <Button
+                                  size="sm"
+                                  className="h-7 px-3 bg-orange-600 hover:bg-orange-700 text-white text-xs"
+                                  onClick={() => confirmAction(msg.id, idx)}
+                                >
+                                  Confirm
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-7 px-2 text-xs"
+                                  onClick={() => dismissAction(msg.id, idx)}
+                                >
+                                  <X className="h-3.5 w-3.5" />
+                                </Button>
+                              </div>
+                            )}
+                            {entry.state.status === "confirming" && (
+                              <Loader2 className="h-4 w-4 animate-spin text-orange-400 shrink-0" />
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               ))}
               {loading && (
