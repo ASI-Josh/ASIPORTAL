@@ -354,6 +354,38 @@ export async function resolveGmailAuth(fromAccount: string = "default"): Promise
   };
 }
 
+// ── Default-account signature ──
+//
+// Joshua's personal mailbox (the OAuth "default" account) doesn't have a
+// preset signature on the Gmail compose side when called via API, so we
+// append one programmatically here. Mirrors the brochure-alias attach
+// pattern: the caller doesn't pass it, the server resolves it from a
+// canonical source. Only fires for `from_account === "default"` (or
+// omitted); agent mailboxes (accountmanager / development / research /
+// resources) keep their own preset signatures, untouched.
+//
+// Idempotent: skips append if the body already contains the signature
+// (e.g. caller pasted it manually, or this is a thread where the prior
+// turn already had it).
+
+const DEFAULT_ACCOUNT_SIGNATURE = `Warm regards,
+
+Joshua Hyde
+
+Commercial Director
+Advanced Surface Innovations (ASI) Pty Ltd
++61 437 087 042
+www.asi-australia.com.au`;
+
+const DEFAULT_SIGNATURE_FINGERPRINT = "Joshua Hyde";
+
+function applyDefaultSignatureIfNeeded(accountKey: string, body: string): string {
+  if (accountKey !== "default") return body;
+  if (body.includes(DEFAULT_SIGNATURE_FINGERPRINT)) return body;
+  const trimmed = body.replace(/\s+$/, "");
+  return `${trimmed}\n\n--\n${DEFAULT_ACCOUNT_SIGNATURE}`;
+}
+
 // ── Agent email audit trail ──
 //
 // Every email sent from an agent mailbox (and optionally every read) is
@@ -947,12 +979,13 @@ export async function gmailSendMessageForAccount(
   const ctx = await resolveGmailAuth(fromAccount);
   const resolvedAttachments = await resolveAttachments(opts.attachments || []);
   const attachmentNames = resolvedAttachments.map((a) => a.filename);
+  const bodyWithSignature = applyDefaultSignatureIfNeeded(ctx.accountKey, opts.body);
   const raw = buildRawMimeMessage({
     fromAddress: ctx.fromAddress,
     displayName: ctx.displayName,
     to: opts.to,
     subject: opts.subject,
-    body: opts.body,
+    body: bodyWithSignature,
     cc: opts.cc,
     bcc: opts.bcc,
     replyTo: opts.replyTo,
@@ -1011,12 +1044,13 @@ export async function gmailCreateDraftForAccount(
   const ctx = await resolveGmailAuth(fromAccount);
   const resolvedAttachments = await resolveAttachments(opts.attachments || []);
   const attachmentNames = resolvedAttachments.map((a) => a.filename);
+  const bodyWithSignature = applyDefaultSignatureIfNeeded(ctx.accountKey, opts.body);
   const raw = buildRawMimeMessage({
     fromAddress: ctx.fromAddress,
     displayName: ctx.displayName,
     to: opts.to,
     subject: opts.subject,
-    body: opts.body,
+    body: bodyWithSignature,
     cc: opts.cc,
     bcc: opts.bcc,
     attachments: resolvedAttachments,
