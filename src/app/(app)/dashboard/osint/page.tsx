@@ -58,6 +58,30 @@ function formatDate(dateStr: string) {
   });
 }
 
+// Coerce anything non-array to []. A Firestore document with a malformed
+// field (string instead of array, object, null) would otherwise crash
+// `.map`/`.filter` in the render tree — see executiveSummary regression.
+function toArray<T>(v: unknown): T[] {
+  return Array.isArray(v) ? (v as T[]) : [];
+}
+
+// Normalise an OSINTScan so every array field is guaranteed to be an
+// array, including nested arrays on pillars and findings.
+function normaliseScan(raw: OSINTScan): OSINTScan {
+  return {
+    ...raw,
+    executiveSummary: toArray<string>(raw.executiveSummary),
+    pillars: toArray<OSINTPillar>(raw.pillars).map((p) => ({
+      ...p,
+      findings: toArray<OSINTFinding>(p.findings).map((f) => ({
+        ...f,
+        tags: toArray<FindingTag>(f.tags),
+      })),
+    })),
+    opportunityMatrix: toArray(raw.opportunityMatrix),
+  };
+}
+
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 function FilterButton({
@@ -198,7 +222,7 @@ export default function OSINTPage() {
           if (!data || typeof data !== "object" || !data.metadata) {
             throw new Error("Scan payload is missing metadata — Firestore document may be incomplete.");
           }
-          setScan(data);
+          setScan(normaliseScan(data as OSINTScan));
           setLoading(false);
         })
         .catch((err) => {
