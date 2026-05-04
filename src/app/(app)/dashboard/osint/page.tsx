@@ -137,8 +137,13 @@ function FindingCard({ finding }: { finding: OSINTFinding }) {
   );
 }
 
+// Fallback for pillars whose id isn't one of the four hardcoded keys —
+// keeps the page renderable when a Firestore scan introduces a new
+// pillar id (e.g. from an LLM-generated payload).
+const PILLAR_FALLBACK = { icon: Radar, color: "text-muted-foreground", bg: "bg-muted/30", label: "Pillar" } as const;
+
 function PillarSection({ pillar }: { pillar: OSINTPillar }) {
-  const config = PILLAR_CONFIG[pillar.id];
+  const config = PILLAR_CONFIG[pillar.id as keyof typeof PILLAR_CONFIG] ?? PILLAR_FALLBACK;
   const Icon = config.icon;
   return (
     <div className="space-y-3">
