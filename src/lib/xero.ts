@@ -19,22 +19,35 @@ const XERO_TOKEN_URL = "https://identity.xero.com/connect/token";
 const XERO_API_BASE = "https://api.xero.com/api.xro/2.0";
 const XERO_CONNECTIONS_URL = "https://api.xero.com/connections";
 
-// Working scope set — the first-half batch was confirmed working.
-// Dropped the second-half scopes (manualjournals, the rest of
-// contacts/settings/attachments/journals) because one of them was
-// triggering "Invalid scope for client" and we didn't finish
-// isolating which.
+// Working scope set — verified live against the production token via
+// xero_status diagnostic (2026-04-16). The token currently held in
+// xeroTokens/default has all 13 scopes below. This SCOPES constant has
+// been brought into alignment with the live token so a future
+// disconnect + reauth doesn't silently strip scopes the running app
+// already depends on.
 //
-// 2026-04-30: added `accounting.attachments` after LEDGER hit
-// 401 attaching a job report PDF to an invoice via the Xero MCP.
-// This is the first re-add from the dropped batch — if Xero rejects
-// it with "Invalid scope for client" on next consent, drop it again
-// and we know which one it was. Keep adding the rest one at a time.
+// History:
+// - Earlier scope bisect dropped contacts/settings/journals while
+//   isolating an "Invalid scope for client" error.
+// - 2026-04-30: added `accounting.attachments` to fix LEDGER's job
+//   report PDF attach 401 — confirmed working.
+// - 2026-04-16 (later): re-added `accounting.contacts` and
+//   `accounting.settings` after diagnostic confirmed both were already
+//   present on the live token (token issued under earlier broader
+//   grant; SCOPES const had drifted lower than the actual grant). This
+//   is config catching up to live state, NOT a new scope request — no
+//   reauth required.
+//
+// Future scope additions (manualjournals, journals, reports, etc.):
+// add ONE AT A TIME, deploy, disconnect the app in Xero, reauth, and
+// confirm the consent screen accepts the new scope. If Xero rejects
+// with "Invalid scope for client", drop it back and you've found the
+// bad string.
 //
 // IMPORTANT: scope changes don't take effect until the Xero org
 // owner disconnects + re-authorises the app (per the prompt=consent
-// note below). After deploy, do: Xero → Settings → Connected apps
-// → Disconnect ASI Portal → re-auth via /api/xero/connect.
+// note below). After deploy of new scopes, do: Xero → Settings →
+// Connected apps → Disconnect ASI Portal → re-auth via /api/xero/auth.
 const SCOPES = [
   "openid",
   "profile",
@@ -46,6 +59,8 @@ const SCOPES = [
   "accounting.payments.read",
   "accounting.banktransactions",
   "accounting.banktransactions.read",
+  "accounting.contacts",
+  "accounting.settings",
   "accounting.attachments",
 ].join(" ");
 
