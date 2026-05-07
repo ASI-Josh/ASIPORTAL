@@ -386,6 +386,63 @@ function applyDefaultSignatureIfNeeded(accountKey: string, body: string): string
   return `${trimmed}\n\n--\n${DEFAULT_ACCOUNT_SIGNATURE}`;
 }
 
+// ── SHIELD first-of-cycle CC guard ──
+//
+// SHIELD (Angela Shield, legal/compliance) shares the development@ mailbox
+// but does NOT yet have a Workspace-side "Send mail as" identity / preset
+// signature for her name. Until that's provisioned, the first SHIELD send
+// each ISO week (Mon 00:00 local → Sun 23:59) auto-CCs joshua@ for review.
+// Lifts as soon as the Workspace identity is in place — delete this block
+// + remove the call site below.
+
+const SHIELD_VERIFY_CC = "joshua@asi-australia.com.au";
+
+function isoWeekStartUtc(now: Date = new Date()): Date {
+  const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  // getUTCDay: 0 = Sun, 1 = Mon ... 6 = Sat. Roll back to Monday.
+  const dow = d.getUTCDay();
+  const daysSinceMonday = (dow + 6) % 7;
+  d.setUTCDate(d.getUTCDate() - daysSinceMonday);
+  return d;
+}
+
+async function shouldCcJoshuaForShield(agentIdentity?: string): Promise<boolean> {
+  if (agentIdentity !== "SHIELD") return false;
+  try {
+    const weekStart = isoWeekStartUtc();
+    const snap = await admin
+      .firestore()
+      .collection(COLLECTIONS.AGENT_EMAIL_AUDIT)
+      .where("agentIdentity", "==", "SHIELD")
+      .orderBy("createdAt", "desc")
+      .limit(20)
+      .get();
+    for (const doc of snap.docs) {
+      const data = doc.data() as {
+        action?: string;
+        success?: boolean;
+        createdAt?: { toMillis?: () => number };
+      };
+      if (data.action !== "send" || !data.success) continue;
+      const ts = data.createdAt?.toMillis?.() || 0;
+      if (ts >= weekStart.getTime()) return false;
+    }
+    return true;
+  } catch (err) {
+    // Fail-open on the verify side: if Firestore is unreachable, prefer
+    // CCing joshua over silently skipping the safety net.
+    console.error("[gmail] SHIELD cycle-check query failed, defaulting to CC joshua:", err);
+    return true;
+  }
+}
+
+function mergeCc(existing: string | undefined, addr: string): string {
+  if (!existing || !existing.trim()) return addr;
+  const parts = existing.split(",").map((p) => p.trim()).filter(Boolean);
+  if (parts.some((p) => p.toLowerCase().includes(addr.toLowerCase()))) return existing;
+  return [...parts, addr].join(", ");
+}
+
 // ── Agent email audit trail ──
 //
 // Every email sent from an agent mailbox (and optionally every read) is
@@ -980,13 +1037,16 @@ export async function gmailSendMessageForAccount(
   const resolvedAttachments = await resolveAttachments(opts.attachments || []);
   const attachmentNames = resolvedAttachments.map((a) => a.filename);
   const bodyWithSignature = applyDefaultSignatureIfNeeded(ctx.accountKey, opts.body);
+  const ccWithVerify = (await shouldCcJoshuaForShield(opts.agentIdentity))
+    ? mergeCc(opts.cc, SHIELD_VERIFY_CC)
+    : opts.cc;
   const raw = buildRawMimeMessage({
     fromAddress: ctx.fromAddress,
     displayName: ctx.displayName,
     to: opts.to,
     subject: opts.subject,
     body: bodyWithSignature,
-    cc: opts.cc,
+    cc: ccWithVerify,
     bcc: opts.bcc,
     replyTo: opts.replyTo,
     inReplyTo: opts.inReplyTo,
@@ -1014,7 +1074,7 @@ export async function gmailSendMessageForAccount(
       displayName: ctx.displayName,
       agentIdentity: opts.agentIdentity,
       to: opts.to,
-      cc: opts.cc,
+      cc: ccWithVerify,
       bcc: opts.bcc,
       subject: opts.subject,
       bodyPreview: opts.body.slice(0, 500),

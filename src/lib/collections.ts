@@ -107,8 +107,8 @@ export const AGENT_MAILBOXES = {
   development: {
     address: "development@asi-australia.com.au",
     displayName: "ASI Development",
-    authorisedAgents: ["SENTINEL", "MERCER", "VANGUARD"],
-    description: "Sales — HV/Bus/Coach (David Sentinel), Sales — Passenger/Trade (Emily Mercer), innovation/supply chain (Peter Vanguard) correspondence",
+    authorisedAgents: ["SENTINEL", "MERCER", "VANGUARD", "SHIELD"],
+    description: "Sales — HV/Bus/Coach (David Sentinel), Sales — Passenger/Trade (Emily Mercer), innovation/supply chain (Peter Vanguard), legal/compliance (Angela Shield) correspondence",
   },
   research: {
     address: "research@asi-australia.com.au",
