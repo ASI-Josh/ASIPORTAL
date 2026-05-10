@@ -81,6 +81,13 @@ const SCOPES = [
   "accounting.contacts",
   "accounting.settings",
   "accounting.attachments",
+  // Reports — granular scopes (verbatim from Xero docs). Group 1: the
+  // report types LEDGER calls most via xero_get_report.
+  "accounting.reports.profitandloss.read",      // ProfitAndLoss
+  "accounting.reports.balancesheet.read",        // BalanceSheet
+  "accounting.reports.aged.read",                // AgedReceivables + AgedPayables
+  "accounting.reports.banksummary.read",         // BankSummary
+  "accounting.reports.executivesummary.read",    // ExecutiveSummary
 ].join(" ");
 
 function getClientId() {
