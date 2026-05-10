@@ -88,12 +88,16 @@ const SCOPES = [
   "accounting.reports.aged.read",                // AgedReceivables + AgedPayables
   "accounting.reports.banksummary.read",         // BankSummary
   "accounting.reports.executivesummary.read",    // ExecutiveSummary
-  // Group 2 (remaining reports + journals + manual journals):
+  // Group 2a — remaining REPORT scopes only. Xero docs mark all three
+  // as "New" granular scopes, so they should be valid. The Group 2
+  // attempt that ALSO included accounting.journals.read +
+  // accounting.manualjournals failed with invalid_scope at consent —
+  // those two are NOT marked "New" in Xero's table, so likely not
+  // granular-provisioned on this app. Bisecting: report scopes stay,
+  // journals/manualjournals dropped pending isolation.
   "accounting.reports.trialbalance.read",        // TrialBalance
   "accounting.reports.budgetsummary.read",       // BudgetSummary
   "accounting.reports.taxreports.read",          // GSTReport + BASReport
-  "accounting.journals.read",                    // Journals (xero_get_history)
-  "accounting.manualjournals",                   // ManualJournals (xero_create_manual_journal)
 ].join(" ");
 
 function getClientId() {
