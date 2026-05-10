@@ -28,6 +28,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { collection, onSnapshot } from "firebase/firestore";
 import {
+  Archive,
   ArrowDown,
   CheckCircle2,
   ChevronDown,
@@ -147,6 +148,25 @@ function DocLine({ doc }: { doc: NormalisedDoc }) {
   );
 }
 
+// Archived / obsolete docs render as a NON-clickable line. Deliberately
+// not a <Link> — an obsolete document is superseded and must not be
+// reachable for use from the live IMS hub (ISO 7.5.3). Full audit
+// history of obsolete docs remains available via the Document Register
+// page, which shows status explicitly.
+function ArchivedDocLine({ doc }: { doc: NormalisedDoc }) {
+  return (
+    <div className="flex items-center justify-between gap-2 text-sm py-1 px-1 -mx-1 rounded opacity-60 select-none cursor-not-allowed">
+      <span className="truncate flex-1 min-w-0 text-muted-foreground line-through">
+        <span className="text-muted-foreground font-mono text-xs mr-2">{doc.docId}</span>
+        {doc.title}
+      </span>
+      <Badge variant="outline" className="text-[10px] border bg-red-500/15 text-red-300/80 border-red-500/30">
+        obsolete — superseded
+      </Badge>
+    </div>
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function ImsHubPage() {
@@ -168,6 +188,10 @@ export default function ImsHubPage() {
     const unsub = subscribeAllDocuments((docs) => setImsDocs(docs));
     return () => unsub();
   }, []);
+
+  // Archive card is collapsed by default — obsolete docs are reference-
+  // only and shouldn't compete for attention with the live IMS.
+  const [archiveOpen, setArchiveOpen] = useState(false);
 
   // Live register counts — one subscription per collection so the hub shows
   // real totals without any client-side joins
@@ -238,21 +262,35 @@ export default function ImsHubPage() {
     }
   }, [rndProjectTarget, rndNominationTarget]);
 
-  // Grouped live document lists
+  // Grouped live document lists.
+  //
+  // Active groups EXCLUDE obsolete docs — an obsolete document is
+  // superseded and must not be presented alongside current ones (ISO
+  // 7.5.3 control of documented information: prevent unintended use of
+  // obsolete documents). Obsolete docs are collected separately into
+  // `archivedDocs` and shown in a clearly-marked, read-only Archive
+  // card at the bottom of the IMS Structure section.
+  const isActiveDoc = (d: NormalisedDoc) => d.approvalStatus !== "obsolete";
+
   const policies = useMemo(
-    () => imsDocs.filter((d) => d.type === "policy").sort((a, b) => a.docId.localeCompare(b.docId)),
+    () => imsDocs.filter((d) => d.type === "policy" && isActiveDoc(d)).sort((a, b) => a.docId.localeCompare(b.docId)),
     [imsDocs]
   );
   const imsProcedures = useMemo(
-    () => imsDocs.filter((d) => d.type === "ims_procedure" || d.type === "procedure").sort((a, b) => a.docId.localeCompare(b.docId)),
+    () => imsDocs.filter((d) => (d.type === "ims_procedure" || d.type === "procedure") && isActiveDoc(d)).sort((a, b) => a.docId.localeCompare(b.docId)),
     [imsDocs]
   );
   const technicalProcedures = useMemo(
-    () => imsDocs.filter((d) => d.type === "technical_procedure" || d.type === "work_instruction").sort((a, b) => a.docId.localeCompare(b.docId)),
+    () => imsDocs.filter((d) => (d.type === "technical_procedure" || d.type === "work_instruction") && isActiveDoc(d)).sort((a, b) => a.docId.localeCompare(b.docId)),
     [imsDocs]
   );
   const manuals = useMemo(
-    () => imsDocs.filter((d) => d.type === "manual").sort((a, b) => a.docId.localeCompare(b.docId)),
+    () => imsDocs.filter((d) => d.type === "manual" && isActiveDoc(d)).sort((a, b) => a.docId.localeCompare(b.docId)),
+    [imsDocs]
+  );
+  // Obsolete / archived documents — every type, status === obsolete.
+  const archivedDocs = useMemo(
+    () => imsDocs.filter((d) => d.approvalStatus === "obsolete").sort((a, b) => a.docId.localeCompare(b.docId)),
     [imsDocs]
   );
 
@@ -718,6 +756,41 @@ export default function ImsHubPage() {
                 </CardContent>
               </Card>
             </div>
+
+            {/* Archive — obsolete / superseded documents. Collapsed by
+                default. Read-only: these are intentionally NOT linked from
+                here so an obsolete doc can't be opened and treated as
+                current (ISO 7.5.3 — prevention of unintended use of
+                obsolete documents). Full history remains in the Document
+                Register, which shows status explicitly. */}
+            {archivedDocs.length > 0 && (
+              <Card className="bg-background/40 border-red-500/20">
+                <button
+                  type="button"
+                  onClick={() => setArchiveOpen((o) => !o)}
+                  className="w-full flex items-center justify-between gap-2 px-4 py-3 hover:bg-red-500/5 transition-colors rounded-t-lg"
+                >
+                  <span className="flex items-center gap-2 text-sm font-medium text-red-300/80">
+                    <Archive className="h-4 w-4" />
+                    Archive — obsolete / superseded documents
+                    <Badge variant="outline" className="text-[10px] bg-red-500/15 text-red-300/80 border-red-500/30">
+                      {archivedDocs.length}
+                    </Badge>
+                  </span>
+                  {archiveOpen ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+                </button>
+                {archiveOpen && (
+                  <CardContent className="pt-0 pb-3 space-y-1">
+                    <p className="text-[11px] text-muted-foreground italic mb-2">
+                      These documents have been superseded and are retained for audit history only.
+                      They are not active and must not be used. To review one for record-keeping, open
+                      the <Link href="/dashboard/ims/documents" className="text-primary hover:underline">Document Register</Link>.
+                    </p>
+                    {archivedDocs.map((d) => <ArchivedDocLine key={d.id} doc={d} />)}
+                  </CardContent>
+                )}
+              </Card>
+            )}
           </div>
         </CardContent>
       </Card>
