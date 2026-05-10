@@ -497,13 +497,14 @@ export const XERO_TOOLS: McpTool[] = [
         },
         fromDate: { type: "string", description: "Period start date ISO (for P&L, BAS, etc.)." },
         toDate: { type: "string", description: "Period end date ISO." },
-        date: { type: "string", description: "As-at date ISO (for Balance Sheet, Aged Receivables/Payables, Trial Balance)." },
+        date: { type: "string", description: "As-at date ISO (for Balance Sheet, Trial Balance, Bank Summary, Aged reports)." },
         periods: { type: "number", description: "Number of comparison periods (1-12, for P&L and Balance Sheet)." },
         timeframe: { type: "string", enum: ["MONTH", "QUARTER", "YEAR"], description: "Comparison timeframe when using periods." },
         trackingCategoryId: { type: "string", description: "Optional tracking category filter." },
         trackingOptionId: { type: "string", description: "Optional tracking option filter." },
         standardLayout: { type: "boolean", description: "If true, use Xero's standard report layout instead of custom." },
         paymentsOnly: { type: "boolean", description: "If true, cash-basis report (for BAS/GST on cash basis)." },
+        contactId: { type: "string", description: "MANDATORY for AgedReceivablesByContact and AgedPayablesByContact — the Xero ContactID to age. Use xero_list_contacts to find it. Ignored for other report types." },
       },
       required: ["reportType"],
     },
@@ -1089,6 +1090,7 @@ export async function callXeroTool(name: string, args: Record<string, unknown>):
         trackingOptionId: typeof args.trackingOptionId === "string" ? args.trackingOptionId : undefined,
         standardLayout: typeof args.standardLayout === "boolean" ? args.standardLayout : undefined,
         paymentsOnly: typeof args.paymentsOnly === "boolean" ? args.paymentsOnly : undefined,
+        contactId: typeof args.contactId === "string" ? args.contactId : undefined,
       });
     }
 

@@ -967,6 +967,7 @@ export async function xeroGetReport(options: {
   trackingOptionId?: string;
   standardLayout?: boolean;
   paymentsOnly?: boolean;   // BAS / cash basis
+  contactId?: string;       // MANDATORY for AgedReceivablesByContact / AgedPayablesByContact
 }): Promise<unknown> {
   const params = new URLSearchParams();
   if (options.fromDate) params.set("fromDate", options.fromDate);
@@ -978,6 +979,20 @@ export async function xeroGetReport(options: {
   if (options.trackingOptionId) params.set("trackingOptionID", options.trackingOptionId);
   if (options.standardLayout !== undefined) params.set("standardLayout", String(options.standardLayout));
   if (options.paymentsOnly !== undefined) params.set("paymentsOnly", String(options.paymentsOnly));
+  if (options.contactId) params.set("contactID", options.contactId);
+
+  // Aged reports require a contactID — fail fast with a clear message
+  // rather than letting Xero return a cryptic 400.
+  if (
+    (options.reportType === "AgedReceivablesByContact" ||
+      options.reportType === "AgedPayablesByContact") &&
+    !options.contactId
+  ) {
+    throw new Error(
+      `${options.reportType} requires a contactId parameter (the Xero ContactID to age). ` +
+      `Use xero_list_contacts to find the ContactID first.`
+    );
+  }
 
   const qs = params.toString();
   const path = `/Reports/${options.reportType}${qs ? `?${qs}` : ""}`;
