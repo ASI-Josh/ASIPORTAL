@@ -19,49 +19,78 @@ const XERO_TOKEN_URL = "https://identity.xero.com/connect/token";
 const XERO_API_BASE = "https://api.xero.com/api.xro/2.0";
 const XERO_CONNECTIONS_URL = "https://api.xero.com/connections";
 
-// Working scope set — verified live against the production token via
-// xero_status diagnostic (2026-04-16). The token currently held in
-// xeroTokens/default has all 13 scopes below. This SCOPES constant has
-// been brought into alignment with the live token so a future
-// disconnect + reauth doesn't silently strip scopes the running app
-// already depends on.
+// ── Xero OAuth scope set ──
+//
+// This app uses Xero's GRANULAR scope model (apps created after
+// 2 March 2026). The old broad scopes — `accounting.transactions`,
+// `accounting.reports.read` (singular), standalone `accounting.invoices`
+// without a sub-scope — DO NOT EXIST for this app and requesting them
+// returns `unauthorized_client: Invalid scope for client`.
+//
+// The 10 granular accounting scopes (from Xero docs, verbatim):
+//   accounting.invoices                      (read+write, paired with .read for read-only)
+//   accounting.payments
+//   accounting.banktransactions
+//   accounting.manualjournals
+//   accounting.classicexpenses
+//   accounting.reports.aged.read             (Aged Receivables + Aged Payables)
+//   accounting.reports.balancesheet.read
+//   accounting.reports.banksummary.read
+//   accounting.reports.executivesummary.read
+//   accounting.reports.profitandloss.read
+// Plus the non-granular standbys still valid:
+//   accounting.contacts, accounting.settings, accounting.attachments,
+//   accounting.journals.read
+// Ref: https://developer.xero.com/documentation/guides/oauth2/scopes
+//      https://developer.xero.com/faq/granular-scopes
 //
 // History:
 // - Earlier scope bisect dropped contacts/settings/journals while
-//   isolating an "Invalid scope for client" error.
-// - 2026-04-30: added `accounting.attachments` to fix LEDGER's job
-//   report PDF attach 401 — confirmed working.
-// - 2026-04-16 (later): re-added `accounting.contacts` and
-//   `accounting.settings` after diagnostic confirmed both were already
-//   present on the live token (token issued under earlier broader
-//   grant; SCOPES const had drifted lower than the actual grant). This
-//   is config catching up to live state, NOT a new scope request — no
-//   reauth required.
+//   isolating "Invalid scope for client" — the culprit was almost
+//   certainly the (non-existent) broad `accounting.reports.read`.
+// - 2026-04-30: added `accounting.attachments` (job report PDF attach
+//   fix) — confirmed working.
+// - 2026-04-16: re-added contacts + settings after diagnostic showed
+//   they were already on the live token.
+// - 2026-05-10: token revoked at Xero's side (billing suspension
+//   triggered Xero to de-authorise the app). Full reauth required
+//   anyway, so this is the moment to add the report scopes LEDGER
+//   needs for xero_get_report (P&L, BS, Aged R/P, BankSummary, Exec
+//   Summary), plus accounting.manualjournals for month-end journals
+//   and accounting.journals.read for xero_get_history. All scope
+//   strings below are confirmed-valid granular scopes from Xero docs.
 //
-// Future scope additions (manualjournals, journals, reports, etc.):
-// add ONE AT A TIME, deploy, disconnect the app in Xero, reauth, and
-// confirm the consent screen accepts the new scope. If Xero rejects
-// with "Invalid scope for client", drop it back and you've found the
-// bad string.
-//
-// IMPORTANT: scope changes don't take effect until the Xero org
-// owner disconnects + re-authorises the app (per the prompt=consent
-// note below). After deploy of new scopes, do: Xero → Settings →
-// Connected apps → Disconnect ASI Portal → re-auth via /api/xero/auth.
+// IMPORTANT: scope changes do NOT take effect until the Xero org owner
+// disconnects + re-authorises the app. `prompt=consent` is poison on
+// this app (returns the same "Invalid scope for client" error). To
+// force a fresh consent screen: app.xero.com → Settings → Connected
+// apps → Advanced Surface Innovations → Disconnect, THEN visit
+// /api/xero/auth. Deploying a new scope list without disconnect+reauth
+// is a silent no-op (refresh-token flow preserves the original grant).
 const SCOPES = [
   "openid",
   "profile",
   "email",
   "offline_access",
+  // Core accounting (transactional)
   "accounting.invoices",
   "accounting.invoices.read",
   "accounting.payments",
   "accounting.payments.read",
   "accounting.banktransactions",
   "accounting.banktransactions.read",
+  "accounting.manualjournals",
+  // Reference data
   "accounting.contacts",
   "accounting.settings",
   "accounting.attachments",
+  "accounting.journals.read",
+  // Reports (granular — required for xero_get_report)
+  "accounting.reports.profitandloss.read",
+  "accounting.reports.balancesheet.read",
+  "accounting.reports.aged.read",
+  "accounting.reports.banksummary.read",
+  "accounting.reports.executivesummary.read",
 ].join(" ");
 
 function getClientId() {
