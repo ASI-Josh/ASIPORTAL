@@ -109,18 +109,48 @@ export async function runWorkflowJson<T extends z.ZodTypeAny>({
         return { parsed: schemaResult.data as z.infer<T>, raw: jsonStr };
       }
 
-      // Schema validation failed — attempt salvage by keeping the answer
-      // and filling the missing fields with safe defaults.
-      const salvage = schema.safeParse({
-        ...(parsed && typeof parsed === "object" ? parsed : {}),
-        answer:
-          (parsed && typeof parsed === "object" && "answer" in parsed && typeof (parsed as { answer?: unknown }).answer === "string"
-            ? (parsed as { answer: string }).answer
-            : raw.trim()) ||
-          "I couldn't format a structured response, but I'm ready for your next question.",
-      });
-      if (salvage.success) {
-        return { parsed: salvage.data as z.infer<T>, raw: jsonStr };
+      // Schema validation failed. Salvage in stages — most useful first:
+      //
+      // Stage 1: keep everything the model gave us, but strip the optional
+      //   array fields that commonly come back malformed (proposedActions
+      //   is the big one — a bad discriminated-union entry tanks the whole
+      //   response). Better the admin gets the prose answer + follow-ups
+      //   than a hard 500 because one side-car field was the wrong shape.
+      //
+      // Stage 2: bare minimum — just the answer text.
+      const parsedObj =
+        parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : {};
+      const answerText =
+        (typeof parsedObj.answer === "string" && parsedObj.answer.trim()) ||
+        raw.trim() ||
+        "I couldn't format a structured response, but I'm ready for your next question.";
+
+      // Stage 1: drop the array fields most likely to be the offender,
+      // keep the rest (including a well-formed `audit` object etc.).
+      const FRAGILE_ARRAY_FIELDS = [
+        "proposedActions",
+        "knowledgeUpdates",
+        "followUps",
+        "warnings",
+        "actionSuggestions",
+      ];
+      const stripped: Record<string, unknown> = { ...parsedObj, answer: answerText };
+      for (const f of FRAGILE_ARRAY_FIELDS) delete stripped[f];
+      const stage1 = schema.safeParse(stripped);
+      if (stage1.success) {
+        console.warn(
+          `[runWorkflowJson] schema validation failed; salvaged by stripping fragile arrays. Original error: ${schemaResult.error.message.slice(0, 300)}`
+        );
+        return { parsed: stage1.data as z.infer<T>, raw: jsonStr };
+      }
+
+      // Stage 2: just the answer.
+      const stage2 = schema.safeParse({ answer: answerText });
+      if (stage2.success) {
+        console.warn(
+          `[runWorkflowJson] schema validation failed; salvaged to answer-only. Original error: ${schemaResult.error.message.slice(0, 300)}`
+        );
+        return { parsed: stage2.data as z.infer<T>, raw: jsonStr };
       }
 
       throw new Error(`Agent response failed schema validation: ${schemaResult.error.message.slice(0, 200)}`);
