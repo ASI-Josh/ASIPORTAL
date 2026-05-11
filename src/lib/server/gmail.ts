@@ -26,6 +26,51 @@ const AGENT_SCOPES = [
   "https://www.googleapis.com/auth/gmail.compose",
 ].join(" ");
 
+// ── RFC 2047 header encoding ──
+//
+// MIME headers (Subject, From display name, etc.) MUST be pure ASCII
+// per RFC 5322. Non-ASCII characters — em-dashes (—), curly quotes,
+// accents, emoji — have to be wrapped in RFC 2047 "encoded-words":
+//   =?UTF-8?B?<base64>?=
+// Sticking raw UTF-8 bytes into a header is the classic mojibake bug:
+// the em-dash's UTF-8 byte sequence (E2 80 94) gets re-interpreted by
+// mail clients as Latin-1, producing garbage like "Ã¢Â€Â—".
+//
+// The `Content-Type: ...; charset=utf-8` line only covers the BODY,
+// not the headers — each non-ASCII header needs its own encoded-word.
+//
+// RFC 2047 caps an encoded-word at 75 chars (including the =?UTF-8?B??=
+// wrapper, so ~63 base64 chars => ~47 source bytes). Long subjects get
+// split into multiple space-separated encoded-words.
+
+const ASCII_ONLY = /^[\x00-\x7F]*$/;
+
+function encodeMimeHeaderValue(value: string): string {
+  if (ASCII_ONLY.test(value)) return value;
+
+  // Encode the whole string as UTF-8, then chunk so each encoded-word
+  // stays under the 75-char limit. We chunk by SOURCE bytes (39 bytes
+  // -> 52 base64 chars + 12-char wrapper = 64, comfortably under 75).
+  const bytes = Buffer.from(value, "utf-8");
+  const CHUNK = 39;
+  const words: string[] = [];
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    const chunk = bytes.subarray(i, i + CHUNK);
+    words.push(`=?UTF-8?B?${chunk.toString("base64")}?=`);
+  }
+  // Encoded-words in a header are joined by whitespace; per RFC 2047 a
+  // decoder must collapse the whitespace between adjacent encoded-words.
+  return words.join(" ");
+}
+
+// Build a "From" header value, RFC 2047-encoding the display name only
+// (the address part must stay raw). If no display name, just the address.
+function buildFromHeader(fromAddress: string, displayName?: string): string {
+  if (!displayName) return fromAddress;
+  const safeName = displayName.replace(/[\r\n]/g, " ").trim();
+  return `${encodeMimeHeaderValue(safeName)} <${fromAddress}>`;
+}
+
 export function getGmailRedirectUri() {
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || DEFAULT_APP_URL;
   return process.env.GMAIL_REDIRECT_URI || `${baseUrl}/api/google/gmail/callback`;
@@ -636,14 +681,15 @@ export async function gmailSendMessage(
   lines.push(`To: ${opts.to}`);
   if (opts.cc) lines.push(`Cc: ${opts.cc}`);
   if (opts.bcc) lines.push(`Bcc: ${opts.bcc}`);
-  lines.push(`Subject: ${opts.subject}`);
+  lines.push(`Subject: ${encodeMimeHeaderValue(opts.subject)}`);
   if (opts.replyTo) lines.push(`Reply-To: ${opts.replyTo}`);
   if (opts.inReplyTo) lines.push(`In-Reply-To: ${opts.inReplyTo}`);
+  lines.push("MIME-Version: 1.0");
   lines.push("Content-Type: text/plain; charset=utf-8");
   lines.push("");
   lines.push(opts.body);
 
-  const raw = Buffer.from(lines.join("\r\n")).toString("base64url");
+  const raw = Buffer.from(lines.join("\r\n"), "utf-8").toString("base64url");
 
   return gmailPost("/messages/send", accessToken, {
     raw,
@@ -659,12 +705,13 @@ export async function gmailCreateDraft(
   lines.push(`To: ${opts.to}`);
   if (opts.cc) lines.push(`Cc: ${opts.cc}`);
   if (opts.bcc) lines.push(`Bcc: ${opts.bcc}`);
-  lines.push(`Subject: ${opts.subject}`);
+  lines.push(`Subject: ${encodeMimeHeaderValue(opts.subject)}`);
+  lines.push("MIME-Version: 1.0");
   lines.push("Content-Type: text/plain; charset=utf-8");
   lines.push("");
   lines.push(opts.body);
 
-  const raw = Buffer.from(lines.join("\r\n")).toString("base64url");
+  const raw = Buffer.from(lines.join("\r\n"), "utf-8").toString("base64url");
 
   return gmailPost("/drafts", accessToken, {
     message: { raw },
@@ -904,24 +951,24 @@ function buildRawMimeMessage(opts: {
   inReplyTo?: string;
   attachments?: ResolvedAttachment[];
 }): string {
-  const fromHeader = opts.displayName
-    ? `${opts.displayName} <${opts.fromAddress}>`
-    : opts.fromAddress;
   const headers: string[] = [];
-  headers.push(`From: ${fromHeader}`);
+  headers.push(`From: ${buildFromHeader(opts.fromAddress, opts.displayName)}`);
   headers.push(`To: ${opts.to}`);
   if (opts.cc) headers.push(`Cc: ${opts.cc}`);
   if (opts.bcc) headers.push(`Bcc: ${opts.bcc}`);
-  headers.push(`Subject: ${opts.subject}`);
+  headers.push(`Subject: ${encodeMimeHeaderValue(opts.subject)}`);
   if (opts.replyTo) headers.push(`Reply-To: ${opts.replyTo}`);
   if (opts.inReplyTo) headers.push(`In-Reply-To: ${opts.inReplyTo}`);
   headers.push("MIME-Version: 1.0");
 
   const attachments = opts.attachments || [];
   if (attachments.length === 0) {
+    // 8bit transfer encoding — the body is UTF-8 (em-dashes, curly
+    // quotes etc. survive). 7bit would mangle multi-byte chars.
     headers.push("Content-Type: text/plain; charset=utf-8");
+    headers.push("Content-Transfer-Encoding: 8bit");
     const message = headers.join("\r\n") + "\r\n\r\n" + opts.body;
-    return Buffer.from(message).toString("base64url");
+    return Buffer.from(message, "utf-8").toString("base64url");
   }
 
   // Multipart/mixed boundary. Gmail accepts standard MIME, RFC 2045/2046.
@@ -929,10 +976,10 @@ function buildRawMimeMessage(opts: {
   headers.push(`Content-Type: multipart/mixed; boundary="${boundary}"`);
 
   const parts: string[] = [];
-  // Body part
+  // Body part — 8bit for UTF-8 safety (em-dashes etc.)
   parts.push(`--${boundary}`);
   parts.push("Content-Type: text/plain; charset=utf-8");
-  parts.push("Content-Transfer-Encoding: 7bit");
+  parts.push("Content-Transfer-Encoding: 8bit");
   parts.push("");
   parts.push(opts.body);
   parts.push("");
@@ -951,7 +998,7 @@ function buildRawMimeMessage(opts: {
   parts.push("");
 
   const message = headers.join("\r\n") + "\r\n\r\n" + parts.join("\r\n");
-  return Buffer.from(message).toString("base64url");
+  return Buffer.from(message, "utf-8").toString("base64url");
 }
 
 export async function gmailGetProfileForAccount(fromAccount: string) {
