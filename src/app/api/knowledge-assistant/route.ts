@@ -650,6 +650,16 @@ export async function POST(req: NextRequest) {
     // fields or explicitly flag that they couldn't substantiate a hook
     // (rather than fabricating). MCP tools that accept them:
     //   create_lead / create_leads_register_entry / update_leads_register_entry
+    // ─── Agent OPSEC: no LLM-tell punctuation (shared) ───────────────────────
+    // Hard rule. Agents send external correspondence under human names
+    // (James Ledger, David Sentinel, Emily Mercer, etc.) — em-dashes are
+    // the loudest "written by an AI" fingerprint. Never use them. Also
+    // avoid en-dashes, curly quotes, the ellipsis character. Write what a
+    // human types on a keyboard. The email send path also strips these
+    // characters in code as a backstop, but produce clean text at source.
+    const OPSEC_PUNCTUATION_RULE =
+      "OPSEC — punctuation: NEVER use em-dashes (—) anywhere. Use ' - ' (space hyphen space) or restructure the sentence. Also avoid en-dashes (–), curly/smart quotes (' ' \" \"), and the ellipsis character (…) — use straight quotes and three dots. This is a hard agent-opsec rule: em-dashes and smart punctuation are the clearest tell that a message was written by an AI rather than a person, and your correspondence goes out under a human name. Write plain keyboard punctuation, always.";
+
     const OSINT_HOOK_DISCIPLINE = [
       "",
       "OSINT HOOK DISCIPLINE — binding rule when you touch any lead:",
@@ -670,6 +680,7 @@ export async function POST(req: NextRequest) {
       "When asked for a brief or report, structure it clearly with sections. Flag overdue items, risks, and strategic patterns.",
       "Present the Flywheel check in weekly reports. Test recommendations against the Hedgehog Concept.",
       "Australian English. Never use hyperportal.online — the portal is asiportal.live.",
+      OPSEC_PUNCTUATION_RULE,
       OSINT_HOOK_DISCIPLINE,
       "You ONLY output valid JSON with an `answer` field, optional `followUps`, `warnings`, `actionSuggestions`, and `knowledgeUpdates` arrays.",
     ].join("\n") : isGuardian ? [
@@ -698,6 +709,7 @@ export async function POST(req: NextRequest) {
       "Always still draft the FULL document content in your `answer` field (so the admin can read what you've written before clicking confirm). The proposedActions array is the structured execution side-car, not a replacement for the prose.",
       "Proportionality: the system should be sized for a lean operation, not a multinational. Documents should be usable, not just auditable.",
       "Australian English. The portal is asiportal.live.",
+      OPSEC_PUNCTUATION_RULE,
       "You ONLY output valid JSON with an `answer` field, optional `followUps`, `warnings`, `actionSuggestions`, `proposedActions`, and `knowledgeUpdates` arrays.",
     ].join("\n") : isArcher ? [
       "You are SOPHIE ARCHER, ASI Australia's R&D Programme Lead and Head of Grants. You run the Research & Development programme register, the grants pipeline, the opportunity log, and the grant programmes watchlist.",
@@ -709,6 +721,7 @@ export async function POST(req: NextRequest) {
       "When discussing grants: reference specific programmes by name, note the next-round-opens date if known, flag acquittal obligations before they become overdue.",
       "Task-capable: any admin can ask you to create a nomination, write a pre-feas, recommend a grant programme match, or propose a project. Reference the live R&D portfolio data in the prompt (projects, grants, opportunities, programmes). When the admin asks 'pre-feas this' or 'write up a nomination', produce the structured brief.",
       "Australian English. The portal is asiportal.live.",
+      OPSEC_PUNCTUATION_RULE,
       OSINT_HOOK_DISCIPLINE,
       "You ONLY output valid JSON with an `answer` field, optional `followUps`, `warnings`, `actionSuggestions`, and `knowledgeUpdates` arrays.",
     ].join("\n") : undefined;

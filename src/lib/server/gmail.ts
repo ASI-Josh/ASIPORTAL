@@ -26,18 +26,70 @@ const AGENT_SCOPES = [
   "https://www.googleapis.com/auth/gmail.compose",
 ].join(" ");
 
+// ── Agent OPSEC: strip LLM-tell punctuation from outbound mail ──
+//
+// HARD RULE: agents must never emit em-dashes (or other "this was
+// written by an LLM" punctuation) in correspondence sent under a human
+// name (James Ledger, David Sentinel, Emily Mercer, etc.). Em-dashes,
+// en-dashes, curly quotes, the ellipsis character and non-breaking
+// spaces are the loudest fingerprints that a message came from an AI —
+// a human on a keyboard types none of them.
+//
+// This is enforced in CODE, not just in the agent prompts — it must be
+// impossible for one of these characters to leave the building no
+// matter what an agent puts in its response. The agent prompts also
+// carry the rule (belt and braces) so output is clean at source, but
+// this sanitiser is the backstop.
+//
+// Replacement strategy = "what a human actually types":
+//   —  (em-dash)        → " - "  then collapse runs of spaces
+//   –  (en-dash)        → "-"     (keeps ranges like 2026-2027 tight)
+//   '  '  (curly singles) → '
+//   "  "  (curly doubles) → "
+//   …  (ellipsis char)  → "..."
+//     (nbsp)       → " "
+//   ‑ (non-break hyphen) → "-"
+//   ‐ (hyphen char) → "-"
+//   ‒ (figure dash) → "-"
+//   ― (horizontal bar) → " - "
+
+export function sanitiseAgentText(input: string): string {
+  if (!input) return input;
+  let s = input
+    // Em-dash / horizontal bar — the big tells. Space-hyphen-space.
+    .replace(/[—―]/g, " - ")
+    // En-dash / figure dash / hyphen char / non-breaking hyphen — plain hyphen.
+    .replace(/[–‐‑‒]/g, "-")
+    // Curly single quotes + prime → straight apostrophe.
+    .replace(/[‘’‚‛′]/g, "'")
+    // Curly double quotes + double prime → straight quote.
+    .replace(/[“”„‟″]/g, '"')
+    // Ellipsis character → three dots.
+    .replace(/…/g, "...")
+    // Non-breaking / narrow-no-break / thin spaces → normal space.
+    .replace(/[    ]/g, " ")
+    // Bullet character sometimes used as a separator → hyphen.
+    .replace(/•/g, "-");
+  // Collapse runs of spaces created by " - " substitutions (but preserve
+  // newlines — only squash horizontal whitespace).
+  s = s.replace(/[ \t]{2,}/g, " ");
+  // Trim trailing space on each line (the " - " replace can leave one).
+  s = s.replace(/[ \t]+$/gm, "");
+  return s;
+}
+
 // ── RFC 2047 header encoding ──
 //
 // MIME headers (Subject, From display name, etc.) MUST be pure ASCII
-// per RFC 5322. Non-ASCII characters — em-dashes (—), curly quotes,
-// accents, emoji — have to be wrapped in RFC 2047 "encoded-words":
+// per RFC 5322. Even after sanitiseAgentText() runs, a header value
+// could still contain a legitimately-needed non-ASCII char (a real
+// accented name, a £ sign, etc.), so we still RFC 2047-encode here.
 //   =?UTF-8?B?<base64>?=
 // Sticking raw UTF-8 bytes into a header is the classic mojibake bug:
-// the em-dash's UTF-8 byte sequence (E2 80 94) gets re-interpreted by
-// mail clients as Latin-1, producing garbage like "Ã¢Â€Â—".
-//
-// The `Content-Type: ...; charset=utf-8` line only covers the BODY,
-// not the headers — each non-ASCII header needs its own encoded-word.
+// non-ASCII bytes get re-interpreted by mail clients as Latin-1,
+// producing garbage. The `Content-Type: ...; charset=utf-8` line only
+// covers the BODY, not the headers — each non-ASCII header needs its
+// own encoded-word.
 //
 // RFC 2047 caps an encoded-word at 75 chars (including the =?UTF-8?B??=
 // wrapper, so ~63 base64 chars => ~47 source bytes). Long subjects get
@@ -677,17 +729,21 @@ export async function gmailSendMessage(
   accessToken: string,
   opts: { to: string; subject: string; body: string; cc?: string; bcc?: string; replyTo?: string; inReplyTo?: string; threadId?: string }
 ) {
+  // OPSEC: strip LLM-tell punctuation before building the message.
+  const subject = sanitiseAgentText(opts.subject);
+  const body = sanitiseAgentText(opts.body);
   const lines: string[] = [];
   lines.push(`To: ${opts.to}`);
   if (opts.cc) lines.push(`Cc: ${opts.cc}`);
   if (opts.bcc) lines.push(`Bcc: ${opts.bcc}`);
-  lines.push(`Subject: ${encodeMimeHeaderValue(opts.subject)}`);
+  lines.push(`Subject: ${encodeMimeHeaderValue(subject)}`);
   if (opts.replyTo) lines.push(`Reply-To: ${opts.replyTo}`);
   if (opts.inReplyTo) lines.push(`In-Reply-To: ${opts.inReplyTo}`);
   lines.push("MIME-Version: 1.0");
   lines.push("Content-Type: text/plain; charset=utf-8");
+  lines.push("Content-Transfer-Encoding: 8bit");
   lines.push("");
-  lines.push(opts.body);
+  lines.push(body);
 
   const raw = Buffer.from(lines.join("\r\n"), "utf-8").toString("base64url");
 
@@ -701,15 +757,19 @@ export async function gmailCreateDraft(
   accessToken: string,
   opts: { to: string; subject: string; body: string; cc?: string; bcc?: string }
 ) {
+  // OPSEC: strip LLM-tell punctuation before building the message.
+  const subject = sanitiseAgentText(opts.subject);
+  const body = sanitiseAgentText(opts.body);
   const lines: string[] = [];
   lines.push(`To: ${opts.to}`);
   if (opts.cc) lines.push(`Cc: ${opts.cc}`);
   if (opts.bcc) lines.push(`Bcc: ${opts.bcc}`);
-  lines.push(`Subject: ${encodeMimeHeaderValue(opts.subject)}`);
+  lines.push(`Subject: ${encodeMimeHeaderValue(subject)}`);
   lines.push("MIME-Version: 1.0");
   lines.push("Content-Type: text/plain; charset=utf-8");
+  lines.push("Content-Transfer-Encoding: 8bit");
   lines.push("");
-  lines.push(opts.body);
+  lines.push(body);
 
   const raw = Buffer.from(lines.join("\r\n"), "utf-8").toString("base64url");
 
@@ -951,23 +1011,30 @@ function buildRawMimeMessage(opts: {
   inReplyTo?: string;
   attachments?: ResolvedAttachment[];
 }): string {
+  // OPSEC: strip LLM-tell punctuation (em-dashes etc.) from everything
+  // outbound BEFORE it touches the MIME message. Code-level backstop —
+  // an agent can never leak an em-dash regardless of what it wrote.
+  const subject = sanitiseAgentText(opts.subject);
+  const body = sanitiseAgentText(opts.body);
+
   const headers: string[] = [];
   headers.push(`From: ${buildFromHeader(opts.fromAddress, opts.displayName)}`);
   headers.push(`To: ${opts.to}`);
   if (opts.cc) headers.push(`Cc: ${opts.cc}`);
   if (opts.bcc) headers.push(`Bcc: ${opts.bcc}`);
-  headers.push(`Subject: ${encodeMimeHeaderValue(opts.subject)}`);
+  headers.push(`Subject: ${encodeMimeHeaderValue(subject)}`);
   if (opts.replyTo) headers.push(`Reply-To: ${opts.replyTo}`);
   if (opts.inReplyTo) headers.push(`In-Reply-To: ${opts.inReplyTo}`);
   headers.push("MIME-Version: 1.0");
 
   const attachments = opts.attachments || [];
   if (attachments.length === 0) {
-    // 8bit transfer encoding — the body is UTF-8 (em-dashes, curly
-    // quotes etc. survive). 7bit would mangle multi-byte chars.
+    // 8bit transfer encoding — the body is UTF-8. Even after sanitising,
+    // a legitimate non-ASCII char could remain (a real accented name,
+    // a £ sign in a quote). 7bit would mangle those; 8bit is safe.
     headers.push("Content-Type: text/plain; charset=utf-8");
     headers.push("Content-Transfer-Encoding: 8bit");
-    const message = headers.join("\r\n") + "\r\n\r\n" + opts.body;
+    const message = headers.join("\r\n") + "\r\n\r\n" + body;
     return Buffer.from(message, "utf-8").toString("base64url");
   }
 
@@ -976,12 +1043,12 @@ function buildRawMimeMessage(opts: {
   headers.push(`Content-Type: multipart/mixed; boundary="${boundary}"`);
 
   const parts: string[] = [];
-  // Body part — 8bit for UTF-8 safety (em-dashes etc.)
+  // Body part — 8bit for UTF-8 safety.
   parts.push(`--${boundary}`);
   parts.push("Content-Type: text/plain; charset=utf-8");
   parts.push("Content-Transfer-Encoding: 8bit");
   parts.push("");
-  parts.push(opts.body);
+  parts.push(body);
   parts.push("");
 
   // Attachment parts — base64-encoded, 76-char lines per RFC 2045
