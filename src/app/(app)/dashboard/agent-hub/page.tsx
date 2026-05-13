@@ -5,7 +5,7 @@ import Link from "next/link";
 import {
   Bot, Brain, Eye, Globe, Landmark,
   Scale, SendHorizonal, ShieldCheck, TrendingUp,
-  Users, ChevronDown, ChevronUp, Package, Target, Crown, Gavel,
+  Users, ChevronDown, ChevronUp, Package, Target, Gavel,
 } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -35,19 +35,6 @@ type AgentDef = {
   emailSignatureNote?: string; // Additional note for shared mailboxes, e.g. "Sales Preset Signature"
   link?: string;
   feedsTo?: string[];   // Agent IDs this one supplies intelligence to (dashed lines)
-};
-
-// ─── Director (human) — top of structure ──────────────────────────────────
-// Displayed above ATHENA in the org chart. Placeholder for the human
-// leadership layer; will expand into a full corp structure as ASI grows.
-const DIRECTOR_DEF = {
-  id: "director",
-  name: "JOSHUA HYDE",
-  title: "Director",
-  domain: "ASI Australia",
-  color: "text-yellow-300",
-  bgColor: "bg-yellow-500/10",
-  borderColor: "border-yellow-500/30",
 };
 
 const ATHENA_DEF: AgentDef = {
@@ -496,22 +483,6 @@ export default function AgentHubPage() {
 
         {orgExpanded && (
           <CardContent className="pt-0 pb-6">
-            {/* DIRECTOR — human leadership, top of chart */}
-            <div className="flex justify-center mb-3">
-              <div className={cn("w-full max-w-sm rounded-xl border-2 p-3 text-center", DIRECTOR_DEF.borderColor, DIRECTOR_DEF.bgColor)}>
-                <div className="flex items-center justify-center gap-2">
-                  <Crown className={cn("h-5 w-5", DIRECTOR_DEF.color)} />
-                  <span className={cn("text-base font-bold tracking-wide", DIRECTOR_DEF.color)}>{DIRECTOR_DEF.name}</span>
-                </div>
-                <p className="text-xs text-muted-foreground mt-0.5">{DIRECTOR_DEF.title} · {DIRECTOR_DEF.domain}</p>
-              </div>
-            </div>
-
-            {/* Director → ATHENA connector */}
-            <div className="flex justify-center mb-3">
-              <div className="w-px h-6 bg-border/60" />
-            </div>
-
             {/* ATHENA — Chief of Staff */}
             <div className="flex justify-center mb-3">
               <div className={cn("w-full max-w-md rounded-xl border-2 p-4 text-center", ATHENA_DEF.borderColor, ATHENA_DEF.bgColor)}>

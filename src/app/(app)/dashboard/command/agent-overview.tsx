@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { collection, onSnapshot } from "firebase/firestore";
-import { Brain, Shield, TrendingUp, DollarSign, Globe, Monitor, Package, Target, Crown, Gavel, Users } from "lucide-react";
+import { Brain, Shield, TrendingUp, DollarSign, Globe, Monitor, Package, Target, Gavel, Users } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { db } from "@/lib/firebaseClient";
@@ -22,14 +22,6 @@ type AgentOverviewDef = {
   emailSignatureNote?: string;
   isChief?: boolean;
   feedsTo?: string[];
-};
-
-const DIRECTOR = {
-  name: "JOSHUA HYDE",
-  title: "Director",
-  color: "text-yellow-300",
-  borderColor: "border-yellow-500/30",
-  bgGlow: "from-yellow-500/10 via-yellow-500/5 to-transparent",
 };
 
 function buildOverviewHeadline(agent: AgentOverviewDef): string {
@@ -313,26 +305,6 @@ export function AgentOverview() {
 
   return (
     <div className="space-y-4">
-      {/* DIRECTOR — human leadership, above ATHENA */}
-      <Card className={`bg-card/40 backdrop-blur-lg ${DIRECTOR.borderColor} border overflow-hidden`}>
-        <div className={`px-4 py-2 bg-gradient-to-r ${DIRECTOR.bgGlow} border-b ${DIRECTOR.borderColor}`}>
-          <div className="flex items-center justify-center gap-2">
-            <Crown className={`h-4 w-4 ${DIRECTOR.color}`} />
-            <span className={`font-headline font-semibold text-xs ${DIRECTOR.color}`}>
-              Director
-            </span>
-          </div>
-        </div>
-        <CardContent className="py-3">
-          <div className="flex flex-col items-center text-center gap-1">
-            <span className={`font-headline font-bold text-lg tracking-wide ${DIRECTOR.color}`}>
-              {DIRECTOR.name}
-            </span>
-            <p className="text-[10px] text-muted-foreground">Executive leadership · ASI Australia</p>
-          </div>
-        </CardContent>
-      </Card>
-
       {/* ATHENA — Chief of Staff */}
       <Card className={`bg-card/50 backdrop-blur-lg ${chief.borderColor} border overflow-hidden`}>
         <div className={`relative px-6 py-2.5 bg-gradient-to-r ${chief.bgGlow} border-b ${chief.borderColor}`}>
