@@ -233,6 +233,7 @@ export default function KpiPage() {
             emissionsReports={filteredEmissions}
             fuelRecords={filteredFuel}
             organizations={organizations}
+            derivedMetrics={derivedMetrics}
           />
         </TabsContent>
 
