@@ -165,6 +165,19 @@ export default function KpiPage() {
     [filteredJobs, filteredInspections, filteredWorksRegister, organizations]
   );
 
+  // Unfiltered total — feeds the shared EnvironmentalImpact card so it can
+  // show both the filtered org row and the "All Organisations (Total)" row,
+  // matching how the main dashboard renders the same component.
+  const totalDerivedMetrics = useMemo(
+    () => calculateDashboardMetrics({ jobs, inspections, worksRegister, organizations }),
+    [jobs, inspections, worksRegister, organizations]
+  );
+
+  const selectedOrgName = useMemo(() => {
+    if (selectedOrgId === "all") return undefined;
+    return organizations.find((o) => o.id === selectedOrgId)?.name;
+  }, [organizations, selectedOrgId]);
+
   // Client orgs only (exclude ASI internal)
   const clientOrgs = useMemo(() => {
     return organizations.filter((o) => o.category !== "asi_staff" && o.category !== "supplier_vendor");
@@ -234,6 +247,8 @@ export default function KpiPage() {
             fuelRecords={filteredFuel}
             organizations={organizations}
             derivedMetrics={derivedMetrics}
+            totalDerivedMetrics={totalDerivedMetrics}
+            selectedOrgName={selectedOrgName}
           />
         </TabsContent>
 

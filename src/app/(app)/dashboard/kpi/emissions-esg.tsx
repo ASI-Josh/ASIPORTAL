@@ -35,9 +35,10 @@ import { useAuth } from "@/contexts/AuthContext";
 import { db } from "@/lib/firebaseClient";
 import { COLLECTIONS } from "@/lib/collections";
 import { DIESEL_CO2_FACTOR_KG_PER_LITRE } from "@/lib/types";
-import { Plus, Leaf, Download, FileText, Recycle, DollarSign, Timer } from "lucide-react";
+import { Plus, Leaf, Download, FileText, Recycle } from "lucide-react";
 import type { EmissionsReport, FuelRecord, ContactOrganization } from "@/lib/types";
 import type { DashboardMetrics } from "@/lib/dashboard-analytics";
+import { EnvironmentalImpact } from "@/app/(app)/dashboard/command/environmental";
 
 interface EmissionsEsgTabProps {
   emissionsReports: EmissionsReport[];
@@ -46,14 +47,27 @@ interface EmissionsEsgTabProps {
   /**
    * Derived ops-side environmental impact (glass diverted, replacement value
    * avoided, client downtime saved). Computed in kpi/page.tsx from completed
-   * jobs and inspections — same source the main dashboard's Environmental
-   * Impact card uses, surfaced here so the Emissions tab shows the live ops
-   * feed alongside formal EmissionsReport filings.
+   * jobs and inspections. When an org filter is active this is the filtered
+   * row; otherwise it equals totalDerivedMetrics.
    */
   derivedMetrics?: DashboardMetrics;
+  /**
+   * Unfiltered ASI-total derived ops impact — fed into the shared
+   * EnvironmentalImpact card so it can show both rows when a client filter
+   * is active, exactly like the main dashboard does.
+   */
+  totalDerivedMetrics?: DashboardMetrics;
+  selectedOrgName?: string;
 }
 
-export function EmissionsEsgTab({ emissionsReports, fuelRecords, organizations, derivedMetrics }: EmissionsEsgTabProps) {
+export function EmissionsEsgTab({
+  emissionsReports,
+  fuelRecords,
+  organizations,
+  derivedMetrics,
+  totalDerivedMetrics,
+  selectedOrgName,
+}: EmissionsEsgTabProps) {
   const { user } = useAuth();
   const { toast } = useToast();
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -197,58 +211,20 @@ export function EmissionsEsgTab({ emissionsReports, fuelRecords, organizations, 
     toast({ title: "ASRS export downloaded" });
   };
 
-  const formatAud = (v: number) =>
-    new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(v);
-
   return (
     <div className="space-y-6">
-      {/* Derived Ops Impact — mirrors the main dashboard's Environmental
-          Impact card so this tab shows the live ops feed even before any
-          formal EmissionsReport documents have been filed. Sourced from
-          completed jobs + inspections via calculateDashboardMetrics. */}
-      {derivedMetrics && (
-        <div>
-          <div className="mb-2 flex items-baseline justify-between">
-            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Live Ops Feed
-            </p>
-            <p className="text-xs text-muted-foreground">
-              Derived from completed jobs &amp; inspections (mirrors main Dashboard).
-            </p>
-          </div>
-          <div className="grid gap-4 md:grid-cols-3">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium">Glass Diverted</CardTitle>
-                <Recycle className="h-4 w-4 text-emerald-400" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{derivedMetrics.glassSavedKg.toFixed(1)} kg</div>
-                <p className="text-xs text-muted-foreground">From landfill (PaintShield repairs)</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium">Replacement Value Avoided</CardTitle>
-                <DollarSign className="h-4 w-4 text-blue-400" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{formatAud(derivedMetrics.replacementValueSaved)}</div>
-                <p className="text-xs text-muted-foreground">Net client savings vs replacement</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium">Client Downtime Avoided</CardTitle>
-                <Timer className="h-4 w-4 text-amber-400" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{derivedMetrics.downtimeSavedHours.toFixed(1)} h</div>
-                <p className="text-xs text-muted-foreground">Vehicles back in service faster</p>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
+      {/* Shared Environmental Impact card — same component the main Dashboard
+          (command/page.tsx) renders, so the ISO 14001 framing, gradient
+          header and footer line stay in lockstep across both surfaces.
+          Source data is calculateDashboardMetrics applied to completed jobs
+          and inspections; populated even before any formal EmissionsReport
+          documents have been filed. */}
+      {totalDerivedMetrics && (
+        <EnvironmentalImpact
+          total={totalDerivedMetrics}
+          filtered={selectedOrgName ? derivedMetrics : undefined}
+          selectedOrgName={selectedOrgName}
+        />
       )}
 
       {/* Summary Cards */}
