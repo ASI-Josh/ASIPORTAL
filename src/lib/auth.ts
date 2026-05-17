@@ -8,6 +8,7 @@ export const ADMIN_EMAILS = [
   "joshua@asi-australia.com.au",
   "jaydan@asi-australia.com.au",
   "bobby@asi-australia.com.au",
+  "streamlineconsult@outlook.com",
 ];
 
 // External auditors — read-only access to IMS collections for ISO certification audits.
