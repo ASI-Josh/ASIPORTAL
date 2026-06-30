@@ -37,21 +37,6 @@ import {
   xeroGetItem,
   xeroCreatePurchaseOrder,
 } from "@/lib/xero";
-import {
-  buildGmailAuthUrl,
-  gmailGetProfileForAccount,
-  gmailListMessagesForAccount,
-  gmailGetMessageForAccount,
-  gmailGetThreadForAccount,
-  gmailSendMessageForAccount,
-  gmailCreateDraftForAccount,
-  gmailListDraftsForAccount,
-  gmailSendDraftForAccount,
-  gmailListLabelsForAccount,
-  gmailModifyLabelsForAccount,
-  gmailTrashMessageForAccount,
-} from "@/lib/server/gmail";
-
 // ─── Runtime configuration ────────────────────────────────────────────────────
 // CRITICAL:
 //   - "nodejs" is required because firebase-admin does not run on Edge.
@@ -1822,7 +1807,7 @@ const TOOLS: McpTool[] = [
   // ─── Warranty Registration & Claims (Phase 3) ──────────────────────────────
   {
     name: "register_film_warranty",
-    description: "Generate a structured APEAX warranty registration email body for a film installation. Creates a Gmail draft via gmail_create_draft for Josh to review and send. Updates registration status to 'submitted'.",
+    description: "Generate a structured APEAX warranty registration email body for a film installation. Returns subject/body for Josh to review and send via M365. Updates registration status to 'submitted'.",
     inputSchema: {
       type: "object",
       properties: {
@@ -2000,227 +1985,6 @@ const TOOLS: McpTool[] = [
     },
   },
 
-  // ─── Gmail tools (multi-account) ───────────────────────────────────────────
-  //
-  // All Gmail tools accept an optional `from_account` parameter that
-  // selects the mailbox the operation runs against:
-  //   - "default" (or omit): Joshua's personal mailbox via OAuth
-  //   - "accountmanager": LEDGER mailbox (accountmanager@asi-australia.com.au,
-  //      human name "James Ledger") — service account delegation
-  //   - "development": Sales/innovation mailbox
-  //      (development@asi-australia.com.au — SENTINEL/MERCER/VANGUARD)
-  //   - "research": R&D/grants mailbox
-  //      (research@asi-australia.com.au — ARCHER, "Sophie Archer")
-  //   - "resources": HR/training mailbox
-  //      (resources@asi-australia.com.au — VESTA, "Vesta Hearth")
-  //
-  // All send/draft/modify/trash actions are logged to the agentEmailAudit
-  // Firestore collection for full traceability. Pass agent_identity
-  // (e.g. "LEDGER", "SENTINEL", "ARCHER") so the audit log captures which
-  // agent initiated the action.
-  {
-    name: "gmail_connect",
-    description: "Get the Gmail OAuth authorization URL for the DEFAULT (Joshua's personal) account only. Agent mailboxes use service account delegation and do NOT need OAuth — no gmail_connect call needed for them.",
-    inputSchema: { type: "object", properties: {}, required: [] },
-  },
-  {
-    name: "gmail_status",
-    description: "Check Gmail connection status for a specific mailbox. Defaults to Joshua's account if from_account is omitted.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        from_account: { type: "string", description: "Mailbox key: 'default' (Joshua), 'accountmanager' (LEDGER), 'development' (SENTINEL/MERCER/VANGUARD), 'research' (ARCHER), 'resources' (VESTA). Defaults to 'default'." },
-      },
-    },
-  },
-  {
-    name: "gmail_get_profile",
-    description: "Get the profile (email address, total messages, threads) for a specific Gmail mailbox.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        from_account: { type: "string", description: "Mailbox key: 'default', 'accountmanager', 'development', 'research', 'resources'. Defaults to 'default'." },
-      },
-    },
-  },
-  {
-    name: "gmail_search",
-    description: "Search a Gmail mailbox using Gmail search syntax. Returns message IDs and snippets. Examples: 'is:unread', 'from:josh', 'subject:invoice after:2026/04/01', 'has:attachment'.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        from_account: { type: "string", description: "Mailbox to search: 'default', 'accountmanager', 'development', 'research', 'resources'. Defaults to 'default'." },
-        query: { type: "string", description: "Gmail search query (same syntax as Gmail search bar)" },
-        max_results: { type: "number", description: "Max messages to return (default 20, max 100)" },
-        page_token: { type: "string", description: "Pagination token from previous search" },
-      },
-      required: ["query"],
-    },
-  },
-  {
-    name: "gmail_read_message",
-    description: "Read a specific email message by ID from a mailbox. Returns full headers, body text, and metadata.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        from_account: { type: "string", description: "Mailbox the message lives in. Defaults to 'default'." },
-        message_id: { type: "string", description: "Gmail message ID (from gmail_search results)" },
-      },
-      required: ["message_id"],
-    },
-  },
-  {
-    name: "gmail_read_thread",
-    description: "Read an email thread/conversation by thread ID. Returns all messages in the thread.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        from_account: { type: "string", description: "Mailbox the thread lives in. Defaults to 'default'." },
-        thread_id: { type: "string", description: "Gmail thread ID" },
-      },
-      required: ["thread_id"],
-    },
-  },
-  {
-    name: "gmail_send",
-    description: "Send an email from a specific mailbox. Use 'accountmanager' for LEDGER (signs as 'James Ledger'), 'development' for sales correspondence (SENTINEL/MERCER/VANGUARD), 'research' for ARCHER (signs as 'Sophie Archer' — R&D, grants, innovation), 'resources' for VESTA (HR/training), or omit from_account for Joshua's personal account. All sends are audit-logged to agentEmailAudit with the agent_identity (pass your agent name e.g. 'LEDGER'). Supports file attachments via the `attachments` array. SERVER-RESIDENT AGENTS (SENTINEL/MERCER/VANGUARD/ATHENA/ARCHER): use the `brochure` alias key — `hv_services` (HV PDI brochure for SENTINEL), `lv_services` (Passenger/LV brochure for MERCER), `apeax_catalogue` (APEAX 2026 catalogue), `nuline_case_study` (Nuline Bus 52 proof point). Local-dev callers can pass an absolute `path` instead. Per-file cap 20MB, total cap 24MB. Attachment filenames are recorded on the audit log.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        from_account: { type: "string", description: "Sending mailbox: 'default', 'accountmanager' (LEDGER/James Ledger), 'development' (Sales — SENTINEL/MERCER/VANGUARD), 'research' (ARCHER/Sophie Archer — R&D/grants), 'resources' (VESTA — HR/training)." },
-        agent_identity: { type: "string", description: "Name of the agent sending (e.g. 'LEDGER', 'SENTINEL', 'VANGUARD'). Recorded in the audit log." },
-        to: { type: "string", description: "Recipient email address(es), comma-separated for multiple" },
-        subject: { type: "string", description: "Email subject line" },
-        body: { type: "string", description: "Plain text email body" },
-        cc: { type: "string", description: "CC recipients (comma-separated)" },
-        bcc: { type: "string", description: "BCC recipients (comma-separated)" },
-        reply_to: { type: "string", description: "Reply-to address if different from sender" },
-        in_reply_to: { type: "string", description: "Message-ID to reply to (for threading)" },
-        thread_id: { type: "string", description: "Thread ID to add this message to (for replies)" },
-        attachments: {
-          type: "array",
-          description: "Optional file attachments. Each entry is either { brochure: '<alias>' } (preferred for server-resident agents) or { path: '<absolute path>' } (local-dev callers only — server can't reach DIRECTOR's local disk). Brochure aliases: 'hv_services' (SENTINEL HV PDI brochure), 'lv_services' (MERCER passenger/LV brochure), 'apeax_catalogue' (APEAX 2026 catalogue), 'nuline_case_study' (Nuline Bus 52 case study). Optional `filename` overrides the display name; optional `contentType` overrides the auto-detected MIME type.",
-          items: {
-            type: "object",
-            properties: {
-              brochure: { type: "string", enum: ["hv_services", "lv_services", "apeax_catalogue", "nuline_case_study"], description: "Approved brochure alias (server-resident; preferred for SENTINEL/MERCER/VANGUARD/ATHENA/ARCHER)." },
-              path: { type: "string", description: "Absolute file path on disk. Local-dev only — server can't reach C:\\Users\\... paths." },
-              filename: { type: "string", description: "Display filename in the email (optional)." },
-              contentType: { type: "string", description: "MIME type override (optional, auto-detected from extension)." },
-            },
-          },
-        },
-      },
-      required: ["to", "subject", "body"],
-    },
-  },
-  {
-    name: "gmail_create_draft",
-    description: "Create an email draft in a specific mailbox for review before sending. Logged to the audit trail. Supports the same `attachments` array as gmail_send — drafts can carry attachments through to the eventual send.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        from_account: { type: "string", description: "Mailbox to draft from: 'default', 'accountmanager', 'development', 'research', 'resources'." },
-        agent_identity: { type: "string", description: "Name of the agent drafting (audit log)." },
-        to: { type: "string", description: "Recipient email address(es)" },
-        subject: { type: "string", description: "Email subject line" },
-        body: { type: "string", description: "Plain text email body" },
-        cc: { type: "string", description: "CC recipients" },
-        bcc: { type: "string", description: "BCC recipients" },
-        attachments: {
-          type: "array",
-          description: "Optional file attachments. Same shape as gmail_send.attachments. Server-resident agents (SENTINEL/MERCER/VANGUARD/ATHENA/ARCHER): use `brochure` alias key. Local-dev callers can pass `path`. Aliases: 'hv_services', 'lv_services', 'apeax_catalogue', 'nuline_case_study'. Per-file cap 20MB, total cap 24MB.",
-          items: {
-            type: "object",
-            properties: {
-              brochure: { type: "string", enum: ["hv_services", "lv_services", "apeax_catalogue", "nuline_case_study"], description: "Approved brochure alias." },
-              path: { type: "string", description: "Absolute file path on disk (local-dev only)." },
-              filename: { type: "string", description: "Display filename (optional)." },
-              contentType: { type: "string", description: "MIME type override (optional)." },
-            },
-          },
-        },
-      },
-      required: ["to", "subject", "body"],
-    },
-  },
-  {
-    name: "gmail_list_drafts",
-    description: "List email drafts in a specific mailbox.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        from_account: { type: "string", description: "Mailbox to list drafts for." },
-        max_results: { type: "number", description: "Max drafts to return (default 10)" },
-      },
-    },
-  },
-  {
-    name: "gmail_send_draft",
-    description: "Send a previously created draft from a specific mailbox.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        from_account: { type: "string", description: "Mailbox the draft lives in." },
-        agent_identity: { type: "string", description: "Name of the agent sending (audit log)." },
-        draft_id: { type: "string", description: "Draft ID to send" },
-      },
-      required: ["draft_id"],
-    },
-  },
-  {
-    name: "gmail_list_labels",
-    description: "List all Gmail labels (folders) in a specific mailbox.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        from_account: { type: "string", description: "Mailbox to list labels for." },
-      },
-    },
-  },
-  {
-    name: "gmail_modify_labels",
-    description: "Add or remove labels from a message (move to folder, mark read/unread, star, archive). Audit-logged.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        from_account: { type: "string", description: "Mailbox the message lives in." },
-        agent_identity: { type: "string", description: "Name of the agent performing the action (audit log)." },
-        message_id: { type: "string", description: "Message ID to modify" },
-        add_labels: { type: "array", items: { type: "string" }, description: "Label IDs to add (e.g. 'STARRED', 'IMPORTANT', 'UNREAD')" },
-        remove_labels: { type: "array", items: { type: "string" }, description: "Label IDs to remove (e.g. 'UNREAD' to mark as read, 'INBOX' to archive)" },
-      },
-      required: ["message_id"],
-    },
-  },
-  {
-    name: "gmail_trash",
-    description: "Move an email to trash. Audit-logged.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        from_account: { type: "string", description: "Mailbox the message lives in." },
-        agent_identity: { type: "string", description: "Name of the agent performing the action (audit log)." },
-        message_id: { type: "string", description: "Message ID to trash" },
-      },
-      required: ["message_id"],
-    },
-  },
-  {
-    name: "agent_email_audit",
-    description:
-      "Query the agent email audit trail. Returns a chronological list of every email action (send, draft, send_draft, modify_labels, trash) taken by any agent mailbox, with full metadata including recipient, subject, body preview, agent identity, and success/error status. Use for compliance, traceability, or debugging agent email behaviour. Filter by accountKey, agentIdentity, action, or success status.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        accountKey: { type: "string", description: "Filter by mailbox key: 'default', 'accountmanager', 'development', 'research', 'resources'." },
-        agentIdentity: { type: "string", description: "Filter by agent name (e.g. 'LEDGER')." },
-        action: { type: "string", enum: ["send", "draft", "send_draft", "modify_labels", "trash"], description: "Filter by action type." },
-        success: { type: "boolean", description: "Filter by success (true) or failures only (false)." },
-        limit: { type: "number", description: "Max entries (default 50, max 500)." },
-      },
-    },
-  },
   // ─── R&D & Grants Management (ARCHER / Sophie Archer) ──────────────────────
   //
   // Three linked collections power Sophie's domain: rndProjects,
@@ -4320,15 +4084,18 @@ async function handleCreateLead(args: Record<string, unknown>) {
 }
 
 async function handleUpdateLeadStage(args: Record<string, unknown>) {
-  const id = String(args.id);
-  const stage = String(args.stage);
+  const id = typeof args.id === "string" && args.id.trim() ? args.id.trim() : "";
+  if (!id) throw new Error("id is required for update_lead_stage.");
+  const stage = typeof args.stage === "string" && args.stage.trim() ? args.stage.trim() : "";
+  if (!stage) throw new Error("stage is required for update_lead_stage.");
   const db = admin.firestore();
   const ref = db.collection(COLLECTIONS.LEADS).doc(id);
   const snap = await ref.get();
   if (!snap.exists) throw new Error(`Lead '${id}' not found.`);
   const lead = snap.data() as Record<string, unknown>;
   const now = new Date().toISOString();
-  const change = { fromStage: lead.stage, toStage: stage, changedAt: now, changedBy: "mcp-agent", reason: args.reason };
+  const change: Record<string, unknown> = { fromStage: lead.stage, toStage: stage, changedAt: now, changedBy: "mcp-agent" };
+  if (typeof args.reason === "string" && args.reason.trim()) change.reason = args.reason.trim();
   await ref.set({
     stage, stageEnteredAt: now,
     stageHistory: admin.firestore.FieldValue.arrayUnion(change),
@@ -8502,22 +8269,6 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
     case "get_films_alerts":               return handleGetFilmsAlerts();
     case "get_films_procurement_forecast": return handleGetFilmsProcurementForecast(args);
 
-    // Gmail
-    case "gmail_connect":       return handleGmailConnect();
-    case "gmail_status":        return handleGmailStatus(args);
-    case "gmail_get_profile":   return handleGmailGetProfile(args);
-    case "gmail_search":        return handleGmailSearch(args);
-    case "gmail_read_message":  return handleGmailReadMessage(args);
-    case "gmail_read_thread":   return handleGmailReadThread(args);
-    case "gmail_send":          return handleGmailSend(args);
-    case "gmail_create_draft":  return handleGmailCreateDraft(args);
-    case "gmail_list_drafts":   return handleGmailListDrafts(args);
-    case "gmail_send_draft":    return handleGmailSendDraft(args);
-    case "gmail_list_labels":   return handleGmailListLabels(args);
-    case "gmail_modify_labels": return handleGmailModifyLabels(args);
-    case "gmail_trash":         return handleGmailTrash(args);
-    case "agent_email_audit":   return handleAgentEmailAudit(args);
-
     default:
       throw new Error(`Unknown tool: ${name}`);
   }
@@ -9369,7 +9120,6 @@ Director — ASI Australia`;
     });
   }
 
-  // If apeaxEmail provided, try to create Gmail draft
   let draftId: string | undefined;
   const apeaxEmail = typeof args.apeaxEmail === "string" ? args.apeaxEmail : "";
 
@@ -9380,7 +9130,7 @@ Director — ASI Australia`;
     emailBody,
     emailTo: apeaxEmail || "(APEAX warranty email — provide to send)",
     draftId,
-    instructions: "Review the email content above. If correct, send it to APEAX via Gmail. Once they confirm, use confirm_warranty_registration to record their reference number.",
+    instructions: "Review the email content above. If correct, send it to APEAX via M365. Once they confirm, use confirm_warranty_registration to record their reference number.",
   };
 }
 
@@ -9755,7 +9505,7 @@ Director — ASI Australia`;
     emailSubject: subject,
     emailBody,
     emailTo: typeof args.apeaxEmail === "string" ? args.apeaxEmail : "(APEAX claims email — provide to send)",
-    instructions: "Review the claim email above. Send via Gmail to APEAX. When they respond, use update_warranty_claim to record their decision.",
+    instructions: "Review the claim email above. Send via M365 to APEAX. When they respond, use update_warranty_claim to record their decision.",
   };
 }
 
@@ -10102,204 +9852,6 @@ async function handleGetFilmsProcurementForecast(args: Record<string, unknown>) 
       return `ℹ️ ${material}: ${data.needed} needed — no matching stock item found in inventory`;
     }),
   };
-}
-
-// ─── Gmail handlers ─────────────────────────────────────────────────────────
-
-async function handleGmailConnect() {
-  const { randomBytes } = await import("crypto");
-  const state = randomBytes(16).toString("hex");
-  const url = buildGmailAuthUrl(state);
-  return { authUrl: url, instructions: "Open this URL in a browser to authorize Gmail access for Joshua's personal account. Agent mailboxes (accountmanager, development, research, resources) use service account delegation and do NOT need OAuth." };
-}
-
-function getFromAccount(args: Record<string, unknown>): string {
-  const v = args.from_account;
-  return typeof v === "string" && v.trim() ? v.trim() : "default";
-}
-
-function getAgentIdentity(args: Record<string, unknown>): string | undefined {
-  const v = args.agent_identity;
-  return typeof v === "string" && v.trim() ? v.trim() : undefined;
-}
-
-async function handleGmailStatus(args: Record<string, unknown>) {
-  const fromAccount = getFromAccount(args);
-  try {
-    const profile = await gmailGetProfileForAccount(fromAccount) as { emailAddress?: string; messagesTotal?: number; threadsTotal?: number };
-    return { connected: true, fromAccount, email: profile.emailAddress, messagesTotal: profile.messagesTotal, threadsTotal: profile.threadsTotal };
-  } catch (err) {
-    const errorMsg = err instanceof Error ? err.message : "Not connected";
-    // Distinguish three failure classes so agents can act on the result
-    // without the operator hand-decoding the Google error JSON:
-    //   - tokenExchangeFailed: JWT-to-access-token call rejected (DWD/scope/SA-key issue)
-    //   - apiCallFailed: token issued but Gmail API rejected the user (impersonated user not provisioned, suspended, or DWD propagation lag)
-    //   - unknown: anything else (network, code bug)
-    let failureClass: "tokenExchangeFailed" | "apiCallFailed" | "unknown" = "unknown";
-    let remediation = "";
-    if (errorMsg.includes("Service account token exchange failed")) {
-      failureClass = "tokenExchangeFailed";
-      remediation =
-        "Check Workspace Admin → Security → API controls → Domain-wide Delegation: confirm the service account Client ID has the gmail scopes authorised. Also verify GOOGLE_SERVICE_ACCOUNT_B64 in Netlify env vars hasn't drifted.";
-    } else if (errorMsg.includes("UNAUTHENTICATED") || errorMsg.includes("Invalid Credentials") || errorMsg.includes("authError")) {
-      failureClass = "apiCallFailed";
-      remediation =
-        "Service-account JWT exchange succeeded, but Gmail rejected the impersonation. Most likely causes: (1) the impersonated user account was recently created/recreated and DWD hasn't propagated (wait up to 24h, typically 5-15min), (2) Gmail service is OFF for that user's OU in Workspace Admin → Apps → Google Workspace → Gmail → Service status, (3) the user is suspended. The other agent mailboxes working confirms the service-account credentials and DWD scopes are intact.";
-    }
-    return {
-      connected: false,
-      fromAccount,
-      error: errorMsg,
-      failureClass,
-      remediation: remediation || undefined,
-    };
-  }
-}
-
-async function handleGmailGetProfile(args: Record<string, unknown>) {
-  return gmailGetProfileForAccount(getFromAccount(args));
-}
-
-async function handleGmailSearch(args: Record<string, unknown>) {
-  const fromAccount = getFromAccount(args);
-  const query = String(args.query || "");
-  const maxResults = Math.min(Number(args.max_results) || 20, 100);
-  const pageToken = args.page_token ? String(args.page_token) : undefined;
-
-  const list = await gmailListMessagesForAccount(fromAccount, { query, maxResults, pageToken });
-  const messages = (list.messages || []) as { id: string; threadId: string }[];
-
-  const results = await Promise.all(
-    messages.slice(0, maxResults).map(async (m) => {
-      try {
-        return await gmailGetMessageForAccount(fromAccount, m.id, "metadata");
-      } catch {
-        return { id: m.id, threadId: m.threadId, error: "Failed to fetch" };
-      }
-    })
-  );
-
-  return {
-    fromAccount,
-    messages: results,
-    count: results.length,
-    nextPageToken: list.nextPageToken || null,
-    resultSizeEstimate: list.resultSizeEstimate,
-  };
-}
-
-async function handleGmailReadMessage(args: Record<string, unknown>) {
-  return gmailGetMessageForAccount(getFromAccount(args), String(args.message_id));
-}
-
-async function handleGmailReadThread(args: Record<string, unknown>) {
-  return gmailGetThreadForAccount(getFromAccount(args), String(args.thread_id));
-}
-
-/**
- * Normalise the attachments param into the shape gmail.ts expects.
- * Accepts items with either `brochure` (server-resident alias) or `path`
- * (absolute path). Drops anything malformed silently — the gmail-side
- * resolver does the real validation (alias map + path allowlist + size
- * caps + file read).
- */
-function normaliseAttachments(raw: unknown): Array<{ path?: string; brochure?: string; filename?: string; contentType?: string }> | undefined {
-  if (!Array.isArray(raw) || raw.length === 0) return undefined;
-  const out: Array<{ path?: string; brochure?: string; filename?: string; contentType?: string }> = [];
-  for (const item of raw) {
-    if (!item || typeof item !== "object") continue;
-    const a = item as Record<string, unknown>;
-    const hasBrochure = typeof a.brochure === "string" && a.brochure.trim();
-    const hasPath = typeof a.path === "string" && a.path.trim();
-    // Item must carry one of the two — drop entries that have neither so a
-    // typo doesn't silently send an empty attachments array.
-    if (!hasBrochure && !hasPath) continue;
-    out.push({
-      ...(hasBrochure ? { brochure: (a.brochure as string).trim() } : {}),
-      ...(hasPath ? { path: (a.path as string).trim() } : {}),
-      ...(typeof a.filename === "string" && a.filename.trim() ? { filename: a.filename.trim() } : {}),
-      ...(typeof a.contentType === "string" && a.contentType.trim() ? { contentType: a.contentType.trim() } : {}),
-    });
-  }
-  return out.length > 0 ? out : undefined;
-}
-
-async function handleGmailSend(args: Record<string, unknown>) {
-  return gmailSendMessageForAccount(getFromAccount(args), {
-    to: String(args.to),
-    subject: String(args.subject),
-    body: String(args.body),
-    cc: args.cc ? String(args.cc) : undefined,
-    bcc: args.bcc ? String(args.bcc) : undefined,
-    replyTo: args.reply_to ? String(args.reply_to) : undefined,
-    inReplyTo: args.in_reply_to ? String(args.in_reply_to) : undefined,
-    threadId: args.thread_id ? String(args.thread_id) : undefined,
-    agentIdentity: getAgentIdentity(args),
-    attachments: normaliseAttachments(args.attachments),
-  });
-}
-
-async function handleGmailCreateDraft(args: Record<string, unknown>) {
-  return gmailCreateDraftForAccount(getFromAccount(args), {
-    to: String(args.to),
-    subject: String(args.subject),
-    body: String(args.body),
-    cc: args.cc ? String(args.cc) : undefined,
-    bcc: args.bcc ? String(args.bcc) : undefined,
-    agentIdentity: getAgentIdentity(args),
-    attachments: normaliseAttachments(args.attachments),
-  });
-}
-
-async function handleGmailListDrafts(args: Record<string, unknown>) {
-  return gmailListDraftsForAccount(getFromAccount(args), Number(args.max_results) || 10);
-}
-
-async function handleGmailSendDraft(args: Record<string, unknown>) {
-  return gmailSendDraftForAccount(
-    getFromAccount(args),
-    String(args.draft_id),
-    getAgentIdentity(args),
-  );
-}
-
-async function handleGmailListLabels(args: Record<string, unknown>) {
-  return gmailListLabelsForAccount(getFromAccount(args));
-}
-
-async function handleGmailModifyLabels(args: Record<string, unknown>) {
-  return gmailModifyLabelsForAccount(
-    getFromAccount(args),
-    String(args.message_id),
-    (args.add_labels as string[]) || [],
-    (args.remove_labels as string[]) || [],
-    getAgentIdentity(args),
-  );
-}
-
-async function handleGmailTrash(args: Record<string, unknown>) {
-  return gmailTrashMessageForAccount(
-    getFromAccount(args),
-    String(args.message_id),
-    getAgentIdentity(args),
-  );
-}
-
-async function handleAgentEmailAudit(args: Record<string, unknown>) {
-  const db = admin.firestore();
-  let q: admin.firestore.Query = db.collection(COLLECTIONS.AGENT_EMAIL_AUDIT)
-    .orderBy("createdAt", "desc");
-
-  if (typeof args.accountKey === "string") q = q.where("accountKey", "==", args.accountKey);
-  if (typeof args.agentIdentity === "string") q = q.where("agentIdentity", "==", args.agentIdentity);
-  if (typeof args.action === "string") q = q.where("action", "==", args.action);
-  if (typeof args.success === "boolean") q = q.where("success", "==", args.success);
-
-  const limit = typeof args.limit === "number" ? Math.min(Math.max(1, args.limit), 500) : 50;
-  q = q.limit(limit);
-
-  const snap = await q.get();
-  return snap.docs.map((d) => serializeDoc(d.id, d.data()));
 }
 
 // ─── JSON-RPC helpers ─────────────────────────────────────────────────────────
