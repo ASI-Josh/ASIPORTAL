@@ -6,7 +6,7 @@ import Link from "next/link";
 import {
   ChevronLeft, Building2, Globe, Linkedin, Phone, Mail,
   TrendingUp, Send, Lightbulb, FileText, PlusCircle,
-  Calendar, CheckCircle2, AlertCircle,
+  Calendar, CheckCircle2, AlertCircle, Pencil, UserPlus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -23,7 +23,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
-import type { Lead, PipelineStage, OutreachEvent, OutreachEventType } from "@/lib/types";
+import type { Lead, LeadSector, PipelineStage, OutreachEvent, OutreachEventType } from "@/lib/types";
 
 const STAGE_CONFIG: Partial<Record<PipelineStage, { label: string; color: string; bg: string }>> = {
   identified:    { label: "Identified",    color: "text-zinc-400",    bg: "bg-zinc-500/15" },
@@ -75,6 +75,264 @@ const BANT_FIELDS: { key: keyof Lead["bantBreakdown"]; label: string; max: numbe
 function formatCurrency(n?: number) {
   if (!n) return "Not set";
   return new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(n);
+}
+
+const LEAD_SECTORS: { value: LeadSector; label: string }[] = [
+  { value: "mass-transit", label: "Mass Transit" },
+  { value: "manufacturing", label: "Manufacturing" },
+  { value: "wholesale-trade", label: "Wholesale Trade" },
+  { value: "structural", label: "Structural" },
+  { value: "marine", label: "Marine" },
+  { value: "passenger_trade", label: "Passenger / Trade" },
+  { value: "dealership", label: "Dealership" },
+  { value: "panel_beater", label: "Panel Beater / Body Shop" },
+  { value: "trade_workshop", label: "Trade Workshop" },
+  { value: "detailing", label: "Auto Detailing" },
+  { value: "other", label: "Other" },
+];
+
+// ─── Edit Lead Modal ──────────────────────────────────────────────────────────
+
+function EditLeadModal({ lead, open, onClose, onSaved, getToken }: {
+  lead: Lead; open: boolean; onClose: () => void;
+  onSaved: (updated: Lead) => void; getToken: () => Promise<string>;
+}) {
+  const { toast } = useToast();
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({
+    companyName: lead.companyName,
+    companyWebsite: lead.companyWebsite || "",
+    companyLinkedIn: lead.companyLinkedIn || "",
+    sector: lead.sector as string,
+    estimatedValue: lead.estimatedValue?.toString() || "",
+    nextAction: lead.nextAction || "",
+    nextActionDate: lead.nextActionDate || "",
+    outreachSequence: lead.outreachSequence || "",
+    notes: lead.notes || "",
+    bantBudget: lead.bantBreakdown.budget.toString(),
+    bantAuthority: lead.bantBreakdown.authority.toString(),
+    bantNeed: lead.bantBreakdown.need.toString(),
+    bantTiming: lead.bantBreakdown.timing.toString(),
+    bantFit: lead.bantBreakdown.fit.toString(),
+  });
+  const set = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }));
+
+  const handleSubmit = async () => {
+    if (!form.companyName.trim()) return;
+    setSaving(true);
+    try {
+      const bantBreakdown = {
+        budget: parseInt(form.bantBudget) || 0,
+        authority: parseInt(form.bantAuthority) || 0,
+        need: parseInt(form.bantNeed) || 0,
+        timing: parseInt(form.bantTiming) || 0,
+        fit: parseInt(form.bantFit) || 0,
+      };
+      const token = await getToken();
+      const res = await fetch(`/api/leads/${lead.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          companyName: form.companyName,
+          companyWebsite: form.companyWebsite || null,
+          companyLinkedIn: form.companyLinkedIn || null,
+          sector: form.sector,
+          estimatedValue: form.estimatedValue ? parseFloat(form.estimatedValue) : null,
+          nextAction: form.nextAction || null,
+          nextActionDate: form.nextActionDate || null,
+          outreachSequence: form.outreachSequence || null,
+          notes: form.notes,
+          bantBreakdown,
+        }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error);
+      const updated = await res.json();
+      toast({ title: "Lead updated" });
+      onSaved(updated as Lead);
+      onClose();
+    } catch (e) {
+      toast({ title: "Error", description: e instanceof Error ? e.message : "Failed", variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogHeader><DialogTitle>Edit Lead</DialogTitle></DialogHeader>
+        <div className="space-y-4 pt-2">
+          <div className="space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Company</p>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="col-span-2 space-y-1">
+                <Label>Organisation Name *</Label>
+                <Input value={form.companyName} onChange={(e) => set("companyName", e.target.value)} />
+              </div>
+              <div className="space-y-1">
+                <Label>Sector</Label>
+                <Select value={form.sector} onValueChange={(v) => set("sector", v)}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>{LEAD_SECTORS.map((s) => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <Label>Est. Value (AUD)</Label>
+                <Input type="number" value={form.estimatedValue} onChange={(e) => set("estimatedValue", e.target.value)} placeholder="0" />
+              </div>
+              <div className="space-y-1">
+                <Label>Website</Label>
+                <Input value={form.companyWebsite} onChange={(e) => set("companyWebsite", e.target.value)} placeholder="https://..." />
+              </div>
+              <div className="space-y-1">
+                <Label>LinkedIn</Label>
+                <Input value={form.companyLinkedIn} onChange={(e) => set("companyLinkedIn", e.target.value)} placeholder="https://linkedin.com/..." />
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Next Action</p>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="col-span-2 space-y-1">
+                <Label>Action</Label>
+                <Input value={form.nextAction} onChange={(e) => set("nextAction", e.target.value)} placeholder="e.g. Follow-up call" />
+              </div>
+              <div className="space-y-1">
+                <Label>Date</Label>
+                <Input type="date" value={form.nextActionDate} onChange={(e) => set("nextActionDate", e.target.value)} />
+              </div>
+              <div className="space-y-1">
+                <Label>Outreach Sequence</Label>
+                <Select value={form.outreachSequence || "none"} onValueChange={(v) => set("outreachSequence", v === "none" ? "" : v)}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">None</SelectItem>
+                    <SelectItem value="A">Sequence A</SelectItem>
+                    <SelectItem value="B">Sequence B</SelectItem>
+                    <SelectItem value="C">Sequence C</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">BANT Scoring</p>
+            <div className="grid grid-cols-5 gap-1 text-center">
+              {[
+                { key: "bantBudget", label: "Budget", max: 20 },
+                { key: "bantAuthority", label: "Authority", max: 20 },
+                { key: "bantNeed", label: "Need", max: 25 },
+                { key: "bantTiming", label: "Timing", max: 20 },
+                { key: "bantFit", label: "Fit", max: 15 },
+              ].map(({ key, label, max }) => (
+                <div key={key} className="space-y-1">
+                  <p className="text-[10px] text-muted-foreground">{label} /{max}</p>
+                  <Input
+                    type="number" min={0} max={max}
+                    value={form[key as keyof typeof form]}
+                    onChange={(e) => set(key, e.target.value)}
+                    className="text-center px-1"
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <Label>Notes</Label>
+            <Textarea rows={4} value={form.notes} onChange={(e) => set("notes", e.target.value)} placeholder="Context, pain points, call notes..." />
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="outline" onClick={onClose}>Cancel</Button>
+            <Button onClick={handleSubmit} disabled={saving || !form.companyName.trim()}>
+              {saving ? "Saving…" : "Save Changes"}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── Add Contact Modal ────────────────────────────────────────────────────────
+
+function AddContactModal({ lead, open, onClose, onSaved, getToken }: {
+  lead: Lead; open: boolean; onClose: () => void;
+  onSaved: (updated: Lead) => void; getToken: () => Promise<string>;
+}) {
+  const { toast } = useToast();
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({ name: "", title: "", email: "", phone: "", linkedInUrl: "" });
+  const set = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }));
+
+  const handleSubmit = async () => {
+    if (!form.name.trim()) return;
+    setSaving(true);
+    try {
+      const newContact = {
+        id: crypto.randomUUID(), name: form.name,
+        title: form.title || undefined, email: form.email || undefined,
+        phone: form.phone || undefined, linkedInUrl: form.linkedInUrl || undefined,
+        isPrimary: lead.contacts.length === 0,
+      };
+      const token = await getToken();
+      const res = await fetch(`/api/leads/${lead.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ contacts: [...lead.contacts, newContact] }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error);
+      const updated = await res.json();
+      toast({ title: "Contact added" });
+      onSaved(updated as Lead);
+      onClose();
+    } catch (e) {
+      toast({ title: "Error", description: e instanceof Error ? e.message : "Failed", variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader><DialogTitle>Add Contact</DialogTitle></DialogHeader>
+        <div className="space-y-3 pt-2">
+          <div className="space-y-1">
+            <Label>Name *</Label>
+            <Input value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="Full name" />
+          </div>
+          <div className="space-y-1">
+            <Label>Title / Role</Label>
+            <Input value={form.title} onChange={(e) => set("title", e.target.value)} placeholder="e.g. Fleet Manager" />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1">
+              <Label>Email</Label>
+              <Input type="email" value={form.email} onChange={(e) => set("email", e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <Label>Phone</Label>
+              <Input value={form.phone} onChange={(e) => set("phone", e.target.value)} />
+            </div>
+          </div>
+          <div className="space-y-1">
+            <Label>LinkedIn URL</Label>
+            <Input value={form.linkedInUrl} onChange={(e) => set("linkedInUrl", e.target.value)} placeholder="https://linkedin.com/in/..." />
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="outline" onClick={onClose}>Cancel</Button>
+            <Button onClick={handleSubmit} disabled={saving || !form.name.trim()}>
+              {saving ? "Adding…" : "Add Contact"}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 // ─── Log Outreach Modal ───────────────────────────────────────────────────────
@@ -172,6 +430,8 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
   const [lead, setLead] = useState<Lead | null>(null);
   const [loading, setLoading] = useState(true);
   const [logOpen, setLogOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [addContactOpen, setAddContactOpen] = useState(false);
   const [savingStage, setSavingStage] = useState(false);
 
   const getToken = async () => {
@@ -260,6 +520,9 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
+            <Pencil className="h-3.5 w-3.5 mr-1.5" /> Edit Lead
+          </Button>
           <Select onValueChange={handleStageChange} disabled={savingStage}>
             <SelectTrigger className="w-44 bg-card/50 border-border/30">
               <SelectValue placeholder="Change stage…" />
@@ -308,32 +571,45 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
               </CardContent>
             </Card>
 
-            {/* Primary contact */}
+            {/* Contacts */}
             <Card className="bg-card/50 border-border/20">
-              <CardHeader className="pb-3"><CardTitle className="text-sm flex items-center gap-2"><Mail className="h-4 w-4 text-blue-400" />Primary Contact</CardTitle></CardHeader>
-              <CardContent className="space-y-2 text-sm">
-                {primaryContact ? (
-                  <>
-                    <p className="font-medium">{primaryContact.name}</p>
-                    {primaryContact.title && <p className="text-muted-foreground">{primaryContact.title}</p>}
-                    {primaryContact.email && (
-                      <a href={`mailto:${primaryContact.email}`} className="flex items-center gap-1.5 text-muted-foreground hover:text-primary">
-                        <Mail className="h-3.5 w-3.5" />{primaryContact.email}
-                      </a>
-                    )}
-                    {primaryContact.phone && (
-                      <a href={`tel:${primaryContact.phone}`} className="flex items-center gap-1.5 text-muted-foreground hover:text-primary">
-                        <Phone className="h-3.5 w-3.5" />{primaryContact.phone}
-                      </a>
-                    )}
-                    {primaryContact.linkedInUrl && (
-                      <a href={primaryContact.linkedInUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-muted-foreground hover:text-primary">
-                        <Linkedin className="h-3.5 w-3.5" />LinkedIn
-                      </a>
-                    )}
-                  </>
-                ) : (
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm flex items-center justify-between">
+                  <span className="flex items-center gap-2"><Mail className="h-4 w-4 text-blue-400" />Contacts</span>
+                  <Button variant="ghost" size="sm" className="h-6 text-xs px-2" onClick={() => setAddContactOpen(true)}>
+                    <UserPlus className="h-3 w-3 mr-1" /> Add
+                  </Button>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3 text-sm">
+                {lead.contacts.length === 0 ? (
                   <p className="text-muted-foreground">No contacts added.</p>
+                ) : (
+                  lead.contacts.map((contact, idx) => (
+                    <div key={contact.id}>
+                      {idx > 0 && <div className="border-t border-border/30 pt-3" />}
+                      {contact.isPrimary && lead.contacts.length > 1 && (
+                        <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Primary</p>
+                      )}
+                      <p className="font-medium">{contact.name}</p>
+                      {contact.title && <p className="text-muted-foreground">{contact.title}</p>}
+                      {contact.email && (
+                        <a href={`mailto:${contact.email}`} className="flex items-center gap-1.5 text-muted-foreground hover:text-primary">
+                          <Mail className="h-3.5 w-3.5" />{contact.email}
+                        </a>
+                      )}
+                      {contact.phone && (
+                        <a href={`tel:${contact.phone}`} className="flex items-center gap-1.5 text-muted-foreground hover:text-primary">
+                          <Phone className="h-3.5 w-3.5" />{contact.phone}
+                        </a>
+                      )}
+                      {contact.linkedInUrl && (
+                        <a href={contact.linkedInUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-muted-foreground hover:text-primary">
+                          <Linkedin className="h-3.5 w-3.5" />LinkedIn
+                        </a>
+                      )}
+                    </div>
+                  ))
                 )}
               </CardContent>
             </Card>
@@ -492,12 +768,19 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
         {/* ── Notes ── */}
         <TabsContent value="notes" className="mt-4">
           <Card className="bg-card/50 border-border/20">
-            <CardHeader className="pb-3"><CardTitle className="text-sm flex items-center gap-2"><FileText className="h-4 w-4 text-muted-foreground" />Notes</CardTitle></CardHeader>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm flex items-center justify-between">
+                <span className="flex items-center gap-2"><FileText className="h-4 w-4 text-muted-foreground" />Notes</span>
+                <Button variant="ghost" size="sm" className="h-6 text-xs px-2" onClick={() => setEditOpen(true)}>
+                  <Pencil className="h-3 w-3 mr-1" /> Edit
+                </Button>
+              </CardTitle>
+            </CardHeader>
             <CardContent>
               {lead.notes ? (
                 <p className="text-sm text-muted-foreground whitespace-pre-wrap">{lead.notes}</p>
               ) : (
-                <p className="text-sm text-muted-foreground">No notes yet.</p>
+                <p className="text-sm text-muted-foreground italic">No notes yet — click Edit to add them.</p>
               )}
             </CardContent>
           </Card>
@@ -524,6 +807,8 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
       </Tabs>
 
       <LogOutreachModal leadId={id} open={logOpen} onClose={() => setLogOpen(false)} onLogged={fetchLead} getToken={getToken} />
+      <EditLeadModal lead={lead} open={editOpen} onClose={() => setEditOpen(false)} onSaved={(updated) => setLead(updated)} getToken={getToken} />
+      <AddContactModal lead={lead} open={addContactOpen} onClose={() => setAddContactOpen(false)} onSaved={(updated) => setLead(updated)} getToken={getToken} />
     </div>
   );
 }

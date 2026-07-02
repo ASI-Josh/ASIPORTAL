@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useMemo, useRef, lazy, Suspense, type
 import Link from "next/link";
 import {
   PlusCircle, TrendingUp, Users, AlertTriangle, RefreshCw,
-  Flame, Filter, Search, Sparkles, Link2, ArrowRightLeft, Target, Package,
+  Flame, Filter, Search, Sparkles, Link2, ArrowRightLeft, Target, Package, Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -73,7 +73,7 @@ const GRADE_CONFIG: Record<Lead["leadGrade"], { color: string; bg: string }> = {
 
 function activeStages(stream: StreamType): PipelineStage[] {
   if (stream === "sales") {
-    return SALES_STAGES.filter((s) => s !== "won" && s !== "lost" && s !== "nurture");
+    return SALES_STAGES.filter((s) => s !== "lost" && s !== "nurture");
   }
   if (stream === "supply_chain") {
     return SUPPLY_CHAIN_STAGES.filter((s) => s !== "onboarded" && s !== "inactive" && s !== "watchlist");
@@ -83,7 +83,7 @@ function activeStages(stream: StreamType): PipelineStage[] {
 }
 
 function closedStages(stream: StreamType): PipelineStage[] {
-  if (stream === "sales") return ["won", "lost", "nurture"];
+  if (stream === "sales") return ["lost", "nurture"];
   if (stream === "supply_chain") return ["onboarded", "inactive", "watchlist"];
   // trade_distribution: "active" is the long-running success state; paused/terminated are holding/terminal
   return ["active", "paused", "terminated"];
@@ -125,10 +125,11 @@ function daysInStage(enteredAt?: string) {
 
 // ─── Lead card ────────────────────────────────────────────────────────────────
 
-function LeadCard({ lead, stream, onStageChange }: {
+function LeadCard({ lead, stream, onStageChange, onDelete }: {
   lead: Lead;
   stream: StreamType;
   onStageChange: (id: string, stage: PipelineStage) => void;
+  onDelete: (id: string) => void;
 }) {
   const grade = GRADE_CONFIG[lead.leadGrade];
   const days = daysInStage(lead.stageEnteredAt);
@@ -159,9 +160,18 @@ function LeadCard({ lead, stream, onStageChange }: {
         >
           {lead.companyName}
         </Link>
-        <span className={`flex-shrink-0 text-xs font-bold px-1.5 py-0.5 rounded ${grade.bg} ${grade.color}`}>
-          {lead.leadGrade}
-        </span>
+        <div className="flex items-center gap-1 flex-shrink-0">
+          <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${grade.bg} ${grade.color}`}>
+            {lead.leadGrade}
+          </span>
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); e.preventDefault(); onDelete(lead.id); }}
+            className="opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity p-0.5 rounded hover:bg-red-500/20 text-muted-foreground hover:text-red-400"
+          >
+            <Trash2 className="h-3 w-3" />
+          </button>
+        </div>
       </div>
 
       <div className="flex items-center gap-2 mb-2 flex-wrap">
@@ -209,11 +219,12 @@ function LeadCard({ lead, stream, onStageChange }: {
 
 // ─── Column ───────────────────────────────────────────────────────────────────
 
-function KanbanColumn({ stage, stream, leads, onStageChange }: {
+function KanbanColumn({ stage, stream, leads, onStageChange, onDelete }: {
   stage: PipelineStage;
   stream: StreamType;
   leads: Lead[];
   onStageChange: (id: string, stage: PipelineStage) => void;
+  onDelete: (id: string) => void;
 }) {
   const [dragOver, setDragOver] = useState(false);
   const cfg = stageConfig(stage, stream);
@@ -256,7 +267,7 @@ function KanbanColumn({ stage, stream, leads, onStageChange }: {
         }`}
       >
         {leads.map((lead) => (
-          <LeadCard key={lead.id} lead={lead} stream={stream} onStageChange={onStageChange} />
+          <LeadCard key={lead.id} lead={lead} stream={stream} onStageChange={onStageChange} onDelete={onDelete} />
         ))}
         {leads.length === 0 && (
           <p className="text-center text-xs text-muted-foreground py-4">
@@ -281,7 +292,7 @@ function AddLeadModal({ open, onClose, onCreated, getToken, stream }: {
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
     companyName: "", companyWebsite: "", sector: "other" as LeadSector,
-    contactName: "", contactEmail: "", contactPhone: "",
+    contactName: "", contactTitle: "", contactEmail: "", contactPhone: "",
     estimatedValue: "", notes: "", source: "manual",
     nextAction: "", nextActionDate: "",
     bantBudget: "0", bantAuthority: "0", bantNeed: "0", bantTiming: "0", bantFit: "0",
@@ -309,6 +320,7 @@ function AddLeadModal({ open, onClose, onCreated, getToken, stream }: {
       };
       const contacts = [{
         id: crypto.randomUUID(), name: form.contactName.trim(),
+        title: form.contactTitle.trim() || undefined,
         email: form.contactEmail.trim(), phone: form.contactPhone.trim(), isPrimary: true,
       }];
 
@@ -392,7 +404,7 @@ function AddLeadModal({ open, onClose, onCreated, getToken, stream }: {
             <p className="text-sm font-medium mb-2">Primary Contact *</p>
             <div className="grid grid-cols-2 gap-2">
               <Input placeholder="Name *" value={form.contactName} onChange={(e) => set("contactName", e.target.value)} />
-              <Input placeholder="Title/Role" disabled />
+              <Input placeholder="Title/Role" value={form.contactTitle} onChange={(e) => set("contactTitle", e.target.value)} />
               <Input placeholder="Email *" type="email" value={form.contactEmail} onChange={(e) => set("contactEmail", e.target.value)} />
               <Input placeholder="Phone *" value={form.contactPhone} onChange={(e) => set("contactPhone", e.target.value)} />
             </div>
@@ -607,6 +619,22 @@ function PipelineView() {
       });
     }
   };
+
+  const handleDelete = useCallback(async (id: string) => {
+    if (!window.confirm("Remove this lead from the pipeline?")) return;
+    try {
+      const token = await getToken();
+      const res = await fetch(`/api/leads/${id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error((await res.json()).error);
+      setLeads((prev) => prev.filter((l) => l.id !== id));
+      toast({ title: "Lead removed" });
+    } catch {
+      toast({ title: "Failed to remove lead", variant: "destructive" });
+    }
+  }, [getToken, toast]);
 
   // Trade distribution stage groupings — used by the trade pipeline filter.
   const TRADE_GROUP_STAGES: Record<string, string[]> = useMemo(() => ({
@@ -934,6 +962,7 @@ function PipelineView() {
               stream={stream}
               leads={filtered.filter((l) => l.stage === stage)}
               onStageChange={handleStageChange}
+              onDelete={handleDelete}
             />
           ))}
           {showOther && closedStages(stream).map((stage) => (
@@ -943,6 +972,7 @@ function PipelineView() {
               stream={stream}
               leads={filtered.filter((l) => l.stage === stage)}
               onStageChange={handleStageChange}
+              onDelete={handleDelete}
             />
           ))}
         </div>
