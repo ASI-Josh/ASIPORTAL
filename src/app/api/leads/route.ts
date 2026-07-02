@@ -72,8 +72,17 @@ export async function POST(req: NextRequest) {
     const user = userSnap.data() as { name?: string; role?: string } | undefined;
 
     const body = (await req.json()) as Partial<Lead>;
-    if (!body.companyName) {
-      return NextResponse.json({ error: "companyName is required." }, { status: 400 });
+    if (!body.companyName?.trim()) {
+      return NextResponse.json({ error: "Company name is required." }, { status: 400 });
+    }
+    // Mandatory fields beyond company name: contact name, email and phone.
+    // Company website is NOT required anywhere — it's optional metadata.
+    const primaryContact = body.contacts?.find((c) => c.isPrimary) ?? body.contacts?.[0];
+    if (!primaryContact?.name?.trim() || !primaryContact?.email?.trim() || !primaryContact?.phone?.trim()) {
+      return NextResponse.json(
+        { error: "Contact name, email and phone number are required." },
+        { status: 400 }
+      );
     }
 
     const now = admin.firestore.FieldValue.serverTimestamp();
@@ -81,7 +90,10 @@ export async function POST(req: NextRequest) {
     const bantScore = body.bantScore ?? Object.values(bantBreakdown).reduce((a, b) => a + b, 0);
     const leadNumber = await nextLeadNumber();
 
-    const payload: Omit<Lead, "id"> = {
+    // Optional fields are written as null (never undefined) because the
+    // Firestore Admin SDK rejects documents containing undefined values.
+    type LeadWrite = { [K in keyof Omit<Lead, "id">]: Omit<Lead, "id">[K] | null };
+    const payload: LeadWrite = {
       leadNumber,
       streamType: body.streamType || "sales",
       companyName: body.companyName,
@@ -118,7 +130,8 @@ export async function POST(req: NextRequest) {
       createdAt: now as unknown as import("firebase/firestore").Timestamp,
       updatedAt: now as unknown as import("firebase/firestore").Timestamp,
       createdBy: userId,
-      createdByName: user?.name,
+      // Firestore Admin rejects undefined values — default to empty string.
+      createdByName: user?.name ?? "",
       isDeleted: false,
     };
 

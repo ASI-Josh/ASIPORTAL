@@ -198,15 +198,30 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
     setSavingStage(true);
     try {
       const token = await getToken();
-      await fetch(`/api/leads/${id}/stage`, {
+      const res = await fetch(`/api/leads/${id}/stage`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ stage }),
       });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Failed to update stage");
       setLead((l) => l ? { ...l, stage } : l);
-      toast({ title: `Stage updated to ${STAGE_CONFIG[stage]?.label || stage}` });
-    } catch {
-      toast({ title: "Failed", variant: "destructive" });
+      if (data.contactSync?.bookingNumber) {
+        toast({
+          title: `Stage updated to ${STAGE_CONFIG[stage]?.label || stage}`,
+          description: data.contactSync.isNewCustomer
+            ? `New customer added to Contacts and booking ${data.contactSync.bookingNumber} created.`
+            : `Existing customer — booking ${data.contactSync.bookingNumber} created.`,
+        });
+      } else {
+        toast({ title: `Stage updated to ${STAGE_CONFIG[stage]?.label || stage}` });
+      }
+    } catch (e) {
+      toast({
+        title: "Failed to update stage",
+        description: e instanceof Error ? e.message : undefined,
+        variant: "destructive",
+      });
     } finally {
       setSavingStage(false);
     }

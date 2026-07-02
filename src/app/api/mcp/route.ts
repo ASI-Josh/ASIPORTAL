@@ -19,6 +19,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { admin } from "@/lib/firebaseAdmin";
 import { COLLECTIONS } from "@/lib/collections";
+import { isClosedDealStage, runClosedLeadAutomation } from "@/lib/server/leadConversion";
+import type { Lead as CrmLead } from "@/lib/types";
 // Only the Xero helpers still used by non-Xero main-MCP tools.
 // The full Xero tool surface now lives in src/lib/server/xero-mcp-tools.ts
 // and is exposed via /api/xero-mcp as a separate MCP connector.
@@ -4101,7 +4103,23 @@ async function handleUpdateLeadStage(args: Record<string, unknown>) {
     stageHistory: admin.firestore.FieldValue.arrayUnion(change),
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
   }, { merge: true });
-  return { ok: true, leadId: id, stage };
+
+  // Closed-deal automation: same path as the portal UI stage route.
+  // New customers/suppliers get an organisation + point of contact in
+  // the Contacts module and a pending booking in the scheduling chain.
+  let closedDealSync: Record<string, unknown> | null = null;
+  if (isClosedDealStage((lead as { streamType?: CrmLead["streamType"] }).streamType, stage)) {
+    try {
+      closedDealSync = { ...(await runClosedLeadAutomation(db, id, { ...(lead as unknown as CrmLead), stage: stage as CrmLead["stage"] }, "mcp-agent")) };
+    } catch (syncError) {
+      const message = syncError instanceof Error ? syncError.message : "Closed-deal automation failed.";
+      await ref.set({
+        contactSync: { status: "failed", error: message, failedAt: admin.firestore.FieldValue.serverTimestamp() },
+      }, { merge: true });
+      closedDealSync = { status: "failed", error: message };
+    }
+  }
+  return { ok: true, leadId: id, stage, ...(closedDealSync ? { closedDealSync } : {}) };
 }
 
 /**

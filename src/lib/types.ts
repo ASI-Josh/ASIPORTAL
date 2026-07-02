@@ -334,6 +334,8 @@ export interface Booking {
   status: "pending" | "confirmed" | "converted_to_job" | "cancelled";
   convertedJobId?: string;
   calendarEventId?: string;
+  /** Set when the booking was auto-created from a closed CRM deal. */
+  sourceLeadId?: string;
   createdAt: Timestamp;
   createdBy: string;
   updatedAt: Timestamp;
@@ -1335,6 +1337,22 @@ export interface Lead {
   agentActionLog?: AgentActionLogEntry[];
   escalationReason?: string;
   humanReviewRequired?: boolean;
+
+  // Closed-deal automation results (written by the stage route / MCP when
+  // the lead reaches its stream's closed-won stage)
+  contactSync?: {
+    status: "pending" | "synced" | "failed" | "skipped";
+    organizationId?: string;
+    contactId?: string | null;
+    isNewCustomer?: boolean;
+    error?: string | null;
+    reason?: string;
+  };
+  bookingSync?: {
+    status: "created";
+    bookingId: string | null;
+    bookingNumber: string | null;
+  };
 
   // Meta
   createdAt: Timestamp;

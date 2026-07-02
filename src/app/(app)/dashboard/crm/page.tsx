@@ -280,7 +280,7 @@ function AddLeadModal({ open, onClose, onCreated, getToken, stream }: {
   const { toast } = useToast();
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
-    companyName: "", sector: "other" as LeadSector,
+    companyName: "", companyWebsite: "", sector: "other" as LeadSector,
     contactName: "", contactEmail: "", contactPhone: "",
     estimatedValue: "", notes: "", source: "manual",
     nextAction: "", nextActionDate: "",
@@ -289,8 +289,15 @@ function AddLeadModal({ open, onClose, onCreated, getToken, stream }: {
 
   const set = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }));
 
+  // Mandatory fields: company name, contact name, email, phone.
+  const formValid =
+    form.companyName.trim().length > 0 &&
+    form.contactName.trim().length > 0 &&
+    form.contactEmail.trim().length > 0 &&
+    form.contactPhone.trim().length > 0;
+
   const handleSubmit = async () => {
-    if (!form.companyName.trim()) return;
+    if (!formValid) return;
     setSaving(true);
     try {
       const bantBreakdown = {
@@ -300,17 +307,18 @@ function AddLeadModal({ open, onClose, onCreated, getToken, stream }: {
         timing: parseInt(form.bantTiming) || 0,
         fit: parseInt(form.bantFit) || 0,
       };
-      const contacts = form.contactName ? [{
-        id: crypto.randomUUID(), name: form.contactName,
-        email: form.contactEmail, phone: form.contactPhone, isPrimary: true,
-      }] : [];
+      const contacts = [{
+        id: crypto.randomUUID(), name: form.contactName.trim(),
+        email: form.contactEmail.trim(), phone: form.contactPhone.trim(), isPrimary: true,
+      }];
 
       const token = await getToken();
       const res = await fetch("/api/leads", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({
-          companyName: form.companyName, sector: form.sector,
+          companyName: form.companyName.trim(), sector: form.sector,
+          companyWebsite: form.companyWebsite.trim() || undefined,
           streamType: stream,
           contacts, bantBreakdown,
           estimatedValue: form.estimatedValue ? parseFloat(form.estimatedValue) : undefined,
@@ -348,6 +356,10 @@ function AddLeadModal({ open, onClose, onCreated, getToken, stream }: {
               <Label>Organisation Name *</Label>
               <Input value={form.companyName} onChange={(e) => set("companyName", e.target.value)} placeholder="e.g. McKenzie's Tourist Services" />
             </div>
+            <div className="col-span-2 space-y-1">
+              <Label>Company Website <span className="text-muted-foreground font-normal">(optional)</span></Label>
+              <Input value={form.companyWebsite} onChange={(e) => set("companyWebsite", e.target.value)} placeholder="https://example.com.au" />
+            </div>
             <div className="space-y-1">
               <Label>Sector</Label>
               <Select value={form.sector} onValueChange={(v) => set("sector", v)}>
@@ -377,12 +389,12 @@ function AddLeadModal({ open, onClose, onCreated, getToken, stream }: {
           </div>
 
           <div>
-            <p className="text-sm font-medium mb-2">Primary Contact</p>
+            <p className="text-sm font-medium mb-2">Primary Contact *</p>
             <div className="grid grid-cols-2 gap-2">
-              <Input placeholder="Name" value={form.contactName} onChange={(e) => set("contactName", e.target.value)} />
+              <Input placeholder="Name *" value={form.contactName} onChange={(e) => set("contactName", e.target.value)} />
               <Input placeholder="Title/Role" disabled />
-              <Input placeholder="Email" value={form.contactEmail} onChange={(e) => set("contactEmail", e.target.value)} />
-              <Input placeholder="Phone" value={form.contactPhone} onChange={(e) => set("contactPhone", e.target.value)} />
+              <Input placeholder="Email *" type="email" value={form.contactEmail} onChange={(e) => set("contactEmail", e.target.value)} />
+              <Input placeholder="Phone *" value={form.contactPhone} onChange={(e) => set("contactPhone", e.target.value)} />
             </div>
           </div>
 
@@ -421,7 +433,7 @@ function AddLeadModal({ open, onClose, onCreated, getToken, stream }: {
 
           <div className="flex justify-end gap-2 pt-2">
             <Button variant="outline" onClick={onClose}>Cancel</Button>
-            <Button onClick={handleSubmit} disabled={saving || !form.companyName.trim()}>
+            <Button onClick={handleSubmit} disabled={saving || !formValid}>
               {saving ? "Creating…" : "Create Lead"}
             </Button>
           </div>
@@ -569,15 +581,30 @@ function PipelineView() {
   const handleStageChange = async (id: string, stage: PipelineStage) => {
     try {
       const token = await getToken();
-      await fetch(`/api/leads/${id}/stage`, {
+      const res = await fetch(`/api/leads/${id}/stage`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ stage }),
       });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Failed to update stage");
       setLeads((prev) => prev.map((l) => l.id === id ? { ...l, stage, stageEnteredAt: new Date().toISOString() } : l));
-      toast({ title: `Moved to ${stageConfig(stage, stream).label}` });
-    } catch {
-      toast({ title: "Failed to update stage", variant: "destructive" });
+      if (data.contactSync?.bookingNumber) {
+        toast({
+          title: `Moved to ${stageConfig(stage, stream).label}`,
+          description: data.contactSync.isNewCustomer
+            ? `New customer added to Contacts and booking ${data.contactSync.bookingNumber} created.`
+            : `Existing customer — booking ${data.contactSync.bookingNumber} created.`,
+        });
+      } else {
+        toast({ title: `Moved to ${stageConfig(stage, stream).label}` });
+      }
+    } catch (e) {
+      toast({
+        title: "Failed to update stage",
+        description: e instanceof Error ? e.message : undefined,
+        variant: "destructive",
+      });
     }
   };
 
