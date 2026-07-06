@@ -64,9 +64,6 @@ export const COLLECTIONS = {
   // Leads Register & Email Templates
   LEADS_REGISTER: "leadsRegister",
   EMAIL_TEMPLATES: "emailTemplates",
-  // Agent email audit trail (every email sent/received by an agent mailbox)
-  AGENT_EMAIL_AUDIT: "agentEmailAudit",
-  GMAIL_TOKENS: "gmailTokens",
   // Secure server-side credentials (service account keys, API secrets)
   // kept out of env vars to avoid AWS Lambda 4KB ceiling.
   SECURE_CREDENTIALS: "secureCredentials",
@@ -82,50 +79,3 @@ export const COLLECTIONS = {
   CUTTING_MATERIAL_PROFILES: "cuttingMaterialProfiles",
   CUTTING_COUNTERS: "cuttingCounters",
 } as const;
-
-/**
- * Agent mailbox registry. Maps an agent identifier to:
- *   - the real Gmail address they send from
- *   - the human display name used in the From: header
- *   - the list of agents authorised to use this mailbox
- *
- * All mailboxes use service account domain-wide delegation — no per-
- * mailbox OAuth required. The service account impersonates the address
- * at call time.
- *
- * To add a new mailbox: add a new entry here, grant the address in your
- * Google Workspace admin console, and ensure the GOOGLE_SERVICE_ACCOUNT_B64
- * service account has domain-wide delegation enabled for gmail scopes.
- */
-export const AGENT_MAILBOXES = {
-  accountmanager: {
-    address: "accountmanager@asi-australia.com.au",
-    displayName: "James Ledger",
-    authorisedAgents: ["LEDGER"],
-    description: "LEDGER — Accounts Manager / CFO correspondence",
-  },
-  development: {
-    address: "development@asi-australia.com.au",
-    displayName: "ASI Development",
-    authorisedAgents: ["SENTINEL", "MERCER", "VANGUARD", "SHIELD"],
-    description: "Sales — HV/Bus/Coach (David Sentinel), Sales — Passenger/Trade (Emily Mercer), innovation/supply chain (Peter Vanguard), legal/compliance (Angela Shield) correspondence",
-  },
-  research: {
-    address: "research@asi-australia.com.au",
-    displayName: "Sophie Archer",
-    authorisedAgents: ["ARCHER"],
-    description: "ARCHER — R&D, grants, innovation projects, technical research correspondence (Sophie Archer)",
-  },
-  resources: {
-    address: "resources@asi-australia.com.au",
-    displayName: "Vesta Hearth",
-    authorisedAgents: ["VESTA"],
-    description: "Human & AI Resources — onboarding, training, inductions, requals (Vesta Hearth)",
-  },
-} as const;
-
-export type AgentMailboxKey = keyof typeof AGENT_MAILBOXES;
-
-export function isAgentMailbox(key: string): key is AgentMailboxKey {
-  return key in AGENT_MAILBOXES;
-}
