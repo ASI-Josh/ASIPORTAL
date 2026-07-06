@@ -1155,6 +1155,200 @@ const TOOLS: McpTool[] = [
       },
     },
   },
+  // ─── Sales execution tools (David Sentinel) ───────────────────────────────
+  {
+    name: "crm_get_overdue_followups",
+    description: "List sales-stream leads whose nextActionDate has passed and are not yet closed (won/lost/nurture). One record per lead — company, primary contact, stage, and value — ready to drive a recovery run.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        marketSegment: { type: "string", enum: ["heavy_vehicle", "light_vehicle", "trade"], description: "Filter to a sales sub-segment. Omit for all sales leads." },
+        limit: { type: "number", description: "Max leads to return (default 100, max 200)." },
+      },
+    },
+  },
+  {
+    name: "crm_get_active_pipeline",
+    description: "List all active (non-terminal) sales-stream opportunities — every lead not in won/lost/nurture. Use crm_get_overdue_followups instead when you specifically need the overdue subset.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        marketSegment: { type: "string", enum: ["heavy_vehicle", "light_vehicle", "trade"] },
+        limit: { type: "number", description: "Max leads to return (default 100, max 200)." },
+      },
+    },
+  },
+  {
+    name: "crm_get_lead",
+    description: "Get the full record for a single CRM lead by id — same shape as get_leads, one document.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Lead Firestore document ID." },
+      },
+      required: ["id"],
+    },
+  },
+  {
+    name: "crm_search_leads",
+    description: "Free-text search sales-stream leads by company name, contact name, contact email, or tag. Case-insensitive substring match. For structured filters (stage/grade/sector) use get_leads instead.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        company: { type: "string", description: "Match against companyName (substring, case-insensitive)." },
+        contact: { type: "string", description: "Match against any contact's name (substring, case-insensitive)." },
+        email: { type: "string", description: "Match against any contact's email (substring, case-insensitive)." },
+        tag: { type: "string", description: "Match a tag exactly." },
+        limit: { type: "number", description: "Max leads to return (default 50, max 200)." },
+      },
+    },
+  },
+  {
+    name: "crm_close_lead",
+    description: "Close a sales-stream lead as won or lost. Won triggers the same automation as the portal UI: creates (or reuses) the client organisation and primary contact in the Contacts module, and opens a pending booking in the scheduling chain — no separate client-creation step is needed. Lost just records the reason and moves the lead to the lost stage.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Lead Firestore document ID." },
+        won: { type: "boolean", description: "true = won (runs client/booking automation), false = lost." },
+        reason: { type: "string", description: "Why the deal was won or lost." },
+      },
+      required: ["id", "won"],
+    },
+  },
+  {
+    name: "crm_log_activity",
+    description: "Log a sales activity against a lead — same underlying record as log_outreach_event, with the fuller activity-type vocabulary (call, quote, note, in addition to email/meeting/etc).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Lead Firestore document ID." },
+        type: {
+          type: "string",
+          enum: ["email", "call", "meeting", "quote", "note", "linkedin_connect", "linkedin_message", "proposal", "follow_up"],
+          description: "Activity type.",
+        },
+        date: { type: "string", description: "Date of the activity (ISO format, e.g. 2026-07-06)." },
+        subject: { type: "string", description: "Subject line or topic." },
+        summary: { type: "string", description: "What was sent/discussed/done." },
+        response: { type: "string", description: "Their response, if any." },
+        nextStep: { type: "string", description: "The agreed or planned next step." },
+      },
+      required: ["id", "type", "date", "summary"],
+    },
+  },
+  {
+    name: "crm_bulk_followup_queue",
+    description: "Build a ranked follow-up backlog across all active sales leads: overdue, in proposal, and in negotiation, ordered so the highest-value overdue deals surface first. Use this to drive a bulk recovery run instead of paging through get_leads manually.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        marketSegment: { type: "string", enum: ["heavy_vehicle", "light_vehicle", "trade"] },
+      },
+    },
+  },
+  {
+    name: "sales_pipeline_truth",
+    description: "Single-source-of-truth sales dashboard: active opportunities, overdue follow-ups, proposals, negotiations, quotes awaiting approval, forecast candidates (A/B grade, no recent activity), and stale opportunities (no activity in 21+ days).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        marketSegment: { type: "string", enum: ["heavy_vehicle", "light_vehicle", "trade"] },
+      },
+    },
+  },
+  {
+    name: "sales_get_capability_pack",
+    description: "Fetch ASI's approved sales collateral PDF ready to attach to an outreach email (base64 content, matching sales_send_email's attachments shape). Note: there is no versioned/approved-status tracking system behind these yet — this serves whatever is currently live in the brochures folder.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pack: { type: "string", enum: ["LV", "HV", "APEAX"], description: "LV = light vehicle pre-delivery pack, HV = heavy vehicle PDI/fleet support pack, APEAX = full APEAX product catalogue." },
+      },
+      required: ["pack"],
+    },
+  },
+  {
+    name: "contacts_search_client",
+    description: "Search existing Contacts-module organisations (clients/suppliers) and their people by name, domain, or email. Read-only — new clients are created automatically by crm_close_lead(won=true); this is for checking whether one already exists before manual outreach.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Match against organisation name, domain, contact name, or contact email (case-insensitive substring)." },
+        limit: { type: "number", description: "Max organisations to return (default 20, max 100)." },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "quotes_get_open",
+    description: "List quotes not yet approved or rejected (status draft or sent).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: { type: "number", description: "Max quotes to return (default 50, max 200)." },
+      },
+    },
+  },
+  {
+    name: "quotes_get_by_client",
+    description: "List all quotes for a Contacts-module organisation (clientId).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        clientId: { type: "string", description: "Contacts-module organisation id." },
+      },
+      required: ["clientId"],
+    },
+  },
+  {
+    name: "quotes_get_by_lead",
+    description: "List quotes linked to a CRM lead — resolved via the lead's existingOrganizationId, since quotes are stored against a client organisation, not a lead directly. Returns nothing until the lead has been linked to (or closed into) an organisation.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        leadId: { type: "string", description: "Lead Firestore document ID." },
+      },
+      required: ["leadId"],
+    },
+  },
+  {
+    name: "sales_create_task",
+    description: "Create a personal follow-up task, optionally linked to a lead.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        title: { type: "string" },
+        dueDate: { type: "string", description: "ISO date (YYYY-MM-DD)." },
+        leadId: { type: "string", description: "Optional linked lead id." },
+        notes: { type: "string" },
+        owner: { type: "string", description: "Agent/user identifier. Default: mcp-agent." },
+      },
+      required: ["title", "dueDate"],
+    },
+  },
+  {
+    name: "sales_complete_task",
+    description: "Mark a sales task complete.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Task Firestore document ID." },
+      },
+      required: ["id"],
+    },
+  },
+  {
+    name: "sales_get_my_tasks",
+    description: "List open (not completed) sales tasks, most overdue first.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        owner: { type: "string", description: "Filter to one owner. Omit for all." },
+        limit: { type: "number", description: "Max tasks to return (default 50, max 200)." },
+      },
+    },
+  },
   // ─── Email Template tools ─────────────────────────────────────────────────
   {
     name: "create_email_template",
@@ -6064,6 +6258,322 @@ async function handleContactLookup(args: Record<string, unknown>) {
   return { found: matches.length > 0, matches };
 }
 
+// ─── Sales execution handlers (David Sentinel) ───────────────────────────────
+
+const SALES_TERMINAL_STAGES = new Set(["won", "lost", "nurture"]);
+const SALES_MARKET_SEGMENT_OWNER: Record<string, string> = {
+  heavy_vehicle: "SENTINEL", light_vehicle: "MERCER", trade: "MERCER",
+};
+
+function leadPrimaryContact(lead: Record<string, unknown>): Record<string, unknown> | null {
+  const contacts = (lead.contacts || []) as Array<Record<string, unknown>>;
+  return contacts.find((c) => c.isPrimary) ?? contacts[0] ?? null;
+}
+
+function leadMarketSegment(lead: Record<string, unknown>): string {
+  return typeof lead.marketSegment === "string" ? lead.marketSegment : "heavy_vehicle";
+}
+
+async function fetchSalesLeads(marketSegment?: string): Promise<Array<Record<string, unknown>>> {
+  const db = admin.firestore();
+  const snap = await db.collection(COLLECTIONS.LEADS).limit(1000).get();
+  return snap.docs
+    .map((d) => serializeDoc(d.id, d.data()))
+    .filter((l) => !l.isDeleted && String(l.streamType || "sales") === "sales")
+    .filter((l) => !marketSegment || leadMarketSegment(l) === marketSegment);
+}
+
+function summariseLeadForFollowup(lead: Record<string, unknown>) {
+  const contact = leadPrimaryContact(lead);
+  const outreachStatus = lead.outreachStatus as Record<string, unknown> | undefined;
+  return {
+    leadId: lead.id,
+    company: lead.companyName ?? null,
+    contact: contact?.name ?? null,
+    email: contact?.email ?? null,
+    phone: contact?.phone ?? null,
+    stage: lead.stage ?? null,
+    owner: SALES_MARKET_SEGMENT_OWNER[leadMarketSegment(lead)] ?? "SENTINEL",
+    lastActivity: outreachStatus?.lastContactDate ?? null,
+    nextActionDate: lead.nextActionDate ?? null,
+    value: Number(lead.estimatedValue) || 0,
+  };
+}
+
+const byValueDesc = (a: Record<string, unknown>, b: Record<string, unknown>) =>
+  (Number(b.estimatedValue) || 0) - (Number(a.estimatedValue) || 0);
+
+async function handleCrmGetOverdueFollowups(args: Record<string, unknown>) {
+  const marketSegment = typeof args.marketSegment === "string" ? args.marketSegment : undefined;
+  const limit = safeLimit(args.limit, 100, 200);
+  const today = new Date().toISOString().split("T")[0];
+  const leads = await fetchSalesLeads(marketSegment);
+  const overdue = leads.filter(
+    (l) => typeof l.nextActionDate === "string" && l.nextActionDate < today && !SALES_TERMINAL_STAGES.has(String(l.stage))
+  );
+  return overdue.sort(byValueDesc).slice(0, limit).map(summariseLeadForFollowup);
+}
+
+async function handleCrmGetActivePipeline(args: Record<string, unknown>) {
+  const marketSegment = typeof args.marketSegment === "string" ? args.marketSegment : undefined;
+  const limit = safeLimit(args.limit, 100, 200);
+  const leads = await fetchSalesLeads(marketSegment);
+  return leads.filter((l) => !SALES_TERMINAL_STAGES.has(String(l.stage))).slice(0, limit);
+}
+
+async function handleCrmGetLead(args: Record<string, unknown>) {
+  const id = String(args.id || "");
+  if (!id) throw new Error("id is required.");
+  const db = admin.firestore();
+  const snap = await db.collection(COLLECTIONS.LEADS).doc(id).get();
+  if (!snap.exists) throw new Error(`Lead '${id}' not found.`);
+  return serializeDoc(snap.id, snap.data()!);
+}
+
+async function handleCrmSearchLeads(args: Record<string, unknown>) {
+  const company = typeof args.company === "string" ? args.company.toLowerCase().trim() : "";
+  const contact = typeof args.contact === "string" ? args.contact.toLowerCase().trim() : "";
+  const email = typeof args.email === "string" ? args.email.toLowerCase().trim() : "";
+  const tag = typeof args.tag === "string" ? args.tag.trim() : "";
+  if (!company && !contact && !email && !tag) {
+    throw new Error("At least one of company, contact, email, or tag is required.");
+  }
+  const limit = safeLimit(args.limit, 50, 200);
+  const leads = await fetchSalesLeads();
+  const matches = leads.filter((l) => {
+    if (company && !String(l.companyName || "").toLowerCase().includes(company)) return false;
+    const contacts = (l.contacts || []) as Array<Record<string, unknown>>;
+    if (contact && !contacts.some((c) => String(c.name || "").toLowerCase().includes(contact))) return false;
+    if (email && !contacts.some((c) => String(c.email || "").toLowerCase().includes(email))) return false;
+    if (tag && !((l.tags as string[]) || []).includes(tag)) return false;
+    return true;
+  });
+  return matches.slice(0, limit);
+}
+
+async function handleCrmCloseLead(args: Record<string, unknown>) {
+  const id = String(args.id || "");
+  if (!id) throw new Error("id is required.");
+  if (typeof args.won !== "boolean") throw new Error("won (boolean) is required.");
+  // Reuse the exact same stage-transition + closed-deal automation path as
+  // the portal UI and update_lead_stage — crm_close_lead is a sales-shaped
+  // name for the same operation, not a second code path, so a won deal
+  // still gets its Contacts-module org/contact and pending booking created.
+  return handleUpdateLeadStage({
+    id,
+    stage: args.won ? "won" : "lost",
+    reason: typeof args.reason === "string" ? args.reason : undefined,
+  });
+}
+
+const CRM_ACTIVITY_TYPES = new Set([
+  "email", "call", "meeting", "quote", "note", "linkedin_connect", "linkedin_message", "proposal", "follow_up",
+]);
+
+async function handleCrmLogActivity(args: Record<string, unknown>) {
+  const type = String(args.type || "");
+  if (!CRM_ACTIVITY_TYPES.has(type)) {
+    throw new Error(`type must be one of: ${[...CRM_ACTIVITY_TYPES].join(", ")}.`);
+  }
+  // Same record as log_outreach_event (outreachHistory) — crm_log_activity
+  // just accepts the fuller activity vocabulary (call, quote, note).
+  return handleLogOutreachEvent(args);
+}
+
+async function handleCrmBulkFollowupQueue(args: Record<string, unknown>) {
+  const marketSegment = typeof args.marketSegment === "string" ? args.marketSegment : undefined;
+  const today = new Date().toISOString().split("T")[0];
+  const leads = await fetchSalesLeads(marketSegment);
+  const active = leads.filter((l) => !SALES_TERMINAL_STAGES.has(String(l.stage)));
+  const overdue = active.filter((l) => typeof l.nextActionDate === "string" && l.nextActionDate < today);
+  const proposal = active.filter((l) => l.stage === "proposal");
+  const negotiation = active.filter((l) => l.stage === "negotiation");
+
+  const rankedIds = new Set<string>();
+  const ranked = [...overdue, ...proposal, ...negotiation]
+    .filter((l) => (rankedIds.has(String(l.id)) ? false : (rankedIds.add(String(l.id)), true)))
+    .sort(byValueDesc)
+    .map(summariseLeadForFollowup);
+
+  return {
+    ranked,
+    overdue: overdue.sort(byValueDesc).map(summariseLeadForFollowup),
+    proposalFollowups: proposal.sort(byValueDesc).map(summariseLeadForFollowup),
+    negotiationFollowups: negotiation.sort(byValueDesc).map(summariseLeadForFollowup),
+  };
+}
+
+async function handleSalesPipelineTruth(args: Record<string, unknown>) {
+  const marketSegment = typeof args.marketSegment === "string" ? args.marketSegment : undefined;
+  const today = new Date().toISOString().split("T")[0];
+  const staleCutoff = new Date(Date.now() - 21 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+  const leads = await fetchSalesLeads(marketSegment);
+  const active = leads.filter((l) => !SALES_TERMINAL_STAGES.has(String(l.stage)));
+  const overdue = active.filter((l) => typeof l.nextActionDate === "string" && l.nextActionDate < today);
+  const proposals = active.filter((l) => l.stage === "proposal");
+  const negotiations = active.filter((l) => l.stage === "negotiation");
+  const forecastCandidates = active.filter((l) => ["A", "B"].includes(String(l.leadGrade)));
+  const stale = active.filter((l) => {
+    const last = (l.outreachStatus as Record<string, unknown> | undefined)?.lastContactDate;
+    return typeof last === "string" ? last < staleCutoff : true;
+  });
+
+  const db = admin.firestore();
+  let quotesAwaitingApproval = 0;
+  try {
+    quotesAwaitingApproval = (await db.collection(COLLECTIONS.QUOTES).where("status", "==", "sent").limit(200).get()).size;
+  } catch {
+    // Quotes module has no documents/index yet — treat as empty rather than fail the whole dashboard.
+  }
+  let clientsAwaitingBookings = 0;
+  try {
+    clientsAwaitingBookings = (await db.collection(COLLECTIONS.BOOKINGS).where("status", "==", "pending").limit(200).get()).size;
+  } catch {
+    // As above.
+  }
+
+  return {
+    activeOpportunities: active.length,
+    overdueFollowups: overdue.length,
+    proposals: proposals.length,
+    negotiations: negotiations.length,
+    quotesAwaitingApproval,
+    forecastCandidates: forecastCandidates.length,
+    staleOpportunities: stale.length,
+    clientsAwaitingBookings,
+  };
+}
+
+const CAPABILITY_PACKS: Record<string, { file: string; label: string }> = {
+  LV: { file: "asi-pre-delivery-passenger-lv.pdf", label: "Light Vehicle Pre-Delivery Pack" },
+  HV: { file: "asi-hv-pdi-fleet-support.pdf", label: "Heavy Vehicle PDI & Fleet Support Pack" },
+  APEAX: { file: "asi-apeax-catalogue-2026.pdf", label: "APEAX Product Catalogue" },
+};
+
+async function handleSalesGetCapabilityPack(args: Record<string, unknown>) {
+  const pack = String(args.pack || "");
+  const entry = CAPABILITY_PACKS[pack];
+  if (!entry) throw new Error(`pack must be one of: ${Object.keys(CAPABILITY_PACKS).join(", ")}.`);
+  const res = await fetch(`https://asiportal.live/brochures/${entry.file}`);
+  if (!res.ok) throw new Error(`Could not fetch ${entry.file} (HTTP ${res.status}). It may have moved — check public/brochures.`);
+  const buf = Buffer.from(await res.arrayBuffer());
+  return { name: entry.file, label: entry.label, contentType: "application/pdf", contentBase64: buf.toString("base64") };
+}
+
+async function handleContactsSearchClient(args: Record<string, unknown>) {
+  const query = typeof args.query === "string" ? args.query.toLowerCase().trim() : "";
+  if (!query) throw new Error("query is required.");
+  const limit = safeLimit(args.limit, 20, 100);
+  const db = admin.firestore();
+  const [orgsSnap, contactsSnap] = await Promise.all([
+    db.collection(COLLECTIONS.CONTACT_ORGANIZATIONS).limit(500).get(),
+    db.collection(COLLECTIONS.ORGANIZATION_CONTACTS).limit(1000).get(),
+  ]);
+  const orgsById = new Map(orgsSnap.docs.map((d) => [d.id, serializeDoc(d.id, d.data())]));
+
+  const matchedOrgIds = new Set<string>();
+  for (const [id, org] of orgsById) {
+    const name = String(org.name || "").toLowerCase();
+    const domains = ((org.domains as string[]) || []).map((d) => d.toLowerCase());
+    if (name.includes(query) || domains.some((d) => d.includes(query))) matchedOrgIds.add(id);
+  }
+
+  const matchedContacts: Array<Record<string, unknown>> = [];
+  for (const d of contactsSnap.docs) {
+    const c = serializeDoc(d.id, d.data());
+    // Two schema generations coexist on this collection: older docs carry
+    // name/organizationName directly, newer ones (written by the
+    // crm_close_lead automation) carry firstName/lastName + organizationId.
+    const displayName = String(c.name || [c.firstName, c.lastName].filter(Boolean).join(" ")).trim();
+    const email = String(c.email || "").toLowerCase();
+    const orgId = typeof c.organizationId === "string" ? c.organizationId : null;
+    const companyName = String(c.organizationName || (orgId ? orgsById.get(orgId)?.name : "") || "");
+    if (displayName.toLowerCase().includes(query) || email.includes(query) || companyName.toLowerCase().includes(query)) {
+      matchedContacts.push({ ...c, displayName, companyName });
+      if (orgId) matchedOrgIds.add(orgId);
+    }
+  }
+
+  const organisations = [...matchedOrgIds].map((id) => orgsById.get(id)).filter(Boolean).slice(0, limit);
+  return { organisations, contacts: matchedContacts.slice(0, limit) };
+}
+
+async function handleQuotesGetOpen(args: Record<string, unknown>) {
+  const limit = safeLimit(args.limit, 50, 200);
+  const db = admin.firestore();
+  const snap = await db.collection(COLLECTIONS.QUOTES).where("status", "in", ["draft", "sent"]).limit(limit).get();
+  return snap.docs.map((d) => serializeDoc(d.id, d.data()));
+}
+
+async function handleQuotesGetByClient(args: Record<string, unknown>) {
+  const clientId = String(args.clientId || "");
+  if (!clientId) throw new Error("clientId is required.");
+  const db = admin.firestore();
+  const snap = await db.collection(COLLECTIONS.QUOTES).where("clientId", "==", clientId).limit(200).get();
+  return snap.docs.map((d) => serializeDoc(d.id, d.data()));
+}
+
+async function handleQuotesGetByLead(args: Record<string, unknown>) {
+  const leadId = String(args.leadId || "");
+  if (!leadId) throw new Error("leadId is required.");
+  const db = admin.firestore();
+  const leadSnap = await db.collection(COLLECTIONS.LEADS).doc(leadId).get();
+  if (!leadSnap.exists) throw new Error(`Lead '${leadId}' not found.`);
+  const organizationId = leadSnap.data()?.existingOrganizationId;
+  if (!organizationId) {
+    return {
+      quotes: [],
+      note: "This lead has no linked organisation yet — quotes are stored against a client, not a lead directly. Close the deal (crm_close_lead) or link an organisation first.",
+    };
+  }
+  const snap = await db.collection(COLLECTIONS.QUOTES).where("clientId", "==", organizationId).limit(200).get();
+  return { quotes: snap.docs.map((d) => serializeDoc(d.id, d.data())) };
+}
+
+async function handleSalesCreateTask(args: Record<string, unknown>) {
+  const title = typeof args.title === "string" ? args.title.trim() : "";
+  const dueDate = typeof args.dueDate === "string" ? args.dueDate.trim() : "";
+  if (!title) throw new Error("title is required.");
+  if (!dueDate) throw new Error("dueDate is required.");
+  const db = admin.firestore();
+  const now = admin.firestore.FieldValue.serverTimestamp();
+  const ref = await db.collection(COLLECTIONS.SALES_TASKS).add({
+    title,
+    dueDate,
+    leadId: typeof args.leadId === "string" ? args.leadId : null,
+    notes: typeof args.notes === "string" ? args.notes : "",
+    owner: typeof args.owner === "string" && args.owner.trim() ? args.owner.trim() : "mcp-agent",
+    completed: false,
+    createdAt: now,
+    updatedAt: now,
+  });
+  return { ok: true, taskId: ref.id };
+}
+
+async function handleSalesCompleteTask(args: Record<string, unknown>) {
+  const id = String(args.id || "");
+  if (!id) throw new Error("id is required.");
+  const db = admin.firestore();
+  const ref = db.collection(COLLECTIONS.SALES_TASKS).doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) throw new Error(`Task '${id}' not found.`);
+  await ref.set({ completed: true, completedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
+  return { ok: true, taskId: id, completed: true };
+}
+
+async function handleSalesGetMyTasks(args: Record<string, unknown>) {
+  const limit = safeLimit(args.limit, 50, 200);
+  const db = admin.firestore();
+  let query: FirebaseFirestore.Query = db.collection(COLLECTIONS.SALES_TASKS).where("completed", "==", false);
+  if (typeof args.owner === "string" && args.owner.trim()) {
+    query = query.where("owner", "==", args.owner.trim());
+  }
+  const snap = await query.limit(limit).get();
+  const tasks = snap.docs.map((d) => serializeDoc(d.id, d.data()));
+  tasks.sort((a, b) => String(a.dueDate || "").localeCompare(String(b.dueDate || "")));
+  return tasks;
+}
+
 // ─── Email Template handlers ────────────────────────────────────────────────
 
 async function handleCreateEmailTemplate(args: Record<string, unknown>) {
@@ -8084,6 +8594,23 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
     case "push_archer_weekly_report":         return handlePushArcherWeeklyReport(args);
     // Contact Lookup
     case "contact_lookup":              return handleContactLookup(args);
+    // Sales execution tools (David Sentinel)
+    case "crm_get_overdue_followups":   return handleCrmGetOverdueFollowups(args);
+    case "crm_get_active_pipeline":     return handleCrmGetActivePipeline(args);
+    case "crm_get_lead":                return handleCrmGetLead(args);
+    case "crm_search_leads":            return handleCrmSearchLeads(args);
+    case "crm_close_lead":              return handleCrmCloseLead(args);
+    case "crm_log_activity":            return handleCrmLogActivity(args);
+    case "crm_bulk_followup_queue":     return handleCrmBulkFollowupQueue(args);
+    case "sales_pipeline_truth":        return handleSalesPipelineTruth(args);
+    case "sales_get_capability_pack":   return handleSalesGetCapabilityPack(args);
+    case "contacts_search_client":      return handleContactsSearchClient(args);
+    case "quotes_get_open":             return handleQuotesGetOpen(args);
+    case "quotes_get_by_client":        return handleQuotesGetByClient(args);
+    case "quotes_get_by_lead":          return handleQuotesGetByLead(args);
+    case "sales_create_task":           return handleSalesCreateTask(args);
+    case "sales_complete_task":         return handleSalesCompleteTask(args);
+    case "sales_get_my_tasks":          return handleSalesGetMyTasks(args);
     // Email Templates
     case "create_email_template":       return handleCreateEmailTemplate(args);
     case "get_email_templates":         return handleGetEmailTemplates(args);
