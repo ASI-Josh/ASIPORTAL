@@ -12,6 +12,7 @@ export const COLLECTIONS = {
   FILM_WARRANTY_INSPECTIONS: "filmWarrantyInspections",
   FILM_WARRANTY_REGISTER: "filmWarrantyRegister",
   QUOTES: "quotes",
+  CAPABILITY_PACKS: "capabilityPacks",
   CALENDAR_EVENTS: "calendarEvents",
   CALENDAR_TOKENS: "calendarTokens",
   WORKS_REGISTER: "worksRegister",

@@ -1259,11 +1259,38 @@ const TOOLS: McpTool[] = [
   },
   {
     name: "sales_get_capability_pack",
-    description: "Fetch ASI's approved sales collateral PDF ready to attach to an outreach email (base64 content, matching sales_send_email's attachments shape). Note: there is no versioned/approved-status tracking system behind these yet — this serves whatever is currently live in the brochures folder.",
+    description: "Fetch ASI's sales collateral PDF ready to attach to an outreach email (base64 content, matching sales_send_email's attachments shape), plus its tracked version and approval status. Refuses to serve a pack that isn't 'approved' — use sales_update_capability_pack to approve a new version first.",
     inputSchema: {
       type: "object",
       properties: {
         pack: { type: "string", enum: ["LV", "HV", "APEAX"], description: "LV = light vehicle pre-delivery pack, HV = heavy vehicle PDI/fleet support pack, APEAX = full APEAX product catalogue." },
+      },
+      required: ["pack"],
+    },
+  },
+  {
+    name: "sales_attach_capability_pack",
+    description: "Attach the correct capability pack to a lead: verifies it's approved, records the attachment (pack + version) on the lead's activity history, and returns the file ready for sales_send_email's attachments array.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        leadId: { type: "string", description: "Lead Firestore document ID." },
+        pack: { type: "string", enum: ["LV", "HV", "APEAX"] },
+      },
+      required: ["leadId", "pack"],
+    },
+  },
+  {
+    name: "sales_update_capability_pack",
+    description: "Record a new version and/or approval status for a capability pack — the version/approval metadata is real tracked data (capabilityPacks collection), not derived from the PDF file itself, so this is how it gets updated when a brochure is revised.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pack: { type: "string", enum: ["LV", "HV", "APEAX"] },
+        fileName: { type: "string", description: "New file name in public/brochures, if the PDF itself was replaced." },
+        version: { type: "number", description: "Explicit version number. Omit to auto-increment from the current version." },
+        approvalStatus: { type: "string", enum: ["draft", "approved", "deprecated"] },
+        approvedBy: { type: "string", description: "Who approved this version. Required when approvalStatus is 'approved'." },
       },
       required: ["pack"],
     },
@@ -1303,13 +1330,54 @@ const TOOLS: McpTool[] = [
   },
   {
     name: "quotes_get_by_lead",
-    description: "List quotes linked to a CRM lead — resolved via the lead's existingOrganizationId, since quotes are stored against a client organisation, not a lead directly. Returns nothing until the lead has been linked to (or closed into) an organisation.",
+    description: "List quotes linked to a CRM lead directly (quotes_create stamps leadId on every quote it writes).",
     inputSchema: {
       type: "object",
       properties: {
         leadId: { type: "string", description: "Lead Firestore document ID." },
       },
       required: ["leadId"],
+    },
+  },
+  {
+    name: "quotes_create",
+    description: "Create a quote — the write path the Quotes module has never had. Pre-sale quotes only need leadId (clientId is filled in automatically if the lead has already converted to a client); quoting an existing client directly can pass clientId instead.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        leadId: { type: "string", description: "Lead to quote against. At least one of leadId/clientId is required." },
+        clientId: { type: "string", description: "Contacts-module organisation id, if quoting an existing client directly." },
+        items: {
+          type: "array",
+          description: "Line items.",
+          items: {
+            type: "object",
+            properties: {
+              type: { type: "string", enum: ["labor", "material"] },
+              description: { type: "string" },
+              quantity: { type: "number" },
+              unitPrice: { type: "number" },
+            },
+            required: ["description", "quantity", "unitPrice"],
+          },
+        },
+        validDays: { type: "number", description: "Days until the quote expires. Default 30." },
+        notes: { type: "string" },
+      },
+      required: ["items"],
+    },
+  },
+  {
+    name: "quotes_update_status",
+    description: "Move a quote to sent, approved, rejected, or expired. Sending or approving a quote that's linked to a lead also logs a crm_log_activity entry (type 'quote') on that lead automatically.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Quote Firestore document ID." },
+        status: { type: "string", enum: ["sent", "approved", "rejected", "expired"] },
+        reason: { type: "string", description: "Why, especially for rejected." },
+      },
+      required: ["id", "status"],
     },
   },
   {
@@ -6450,14 +6518,145 @@ const CAPABILITY_PACKS: Record<string, { file: string; label: string }> = {
   APEAX: { file: "asi-apeax-catalogue-2026.pdf", label: "APEAX Product Catalogue" },
 };
 
-async function handleSalesGetCapabilityPack(args: Record<string, unknown>) {
-  const pack = String(args.pack || "");
+type CapabilityPackDoc = {
+  packType: string;
+  fileName: string;
+  label: string;
+  version: number;
+  approvalStatus: "draft" | "approved" | "deprecated";
+  approvedBy: string | null;
+  approvedAt: FirebaseFirestore.Timestamp | null;
+  createdAt: FirebaseFirestore.FieldValue;
+  updatedAt: FirebaseFirestore.FieldValue;
+};
+
+/**
+ * Version/approval tracking is real Firestore data, not derived from the PDF
+ * itself — there was previously no record of either at all. First read seeds
+ * the doc as v1/approved, since the three existing brochures are already the
+ * live collateral reps are using; sales_update_capability_pack is the only
+ * way the metadata changes after that.
+ */
+async function getOrSeedCapabilityPackDoc(pack: string): Promise<Record<string, unknown>> {
   const entry = CAPABILITY_PACKS[pack];
   if (!entry) throw new Error(`pack must be one of: ${Object.keys(CAPABILITY_PACKS).join(", ")}.`);
-  const res = await fetch(`https://asiportal.live/brochures/${entry.file}`);
-  if (!res.ok) throw new Error(`Could not fetch ${entry.file} (HTTP ${res.status}). It may have moved — check public/brochures.`);
+  const db = admin.firestore();
+  const ref = db.collection(COLLECTIONS.CAPABILITY_PACKS).doc(pack);
+  const snap = await ref.get();
+  if (snap.exists) return serializeDoc(snap.id, snap.data()!);
+
+  const now = admin.firestore.FieldValue.serverTimestamp();
+  const seed: CapabilityPackDoc = {
+    packType: pack,
+    fileName: entry.file,
+    label: entry.label,
+    version: 1,
+    approvalStatus: "approved",
+    approvedBy: "system-seed (already-live collateral)",
+    approvedAt: admin.firestore.Timestamp.now(),
+    createdAt: now,
+    updatedAt: now,
+  };
+  await ref.set(seed);
+  return serializeDoc(pack, seed as unknown as FirebaseFirestore.DocumentData);
+}
+
+async function handleSalesGetCapabilityPack(args: Record<string, unknown>) {
+  const pack = String(args.pack || "");
+  const meta = await getOrSeedCapabilityPackDoc(pack);
+  if (meta.approvalStatus !== "approved") {
+    throw new Error(
+      `${pack} is currently '${meta.approvalStatus}', not approved — refusing to serve it for outreach. Use sales_update_capability_pack to approve a version first.`
+    );
+  }
+  const fileName = String(meta.fileName);
+  const res = await fetch(`https://asiportal.live/brochures/${fileName}`);
+  if (!res.ok) throw new Error(`Could not fetch ${fileName} (HTTP ${res.status}). It may have moved — check public/brochures.`);
   const buf = Buffer.from(await res.arrayBuffer());
-  return { name: entry.file, label: entry.label, contentType: "application/pdf", contentBase64: buf.toString("base64") };
+  return {
+    name: fileName,
+    label: meta.label,
+    version: meta.version,
+    approvalStatus: meta.approvalStatus,
+    approvedBy: meta.approvedBy,
+    contentType: "application/pdf",
+    contentBase64: buf.toString("base64"),
+  };
+}
+
+async function handleSalesAttachCapabilityPack(args: Record<string, unknown>) {
+  const leadId = String(args.leadId || "");
+  if (!leadId) throw new Error("leadId is required.");
+  const pack = String(args.pack || "");
+
+  const packResult = await handleSalesGetCapabilityPack({ pack }) as {
+    name: string; label: string; version: number; contentType: string; contentBase64: string;
+  };
+
+  const db = admin.firestore();
+  const leadRef = db.collection(COLLECTIONS.LEADS).doc(leadId);
+  const leadSnap = await leadRef.get();
+  if (!leadSnap.exists) throw new Error(`Lead '${leadId}' not found.`);
+
+  const event = {
+    id: crypto.randomUUID(),
+    type: "note",
+    date: new Date().toISOString().split("T")[0],
+    subject: `${pack} capability pack attached`,
+    summary: `Attached ${packResult.label} (${pack} v${packResult.version}, ${packResult.name}).`,
+    loggedBy: "mcp-agent",
+  };
+  await leadRef.set(
+    {
+      outreachHistory: admin.firestore.FieldValue.arrayUnion(event),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    },
+    { merge: true }
+  );
+
+  return {
+    ok: true,
+    leadId,
+    pack,
+    version: packResult.version,
+    attachment: { name: packResult.name, contentType: packResult.contentType, contentBase64: packResult.contentBase64 },
+  };
+}
+
+async function handleSalesUpdateCapabilityPack(args: Record<string, unknown>) {
+  const pack = String(args.pack || "");
+  if (!CAPABILITY_PACKS[pack]) throw new Error(`pack must be one of: ${Object.keys(CAPABILITY_PACKS).join(", ")}.`);
+  const approvalStatus = args.approvalStatus;
+  if (approvalStatus !== undefined && !["draft", "approved", "deprecated"].includes(String(approvalStatus))) {
+    throw new Error("approvalStatus must be one of: draft, approved, deprecated.");
+  }
+  if (approvalStatus === "approved" && !(typeof args.approvedBy === "string" && args.approvedBy.trim())) {
+    throw new Error("approvedBy is required when approving a version.");
+  }
+
+  const current = await getOrSeedCapabilityPackDoc(pack);
+  const patch: Record<string, unknown> = { updatedAt: admin.firestore.FieldValue.serverTimestamp() };
+  if (typeof args.fileName === "string" && args.fileName.trim()) patch.fileName = args.fileName.trim();
+  if (typeof args.version === "number") {
+    patch.version = args.version;
+  } else if (patch.fileName || approvalStatus) {
+    // A revision happened (new file and/or status change) with no explicit
+    // version given — auto-increment rather than silently leaving the old
+    // version number attached to different collateral.
+    patch.version = (Number(current.version) || 1) + 1;
+  }
+  if (approvalStatus) {
+    patch.approvalStatus = approvalStatus;
+    if (approvalStatus === "approved") {
+      patch.approvedBy = String(args.approvedBy).trim();
+      patch.approvedAt = admin.firestore.Timestamp.now();
+    }
+  }
+
+  const db = admin.firestore();
+  await db.collection(COLLECTIONS.CAPABILITY_PACKS).doc(pack).set(patch, { merge: true });
+  const updated = await db.collection(COLLECTIONS.CAPABILITY_PACKS).doc(pack).get();
+  return serializeDoc(updated.id, updated.data()!);
 }
 
 async function handleContactsSearchClient(args: Record<string, unknown>) {
@@ -6517,17 +6716,134 @@ async function handleQuotesGetByLead(args: Record<string, unknown>) {
   const leadId = String(args.leadId || "");
   if (!leadId) throw new Error("leadId is required.");
   const db = admin.firestore();
-  const leadSnap = await db.collection(COLLECTIONS.LEADS).doc(leadId).get();
-  if (!leadSnap.exists) throw new Error(`Lead '${leadId}' not found.`);
-  const organizationId = leadSnap.data()?.existingOrganizationId;
-  if (!organizationId) {
-    return {
-      quotes: [],
-      note: "This lead has no linked organisation yet — quotes are stored against a client, not a lead directly. Close the deal (crm_close_lead) or link an organisation first.",
-    };
-  }
-  const snap = await db.collection(COLLECTIONS.QUOTES).where("clientId", "==", organizationId).limit(200).get();
+  // quotes_create stamps leadId on every quote directly — no need to hop via
+  // existingOrganizationId, which only exists post-conversion and would miss
+  // every quote sent to a still-open prospect.
+  const snap = await db.collection(COLLECTIONS.QUOTES).where("leadId", "==", leadId).limit(200).get();
   return { quotes: snap.docs.map((d) => serializeDoc(d.id, d.data())) };
+}
+
+async function nextQuoteNumber(db: FirebaseFirestore.Firestore): Promise<string> {
+  const year = new Date().getFullYear();
+  const prefix = `QUO-${year}-`;
+  const snap = await db
+    .collection(COLLECTIONS.QUOTES)
+    .where("quoteNumber", ">=", prefix)
+    .where("quoteNumber", "<", `QUO-${year + 1}-`)
+    .orderBy("quoteNumber", "desc")
+    .limit(1)
+    .get();
+  if (snap.empty) return `${prefix}0001`;
+  const last = parseInt(String(snap.docs[0].data().quoteNumber || "").split("-")[2] || "", 10);
+  const next = (Number.isFinite(last) ? last + 1 : 1).toString().padStart(4, "0");
+  return `${prefix}${next}`;
+}
+
+type NewQuoteItemInput = { type?: string; description: string; quantity: number; unitPrice: number };
+
+async function handleQuotesCreate(args: Record<string, unknown>) {
+  const leadId = typeof args.leadId === "string" && args.leadId.trim() ? args.leadId.trim() : null;
+  let clientId = typeof args.clientId === "string" && args.clientId.trim() ? args.clientId.trim() : null;
+  if (!leadId && !clientId) throw new Error("At least one of leadId or clientId is required.");
+
+  const rawItems = args.items;
+  if (!Array.isArray(rawItems) || rawItems.length === 0) throw new Error("items must be a non-empty array.");
+  const items = (rawItems as NewQuoteItemInput[]).map((it) => {
+    if (!it.description || typeof it.quantity !== "number" || typeof it.unitPrice !== "number") {
+      throw new Error("Each item requires description, quantity, and unitPrice.");
+    }
+    const totalPrice = Math.round(it.quantity * it.unitPrice * 100) / 100;
+    return {
+      id: crypto.randomUUID(),
+      type: it.type === "labor" ? "labor" : "material",
+      description: it.description,
+      quantity: it.quantity,
+      unitPrice: it.unitPrice,
+      totalPrice,
+    };
+  });
+
+  const db = admin.firestore();
+
+  // clientId is optional at the type level in practice (pre-sale quotes
+  // predate a won deal), but if the lead has already converted, use its
+  // real organisation instead of leaving the quote orphaned from Contacts.
+  if (!clientId && leadId) {
+    const leadSnap = await db.collection(COLLECTIONS.LEADS).doc(leadId).get();
+    if (!leadSnap.exists) throw new Error(`Lead '${leadId}' not found.`);
+    const existingOrgId = leadSnap.data()?.existingOrganizationId;
+    if (typeof existingOrgId === "string" && existingOrgId) clientId = existingOrgId;
+  }
+
+  const subtotal = Math.round(items.reduce((sum, it) => sum + it.totalPrice, 0) * 100) / 100;
+  const gst = Math.round(subtotal * 0.1 * 100) / 100;
+  const total = Math.round((subtotal + gst) * 100) / 100;
+  const validDays = typeof args.validDays === "number" && args.validDays > 0 ? args.validDays : 30;
+  const validUntil = admin.firestore.Timestamp.fromDate(new Date(Date.now() + validDays * 24 * 60 * 60 * 1000));
+  const now = admin.firestore.FieldValue.serverTimestamp();
+
+  const quoteNumber = await nextQuoteNumber(db);
+  const ref = await db.collection(COLLECTIONS.QUOTES).add({
+    quoteNumber,
+    clientId: clientId || "",
+    leadId,
+    items,
+    subtotal,
+    gst,
+    total,
+    status: "draft",
+    validUntil,
+    notes: typeof args.notes === "string" ? args.notes : "",
+    createdAt: now,
+    createdBy: "mcp-agent",
+    updatedAt: now,
+  });
+
+  const created = await ref.get();
+  return serializeDoc(created.id, created.data()!);
+}
+
+async function handleQuotesUpdateStatus(args: Record<string, unknown>) {
+  const id = String(args.id || "");
+  if (!id) throw new Error("id is required.");
+  const status = String(args.status || "");
+  if (!["sent", "approved", "rejected", "expired"].includes(status)) {
+    throw new Error("status must be one of: sent, approved, rejected, expired.");
+  }
+  const db = admin.firestore();
+  const ref = db.collection(COLLECTIONS.QUOTES).doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) throw new Error(`Quote '${id}' not found.`);
+  const quote = snap.data()!;
+
+  const patch: Record<string, unknown> = { status, updatedAt: admin.firestore.FieldValue.serverTimestamp() };
+  if (status === "approved") patch.approvedAt = admin.firestore.FieldValue.serverTimestamp();
+  if (status === "rejected") {
+    patch.rejectedAt = admin.firestore.FieldValue.serverTimestamp();
+    if (typeof args.reason === "string") patch.notes = [quote.notes, `Rejected: ${args.reason}`].filter(Boolean).join(" — ");
+  }
+  await ref.set(patch, { merge: true });
+
+  // Close the loop back into the CRM activity log the spec asked for
+  // ("track quote-to-booking conversion") — only when this quote actually
+  // has a lead attached (pre-conversion quotes always do; post-conversion
+  // ones created via clientId alone won't).
+  if ((status === "sent" || status === "approved") && typeof quote.leadId === "string" && quote.leadId) {
+    try {
+      await handleCrmLogActivity({
+        id: quote.leadId,
+        type: "quote",
+        date: new Date().toISOString().split("T")[0],
+        summary: `Quote ${quote.quoteNumber} ${status} ($${quote.total}).`,
+      });
+    } catch (err) {
+      // Don't fail the status update itself if the lead was since deleted.
+      console.error("quotes_update_status: failed to log CRM activity", err);
+    }
+  }
+
+  const updated = await ref.get();
+  return serializeDoc(updated.id, updated.data()!);
 }
 
 async function handleSalesCreateTask(args: Record<string, unknown>) {
@@ -8604,10 +8920,14 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
     case "crm_bulk_followup_queue":     return handleCrmBulkFollowupQueue(args);
     case "sales_pipeline_truth":        return handleSalesPipelineTruth(args);
     case "sales_get_capability_pack":   return handleSalesGetCapabilityPack(args);
+    case "sales_attach_capability_pack": return handleSalesAttachCapabilityPack(args);
+    case "sales_update_capability_pack": return handleSalesUpdateCapabilityPack(args);
     case "contacts_search_client":      return handleContactsSearchClient(args);
     case "quotes_get_open":             return handleQuotesGetOpen(args);
     case "quotes_get_by_client":        return handleQuotesGetByClient(args);
     case "quotes_get_by_lead":          return handleQuotesGetByLead(args);
+    case "quotes_create":               return handleQuotesCreate(args);
+    case "quotes_update_status":        return handleQuotesUpdateStatus(args);
     case "sales_create_task":           return handleSalesCreateTask(args);
     case "sales_complete_task":         return handleSalesCompleteTask(args);
     case "sales_get_my_tasks":          return handleSalesGetMyTasks(args);
