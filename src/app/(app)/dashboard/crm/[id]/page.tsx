@@ -6,7 +6,7 @@ import Link from "next/link";
 import {
   ChevronLeft, Building2, Globe, Linkedin, Phone, Mail,
   TrendingUp, Send, Lightbulb, FileText, PlusCircle,
-  Calendar, CheckCircle2, AlertCircle, Pencil, UserPlus,
+  Calendar, CheckCircle2, AlertCircle, Pencil, UserPlus, Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -454,6 +454,8 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
 
   useEffect(() => { if (firebaseUser) fetchLead(); }, [id, firebaseUser]);
 
+  const handleDelete = async () => { if (!window.confirm("Delete this lead?")) return; try { const token = await getToken(); const res = await fetch(`/api/leads/${id}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } }); if (!res.ok) throw new Error(); toast({ title: "Lead removed" }); router.push("/dashboard/crm"); } catch { toast({ title: "Failed to remove lead", variant: "destructive" }); } };
+
   const handleStageChange = async (stage: PipelineStage) => {
     setSavingStage(true);
     try {
@@ -523,6 +525,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
           <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
             <Pencil className="h-3.5 w-3.5 mr-1.5" /> Edit Lead
           </Button>
+          <Button variant="destructive" size="sm" onClick={handleDelete}><Trash2 className="h-3.5 w-3.5 mr-1.5" /> Delete Lead</Button>
           <Select onValueChange={handleStageChange} disabled={savingStage}>
             <SelectTrigger className="w-44 bg-card/50 border-border/30">
               <SelectValue placeholder="Change stage…" />

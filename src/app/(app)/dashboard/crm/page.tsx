@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useMemo, useRef, lazy, Suspense, type
 import Link from "next/link";
 import {
   PlusCircle, TrendingUp, Users, AlertTriangle, RefreshCw,
-  Flame, Filter, Search, Sparkles, Link2, ArrowRightLeft, Target, Package, Trash2,
+  Flame, Filter, Search, Sparkles, Link2, ArrowRightLeft, Target, Package, Trash2, Pencil,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -164,10 +164,11 @@ function LeadCard({ lead, stream, onStageChange, onDelete }: {
           <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${grade.bg} ${grade.color}`}>
             {lead.leadGrade}
           </span>
+          <Link href={`/dashboard/crm/${lead.id}`} className="p-0.5 rounded hover:bg-blue-500/20 text-muted-foreground hover:text-blue-400"><Pencil className="h-3 w-3" /></Link>
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); e.preventDefault(); onDelete(lead.id); }}
-            className="opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity p-0.5 rounded hover:bg-red-500/20 text-muted-foreground hover:text-red-400"
+            className="p-0.5 rounded hover:bg-red-500/20 text-muted-foreground hover:text-red-400"
           >
             <Trash2 className="h-3 w-3" />
           </button>
