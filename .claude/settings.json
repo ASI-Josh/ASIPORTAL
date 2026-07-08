@@ -1,7 +1,28 @@
 {
   "permissions": {
     "allow": [
-      "Bash(curl -s -X POST \"https://asiportal.live/api/mcp?token=ASIPortalMCP2024Secure\" -H \"Content-Type: application/json\" -d '{\"\"\"\"jsonrpc\"\"\"\":\"\"\"\"2.0\"\"\"\",\"\"\"\"id\"\"\"\":1,\"\"\"\"method\"\"\"\":\"\"\"\"tools/list\"\"\"\",\"\"\"\"params\"\"\"\":{}}')"
+      "Bash(curl -s -X POST \"https://asiportal.live/api/mcp?token=ASIPortalMCP2024Secure\" -H \"Content-Type: application/json\" -d '{\"\"\"\"jsonrpc\"\"\"\":\"\"\"\"2.0\"\"\"\",\"\"\"\"id\"\"\"\":1,\"\"\"\"method\"\"\"\":\"\"\"\"tools/list\"\"\"\",\"\"\"\"params\"\"\"\":{}}')",
+      "Bash(cp 'C:/Users/jhyde_zzz3b9b/Documents/Claude/Projects/ASI CENTCOM/APEAX Distribution Portal/prototype/index.html' C:/Users/jhyde_zzz3b9b/apeax-distribution/public/index.html)",
+      "Bash(cp 'C:/Users/jhyde_zzz3b9b/Documents/Claude/Projects/ASI CENTCOM/APEAX Distribution Portal/prototype/passenger.html' C:/Users/jhyde_zzz3b9b/apeax-distribution/public/passenger.html)",
+      "Bash(cp 'C:/Users/jhyde_zzz3b9b/Documents/Claude/Projects/ASI CENTCOM/APEAX Distribution Portal/prototype/heavy.html' C:/Users/jhyde_zzz3b9b/apeax-distribution/public/heavy.html)",
+      "Bash(cp 'C:/Users/jhyde_zzz3b9b/Documents/Claude/Projects/ASI CENTCOM/APEAX Distribution Portal/prototype/optishield-hv.html' C:/Users/jhyde_zzz3b9b/apeax-distribution/public/optishield-hv.html)",
+      "Bash(cp 'C:/Users/jhyde_zzz3b9b/Documents/Claude/Projects/ASI CENTCOM/APEAX Distribution Portal/prototype/quote.html' C:/Users/jhyde_zzz3b9b/apeax-distribution/public/quote.html)",
+      "Bash(cp 'C:/Users/jhyde_zzz3b9b/Documents/Claude/Projects/ASI CENTCOM/APEAX Distribution Portal/repo/netlify.toml' C:/Users/jhyde_zzz3b9b/apeax-distribution/netlify.toml)",
+      "Bash(cp 'C:/Users/jhyde_zzz3b9b/Documents/Claude/Projects/ASI CENTCOM/APEAX Distribution Portal/repo/netlify/functions/health.js' C:/Users/jhyde_zzz3b9b/apeax-distribution/netlify/functions/health.js)",
+      "Bash(cp 'C:/Users/jhyde_zzz3b9b/Documents/Claude/Projects/ASI CENTCOM/APEAX Distribution Portal/repo/netlify/functions/quote-request.js' C:/Users/jhyde_zzz3b9b/apeax-distribution/netlify/functions/quote-request.js)",
+      "Bash(cp 'C:/Users/jhyde_zzz3b9b/Documents/Claude/Projects/ASI CENTCOM/APEAX Distribution Portal/repo/netlify/functions/trade-application.js' C:/Users/jhyde_zzz3b9b/apeax-distribution/netlify/functions/trade-application.js)",
+      "Bash(cp 'C:/Users/jhyde_zzz3b9b/Documents/Claude/Projects/ASI CENTCOM/APEAX Distribution Portal/repo/netlify/functions/trade-login.js' C:/Users/jhyde_zzz3b9b/apeax-distribution/netlify/functions/trade-login.js)",
+      "Bash(cp 'C:/Users/jhyde_zzz3b9b/Documents/Claude/Projects/ASI CENTCOM/APEAX Distribution Portal/00-PROJECT-BRIEF.md' C:/Users/jhyde_zzz3b9b/apeax-distribution/docs/00-PROJECT-BRIEF.md)",
+      "Bash(cp 'C:/Users/jhyde_zzz3b9b/Documents/Claude/Projects/ASI CENTCOM/APEAX Distribution Portal/01-BRAND-SYSTEM.md' C:/Users/jhyde_zzz3b9b/apeax-distribution/docs/01-BRAND-SYSTEM.md)",
+      "Bash(cp 'C:/Users/jhyde_zzz3b9b/Documents/Claude/Projects/ASI CENTCOM/APEAX Distribution Portal/02-SHIELD-AGENT-SOP.md' C:/Users/jhyde_zzz3b9b/apeax-distribution/docs/02-SHIELD-AGENT-SOP.md)",
+      "Bash(cp 'C:/Users/jhyde_zzz3b9b/Documents/Claude/Projects/ASI CENTCOM/APEAX Distribution Portal/03-REPO-SCAFFOLD.md' C:/Users/jhyde_zzz3b9b/apeax-distribution/docs/03-REPO-SCAFFOLD.md)",
+      "Bash(cp 'C:/Users/jhyde_zzz3b9b/Documents/Claude/Projects/ASI CENTCOM/APEAX Distribution Portal/04-ORDER-WORKFLOW.md' C:/Users/jhyde_zzz3b9b/apeax-distribution/docs/04-ORDER-WORKFLOW.md)",
+      "Bash(gh api:*)",
+      "Bash(curl -sS \"https://apeax-distribution.netlify.app/api/health\")"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\jhyde_zzz3b9b\\apeax-distribution\\public",
+      "C:\\Users\\jhyde_zzz3b9b\\apeax-distribution"
     ]
   }
 }

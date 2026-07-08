@@ -1,6 +1,7 @@
 import type {NextConfig} from 'next';
 
 const nextConfig: NextConfig = {
+  outputFileTracingRoot: __dirname,
   eslint: {
     // ESLint 9 + legacy .eslintrc.json produces a circular-reference serialisation
     // error inside `next lint`. TypeScript (npm run typecheck) is used instead.
