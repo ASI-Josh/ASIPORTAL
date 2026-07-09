@@ -4,6 +4,10 @@ import { requireUserId } from "@/lib/server/firebaseAuth";
 import { COLLECTIONS } from "@/lib/collections";
 import type { OutreachEvent } from "@/lib/types";
 
+function stripUndefined(obj: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined));
+}
+
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -19,11 +23,13 @@ export async function POST(
       ...body,
     };
 
+    const sanitisedEvent = stripUndefined(event as unknown as Record<string, unknown>);
+
     const db = admin.firestore();
     const ref = db.collection(COLLECTIONS.LEADS).doc(id);
 
     const updates: Record<string, unknown> = {
-      outreachHistory: admin.firestore.FieldValue.arrayUnion(event),
+      outreachHistory: admin.firestore.FieldValue.arrayUnion(sanitisedEvent),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       "outreachStatus.lastContactDate": event.date,
       "outreachStatus.emailsSent": admin.firestore.FieldValue.increment(
