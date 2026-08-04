@@ -10792,9 +10792,12 @@ export async function GET(req: NextRequest) {
 
   const stream = new ReadableStream({
     start(controller) {
-      // Tell the client to POST messages to this same endpoint
+      // Tell the client to POST messages to this same endpoint. Must keep the
+      // query string — dropping it strips ?token= and every follow-up POST
+      // from an SSE client bounces 401 (bit Raphael's agent_heartbeat in June,
+      // then Sophie's R&D reads in August when the runtime fell back to SSE).
       controller.enqueue(
-        encoder.encode(`event: endpoint\ndata: ${url.pathname}\n\n`)
+        encoder.encode(`event: endpoint\ndata: ${url.pathname}${url.search}\n\n`)
       );
       // Keep-alive comments so the connection doesn't time out immediately.
       // Tracked on the outer scope so cancel() can clear it — otherwise the

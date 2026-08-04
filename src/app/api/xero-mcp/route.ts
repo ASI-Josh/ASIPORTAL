@@ -118,8 +118,10 @@ export async function GET(req: NextRequest) {
 
   const stream = new ReadableStream({
     start(controller) {
+      // Keep the query string — dropping it strips ?token= and every
+      // follow-up POST from an SSE client bounces 401.
       controller.enqueue(
-        encoder.encode(`event: endpoint\ndata: ${url.pathname}\n\n`)
+        encoder.encode(`event: endpoint\ndata: ${url.pathname}${url.search}\n\n`)
       );
       timer = setInterval(() => {
         try {
