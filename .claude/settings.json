@@ -1,7 +1,7 @@
 {
   "permissions": {
     "allow": [
-      "Bash(curl -s -X POST \"https://asiportal.live/api/mcp?token=ASIPortalMCP2024Secure\" -H \"Content-Type: application/json\" -d '{\"\"\"\"jsonrpc\"\"\"\":\"\"\"\"2.0\"\"\"\",\"\"\"\"id\"\"\"\":1,\"\"\"\"method\"\"\"\":\"\"\"\"tools/list\"\"\"\",\"\"\"\"params\"\"\"\":{}}')",
+      "Bash(curl -s -X POST \"https://asiportal.live/api/mcp?token=$MCP_SECRET\" -H \"Content-Type: application/json\" -d '{\"\"\"\"jsonrpc\"\"\"\":\"\"\"\"2.0\"\"\"\",\"\"\"\"id\"\"\"\":1,\"\"\"\"method\"\"\"\":\"\"\"\"tools/list\"\"\"\",\"\"\"\"params\"\"\"\":{}}')",
       "Bash(cp 'C:/Users/jhyde_zzz3b9b/Documents/Claude/Projects/ASI CENTCOM/APEAX Distribution Portal/prototype/index.html' C:/Users/jhyde_zzz3b9b/apeax-distribution/public/index.html)",
       "Bash(cp 'C:/Users/jhyde_zzz3b9b/Documents/Claude/Projects/ASI CENTCOM/APEAX Distribution Portal/prototype/passenger.html' C:/Users/jhyde_zzz3b9b/apeax-distribution/public/passenger.html)",
       "Bash(cp 'C:/Users/jhyde_zzz3b9b/Documents/Claude/Projects/ASI CENTCOM/APEAX Distribution Portal/prototype/heavy.html' C:/Users/jhyde_zzz3b9b/apeax-distribution/public/heavy.html)",
